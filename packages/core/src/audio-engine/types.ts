@@ -32,10 +32,19 @@ export interface AudioEngine {
    */
   decodeFile(ref: FileRef): Promise<DecodedAudio>;
 
-  createSource(audio: DecodedAudio): SourceNode;
+  /**
+   * A SourceNode is one-shot: once stopped it can't be restarted, so pause/
+   * seek/resume are implemented by the caller (see TrackPlayer) stopping the
+   * current source and creating a new one at the desired offset.
+   */
+  createSource(audio: DecodedAudio, onEnded?: () => void): SourceNode;
 
-  /** Schedules playback to start at an engine-clock time (seconds), for sample-accurate overlap. */
-  scheduleStart(source: SourceNode, whenSeconds: number): void;
+  /**
+   * Schedules playback to start at an engine-clock time (seconds), beginning
+   * at offsetSeconds into the decoded buffer - for sample-accurate overlap
+   * and for resuming/seeking mid-track.
+   */
+  scheduleStart(source: SourceNode, whenSeconds: number, offsetSeconds?: number): void;
 
   /** Engine's current transport clock, in seconds. */
   now(): number;

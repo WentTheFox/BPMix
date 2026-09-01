@@ -23,6 +23,16 @@ const config = {
       path.resolve(projectRoot, 'node_modules'),
       path.resolve(workspaceRoot, 'node_modules'),
     ],
+    // react-native-audio-api's main barrel re-exports an optional
+    // Audio/AudioControls convenience UI we never import, but Metro still
+    // has to resolve its imports of react-native-reanimated and
+    // react-native-gesture-handler to bundle the reachable module graph.
+    // Stubbed out rather than installing (and native-rebuilding for) two
+    // real native libraries just to satisfy code this app never runs.
+    extraNodeModules: {
+      'react-native-reanimated': path.resolve(projectRoot, 'metro-stubs/react-native-reanimated.js'),
+      'react-native-gesture-handler': path.resolve(projectRoot, 'metro-stubs/react-native-gesture-handler.js'),
+    },
   },
 };
 

@@ -1,16 +1,46 @@
-import type { GrantedRoot, PlaylistRecord } from '@bpmix/core';
-import { scanRoot } from '@bpmix/core';
-import { useCallback, useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, useColorScheme, View } from 'react-native';
+import type { FileRef, GrantedRoot, PlaylistRecord, TrackPlayerState, TrackRecord } from '@bpmix/core';
+import { scanRoot, TrackPlayer } from '@bpmix/core';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { FlatList, Pressable, StyleSheet, Text, useColorScheme, View } from 'react-native';
+import { createAudioEngine } from './adapters/audioEngine';
 import { createFileAccess } from './adapters/fileAccess';
 import { createLibraryStore } from './adapters/libraryStore';
 
 const fileAccess = createFileAccess();
 const libraryStore = createLibraryStore();
+const audioEngine = createAudioEngine(fileAccess);
+const trackPlayer = new TrackPlayer(audioEngine);
 
-interface RootWithPlaylists {
+interface RootWithLibrary {
   root: GrantedRoot;
   playlists: PlaylistRecord[];
+  tracksById: Map<string, TrackRecord>;
+}
+
+type Screen =
+  | { kind: 'library' }
+  | { kind: 'playlist'; root: GrantedRoot; playlist: PlaylistRecord; tracksById: Map<string, TrackRecord> };
+
+function trackToFileRef(track: TrackRecord): FileRef {
+  return {
+    id: track.fileId,
+    name: track.relativePath.split('/').pop() ?? track.relativePath,
+    relativePath: track.relativePath,
+    sizeBytes: track.sizeBytes,
+    lastModifiedMs: track.lastModifiedMs,
+  };
+}
+
+function trackDisplayName(track: TrackRecord): string {
+  return track.relativePath.split('/').pop() ?? track.relativePath;
+}
+
+function formatSeconds(seconds: number): string {
+  if (!Number.isFinite(seconds)) return '0:00';
+  const total = Math.max(0, Math.round(seconds));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
 const lightColors = {
@@ -24,25 +54,69 @@ const darkColors = {
   text: '#f5f5f5',
   subtleText: '#f5f5f5',
 };
+type Colors = typeof lightColors;
+
+const TrackRow = memo(function TrackRow({
+  track,
+  isCurrent,
+  isPlaying,
+  colors,
+  onPress,
+}: {
+  track: TrackRecord;
+  isCurrent: boolean;
+  isPlaying: boolean;
+  colors: Colors;
+  onPress: (track: TrackRecord) => void;
+}) {
+  return (
+    <Pressable style={styles.trackRow} onPress={() => onPress(track)}>
+      <Text style={[styles.trackName, { color: isCurrent ? '#3b82f6' : colors.text }]} numberOfLines={1}>
+        {isCurrent && isPlaying ? '▶ ' : ''}
+        {trackDisplayName(track)}
+      </Text>
+    </Pressable>
+  );
+});
 
 function App() {
   const isDarkMode = useColorScheme() === 'dark';
   const colors = isDarkMode ? darkColors : lightColors;
-  const [rootsWithPlaylists, setRootsWithPlaylists] = useState<RootWithPlaylists[]>([]);
+  const [rootsWithLibrary, setRootsWithLibrary] = useState<RootWithLibrary[]>([]);
   const [busyRootId, setBusyRootId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [screen, setScreen] = useState<Screen>({ kind: 'library' });
+  const [nowPlayingFileId, setNowPlayingFileId] = useState<string | null>(null);
+  const [nowPlayingName, setNowPlayingName] = useState<string>('');
+  const [playerState, setPlayerState] = useState<TrackPlayerState>({
+    status: 'idle',
+    positionSeconds: 0,
+    durationSeconds: 0,
+  });
+  const loadTokenRef = useRef(0);
 
   const refresh = useCallback(async () => {
     const roots = await fileAccess.listGrantedRoots();
-    const withPlaylists = await Promise.all(
-      roots.map(async (root) => ({ root, playlists: await libraryStore.listPlaylists(root.id) })),
+    const withLibrary = await Promise.all(
+      roots.map(async (root) => {
+        const [playlists, tracks] = await Promise.all([
+          libraryStore.listPlaylists(root.id),
+          libraryStore.listTracks(root.id),
+        ]);
+        return { root, playlists, tracksById: new Map(tracks.map((t) => [t.fileId, t])) };
+      }),
     );
-    setRootsWithPlaylists(withPlaylists);
+    setRootsWithLibrary(withLibrary);
   }, []);
 
   useEffect(() => {
     refresh().catch((err) => setError(String(err)));
   }, [refresh]);
+
+  useEffect(() => {
+    const interval = setInterval(() => setPlayerState(trackPlayer.getState()), 200);
+    return () => clearInterval(interval);
+  }, []);
 
   const addFolder = useCallback(async () => {
     setError(null);
@@ -75,6 +149,110 @@ function App() {
     [refresh],
   );
 
+  const playTrack = useCallback(
+    async (track: TrackRecord) => {
+      setError(null);
+      if (nowPlayingFileId === track.fileId) {
+        trackPlayer.play();
+        setPlayerState(trackPlayer.getState());
+        return;
+      }
+      const token = ++loadTokenRef.current;
+      try {
+        setNowPlayingFileId(track.fileId);
+        setNowPlayingName(trackDisplayName(track));
+        await trackPlayer.load(trackToFileRef(track));
+        if (loadTokenRef.current !== token) return; // a newer play() call superseded this one
+        trackPlayer.play();
+        setPlayerState(trackPlayer.getState());
+      } catch (err) {
+        setError(String(err));
+      }
+    },
+    [nowPlayingFileId],
+  );
+
+  const togglePause = useCallback(() => {
+    if (playerState.status === 'playing') {
+      trackPlayer.pause();
+    } else {
+      trackPlayer.play();
+    }
+    setPlayerState(trackPlayer.getState());
+  }, [playerState.status]);
+
+  const stop = useCallback(() => {
+    trackPlayer.stop();
+    setPlayerState(trackPlayer.getState());
+  }, []);
+
+  const seekBy = useCallback(
+    (deltaSeconds: number) => {
+      trackPlayer.seek(playerState.positionSeconds + deltaSeconds);
+      setPlayerState(trackPlayer.getState());
+    },
+    [playerState.positionSeconds],
+  );
+
+  const nowPlayingBar = nowPlayingFileId && (
+    <View style={styles.nowPlaying}>
+      <Text style={[styles.nowPlayingName, { color: colors.text }]} numberOfLines={1}>
+        {nowPlayingName}
+      </Text>
+      <Text style={[styles.nowPlayingTime, { color: colors.subtleText }]}>
+        {formatSeconds(playerState.positionSeconds)} / {formatSeconds(playerState.durationSeconds)} (
+        {playerState.status})
+      </Text>
+      <View style={styles.transportRow}>
+        <Pressable style={styles.transportButton} onPress={() => seekBy(-10)}>
+          <Text style={styles.transportButtonText}>-10s</Text>
+        </Pressable>
+        <Pressable style={styles.transportButton} onPress={togglePause}>
+          <Text style={styles.transportButtonText}>{playerState.status === 'playing' ? 'Pause' : 'Play'}</Text>
+        </Pressable>
+        <Pressable style={styles.transportButton} onPress={() => seekBy(10)}>
+          <Text style={styles.transportButtonText}>+10s</Text>
+        </Pressable>
+        <Pressable style={styles.transportButton} onPress={stop}>
+          <Text style={styles.transportButtonText}>Stop</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+
+  if (screen.kind === 'playlist') {
+    const { playlist, tracksById } = screen;
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <Pressable onPress={() => setScreen({ kind: 'library' })} style={styles.backRow}>
+          <Text style={[styles.backLink, { color: colors.text }]}>← {playlist.name}</Text>
+        </Pressable>
+        {error && <Text style={styles.error}>{error}</Text>}
+        {nowPlayingBar}
+        <FlatList
+          style={styles.list}
+          data={playlist.trackFileIds}
+          keyExtractor={(fileId, index) => `${fileId}-${index}`}
+          renderItem={({ item: fileId }) => {
+            const track = tracksById.get(fileId);
+            if (!track) return null;
+            return (
+              <TrackRow
+                track={track}
+                isCurrent={nowPlayingFileId === fileId}
+                isPlaying={playerState.status === 'playing'}
+                colors={colors}
+                onPress={playTrack}
+              />
+            );
+          }}
+          initialNumToRender={30}
+          windowSize={7}
+        />
+      </View>
+    );
+  }
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <Text style={[styles.title, { color: colors.text }]}>BPMix</Text>
@@ -82,9 +260,14 @@ function App() {
         <Text style={styles.buttonText}>Add Folder</Text>
       </Pressable>
       {error && <Text style={styles.error}>{error}</Text>}
-      <ScrollView style={styles.list}>
-        {rootsWithPlaylists.map(({ root, playlists }) => (
-          <View key={root.id} style={styles.rootSection}>
+      {nowPlayingBar}
+
+      <FlatList
+        style={styles.list}
+        data={rootsWithLibrary}
+        keyExtractor={({ root }) => root.id}
+        renderItem={({ item: { root, playlists, tracksById } }) => (
+          <View style={styles.rootSection}>
             <View style={styles.rootHeader}>
               <Text style={[styles.rootName, { color: colors.text }]}>{root.displayName}</Text>
               <Pressable onPress={() => rescan(root.id)} disabled={busyRootId === root.id}>
@@ -95,16 +278,20 @@ function App() {
               <Text style={[styles.empty, { color: colors.subtleText }]}>No playlists found yet.</Text>
             )}
             {playlists.map((playlist) => (
-              <View key={playlist.id} style={styles.playlist}>
+              <Pressable
+                key={playlist.id}
+                style={styles.playlist}
+                onPress={() => setScreen({ kind: 'playlist', root, playlist, tracksById })}
+              >
                 <Text style={[styles.playlistName, { color: colors.text }]}>{playlist.name}</Text>
                 <Text style={[styles.trackCount, { color: colors.subtleText }]}>
                   {playlist.trackFileIds.length} track(s)
                 </Text>
-              </View>
+              </Pressable>
             ))}
           </View>
-        ))}
-      </ScrollView>
+        )}
+      />
     </View>
   );
 }
@@ -136,6 +323,49 @@ const styles = StyleSheet.create({
     marginTop: 12,
     maxWidth: 480,
     textAlign: 'center',
+  },
+  backRow: {
+    width: '100%',
+    maxWidth: 480,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  backLink: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  nowPlaying: {
+    marginTop: 16,
+    width: '100%',
+    maxWidth: 480,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+  },
+  nowPlayingName: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  nowPlayingTime: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  transportRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
+  transportButton: {
+    backgroundColor: '#3b82f6',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  transportButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 12,
   },
   list: {
     marginTop: 24,
@@ -172,6 +402,13 @@ const styles = StyleSheet.create({
   trackCount: {
     fontSize: 12,
     opacity: 0.6,
+  },
+  trackRow: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  trackName: {
+    fontSize: 14,
   },
 });
 

@@ -5,7 +5,7 @@ module.exports = {
   // the outer ".pnpm" segment as "not an allowed package" and ignores everything. Treating
   // ".pnpm" itself as an allowed segment lets the pattern keep scanning to the real package name.
   transformIgnorePatterns: [
-    'node_modules/(?!(\\.pnpm|(jest-)?react-native|@react-native(-community)?|react-native-scoped-storage|react-native-sqlite-2)/)',
+    'node_modules/(?!(\\.pnpm|(jest-)?react-native|@react-native(-community)?|react-native-scoped-storage|react-native-sqlite-2|react-native-audio-api)/)',
   ],
   // The preset defaults haste's platform resolution to iOS, which this project doesn't
   // target - without this, imports like './adapters/fileAccess' never resolve to the
