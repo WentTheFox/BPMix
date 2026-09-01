@@ -1,0 +1,13 @@
+{
+  "name": "bpmix",
+  "private": true,
+  "packageManager": "pnpm@11.22.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "android": "pnpm --filter @bpmix/mobile android",
+    "web": "pnpm --filter @bpmix/web dev",
+    "typecheck": "pnpm -r --if-present typecheck"
+  }
+}

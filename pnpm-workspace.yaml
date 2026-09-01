@@ -1,0 +1,12 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+
+allowBuilds:
+  # esbuild's postinstall only selects/downloads its own platform binary.
+  esbuild: true
+
+# Supply-chain safety net: don't let anything install until it's been
+# public for at least 14 days, giving time for malicious/broken releases
+# to be caught and unpublished.
+minimumReleaseAge: 20160

@@ -1,0 +1,24 @@
+{
+  "name": "@bpmix/web",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@bpmix/core": "workspace:*",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native-web": "^0.21.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "react-native": "0.87.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.0.0"
+  }
+}
