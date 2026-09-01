@@ -1,5 +1,11 @@
 {
   "extends": "@react-native/typescript-config",
+  "compilerOptions": {
+    // Teaches tsc the same platform-file resolution Metro already does, so
+    // `import './adapters/fileAccess'` resolves to fileAccess.android.ts
+    // (and, once added, .windows.ts/.macos.ts) instead of erroring.
+    "moduleSuffixes": [".android", ".windows", ".macos", ".native", ""]
+  },
   "include": ["**/*.ts", "**/*.tsx"],
   "exclude": ["**/node_modules", "**/Pods"]
 }

@@ -1,4 +1,4 @@
-package dev.seinopsys.bpmix
+package tf.went.bpmix
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate

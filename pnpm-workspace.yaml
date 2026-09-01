@@ -5,8 +5,15 @@ packages:
 allowBuilds:
   # esbuild's postinstall only selects/downloads its own platform binary.
   esbuild: true
+  # Only pulled in transitively by react-native-sqlite-2's websql dependency
+  # for its Node.js-environment shim; the actual Android app talks to native
+  # SQLite via the RN native module, not this Node addon.
+  sqlite3: true
 
 # Supply-chain safety net: don't let anything install until it's been
 # public for at least 14 days, giving time for malicious/broken releases
 # to be caught and unpublished.
 minimumReleaseAge: 20160
+
+patchedDependencies:
+  react-native-scoped-storage: patches/react-native-scoped-storage.patch

@@ -9,6 +9,7 @@ export interface TrackRecord {
 
 export interface PlaylistRecord {
   id: string;
+  rootId: string;
   fileId: string;
   name: string;
   /** Ordered list of track fileIds, resolved from the m3u8's entries. */

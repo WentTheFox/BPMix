@@ -16,6 +16,7 @@
   "devDependencies": {
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "@types/wicg-file-system-access": "^2023.10.6",
     "@vitejs/plugin-react": "^5.0.0",
     "react-native": "0.87.0",
     "typescript": "^5.9.0",

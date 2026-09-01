@@ -15,9 +15,11 @@ export interface FileRef {
 
 export interface DirectoryEntry {
   type: 'file' | 'directory';
+  name: string;
+  /** Path relative to the granted root; pass to listDirectory/readFile* to descend or read. */
+  relativePath: string;
+  /** Present when type is 'file'. */
   file?: FileRef;
-  /** Present when type is 'directory'; walk it to continue the scan. */
-  directoryHandle?: unknown;
 }
 
 /**
@@ -36,7 +38,7 @@ export interface FileAccess {
   listGrantedRoots(): Promise<GrantedRoot[]>;
   revokeRoot(rootId: string): Promise<void>;
 
-  /** Recursively lists every file/directory under a granted root. */
+  /** Lists one level (immediate children only) of a directory; callers recurse via walkDirectory. */
   listDirectory(rootId: string, relativePath?: string): Promise<DirectoryEntry[]>;
 
   readFileBytes(ref: FileRef): Promise<ArrayBuffer>;

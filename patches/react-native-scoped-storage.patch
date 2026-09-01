@@ -1,0 +1,29 @@
+diff --git a/android/build.gradle b/android/build.gradle
+index 9a59b700caecb2e3d2b81b52c9c4378f73295b84..4b7f3762896b4e2c21657c758e8f9e1cd19f85b0 100644
+--- a/android/build.gradle
++++ b/android/build.gradle
+@@ -2,23 +2,10 @@ def safeExtGet(prop, fallback) {
+     rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+ }
+ 
+-buildscript {
+-  repositories {
+-    jcenter()
+-    google()
+-    maven {
+-      url 'https://maven.google.com'
+-    }
+-  }
+-
+-  dependencies {
+-    classpath 'com.android.tools.build:gradle:3.4.2'
+-  }
+-}
+-
+ apply plugin: 'com.android.library'
+ 
+ android {
++  namespace 'com.ammarahmed.scopedstorage'
+   compileSdkVersion safeExtGet('compileSdkVersion', 28)
+   buildToolsVersion safeExtGet('buildToolsVersion', '28.0.3')
+   defaultConfig {
