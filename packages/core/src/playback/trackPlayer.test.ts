@@ -6,6 +6,15 @@ import { TrackPlayer } from './trackPlayer';
 class FakeAudioEngine implements AudioEngine {
   clock = 0;
   stoppedSourceIds: string[] = [];
+  /**
+   * Some real native audio engines (confirmed: react-native-audio-api on
+   * Android) invoke a source's onEnded callback SYNCHRONOUSLY from within
+   * stop() - unlike the browser, where it's always async. Enable this to
+   * reproduce that in tests.
+   */
+  fireEndedSynchronouslyOnStop = false;
+  /** Simulates the engine synchronously rejecting a start (e.g. native throwing on a non-finite offset). */
+  throwOnScheduleStart = false;
   private nextId = 0;
   private endedCallbacks = new Map<string, () => void>();
 
@@ -24,11 +33,18 @@ class FakeAudioEngine implements AudioEngine {
       rampRate: () => {},
       stop: () => {
         this.stoppedSourceIds.push(id);
+        if (this.fireEndedSynchronouslyOnStop) {
+          this.endedCallbacks.get(id)?.();
+        }
       },
     };
   }
 
-  scheduleStart(): void {}
+  scheduleStart(): void {
+    if (this.throwOnScheduleStart) {
+      throw new TypeError('The provided double value is non-finite.');
+    }
+  }
 
   now(): number {
     return this.clock;
@@ -117,5 +133,85 @@ describe('TrackPlayer', () => {
     player.play(); // creates source-1
     engine.fireEnded('source-0'); // stale callback from the old source
     expect(player.getState().status).toBe('playing');
+  });
+
+  it('fires onEnded when the track finishes naturally, but not on explicit stop/pause/seek', async () => {
+    const ended: number[] = [];
+    const callbackEngine = new FakeAudioEngine();
+    const callbackPlayer = new TrackPlayer(callbackEngine, { onEnded: () => ended.push(ended.length) });
+    await callbackPlayer.load(fileRef);
+
+    callbackPlayer.play();
+    callbackPlayer.pause();
+    callbackPlayer.play();
+    callbackPlayer.seek(2);
+    callbackPlayer.stop();
+    expect(ended).toEqual([]);
+
+    callbackPlayer.play();
+    // 4 sources created above (play, play-after-pause, seek's restart, play-after-stop); this is the active one.
+    callbackEngine.fireEnded('source-3');
+    expect(ended).toEqual([0]);
+  });
+
+  it('does not treat an engine that fires onEnded synchronously from stop() as a natural end', async () => {
+    // Regression test: a real crash on Android traced back to exactly this -
+    // stop() firing onEnded synchronously, and the old this.source?.stop();
+    // this.source = null; ordering meant the "is this source stale" guard
+    // in handleEnded still saw this.source pointing at the source being
+    // intentionally stopped, so it ran as if the track had ended naturally.
+    const ended: number[] = [];
+    const syncEngine = new FakeAudioEngine();
+    syncEngine.fireEndedSynchronouslyOnStop = true;
+    const syncPlayer = new TrackPlayer(syncEngine, { onEnded: () => ended.push(ended.length) });
+    await syncPlayer.load(fileRef);
+
+    syncPlayer.play();
+    syncPlayer.pause();
+    syncPlayer.play();
+    for (let i = 0; i < 20; i++) {
+      syncPlayer.seek(i % 5); // rapid repeated seeking, as triggered the real crash
+    }
+    syncPlayer.stop();
+
+    expect(ended).toEqual([]);
+    expect(syncPlayer.getState().status).toBe('stopped');
+  });
+
+  it('seek() ignores non-finite input instead of propagating NaN to the engine', () => {
+    player.play();
+    engine.clock = 3;
+    player.seek(Number.NaN);
+    player.seek(Number.POSITIVE_INFINITY);
+    // Unaffected - both calls were no-ops.
+    expect(player.getState()).toEqual({ status: 'playing', positionSeconds: 3, durationSeconds: 10 });
+  });
+
+  it('recovers instead of getting stuck if the engine rejects a start (e.g. throws on a bad offset)', async () => {
+    // Regression test: this traced back to a real "playback just stops and
+    // never advances" report. The engine had already thrown once during
+    // this exact session from a genuinely-buggy seek-bar coordinate
+    // calculation (since fixed) - but even with that fixed, nothing should
+    // ever leave TrackPlayer claiming status='playing' for a source that
+    // was never actually started, since nothing would ever fire its
+    // onEnded and the player would be stuck on that track forever.
+    const ended: number[] = [];
+    const throwingEngine = new FakeAudioEngine();
+    const throwingPlayer = new TrackPlayer(throwingEngine, { onEnded: () => ended.push(ended.length) });
+    await throwingPlayer.load(fileRef);
+
+    throwingEngine.throwOnScheduleStart = true;
+    throwingPlayer.play();
+
+    expect(throwingPlayer.getState().status).toBe('stopped');
+    expect(ended).toEqual([0]); // treated as an immediate natural end, so a playlist can move on
+
+    // And the player still works normally afterwards - not permanently
+    // wedged. (handleEnded left position at the track's end, same as any
+    // natural end would - seeking back and playing again is a fresh start.)
+    throwingEngine.throwOnScheduleStart = false;
+    throwingPlayer.seek(0);
+    throwingPlayer.play();
+    expect(throwingPlayer.getState().status).toBe('playing');
   });
 });

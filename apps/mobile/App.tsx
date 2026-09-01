@@ -1,12 +1,13 @@
 /**
- * BPMix - Stage 2: single-track playback (play/pause/seek/stop), on top of
- * Stage 1's folder scanning.
+ * BPMix - Stage 3: playlist queue playback with loop modes and shuffle,
+ * on top of Stage 2's single-track playback.
  * @format
  */
 
-import type { FileRef, GrantedRoot, PlaylistRecord, TrackPlayerState, TrackRecord } from '@bpmix/core';
-import { scanRoot, TrackPlayer } from '@bpmix/core';
+import type { FileRef, GrantedRoot, LoopMode, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '@bpmix/core';
+import { PlaylistPlayer, scanRoot } from '@bpmix/core';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import type { GestureResponderEvent, LayoutChangeEvent } from 'react-native';
 import { FlatList, Pressable, StatusBar, StyleSheet, Text, useColorScheme, View } from 'react-native';
 import {
   SafeAreaProvider,
@@ -16,20 +17,29 @@ import { createAudioEngine } from './src/adapters/audioEngine';
 import { createFileAccess } from './src/adapters/fileAccess';
 import { createLibraryStore } from './src/adapters/libraryStore';
 
+const DOUBLE_PRESS_DELAY_MS = 300;
+const TRANSPORT_THROTTLE_MS = 300;
+
+/** Single press fires onSingle after a short delay; a second press within that window fires onDouble instead. */
+function useDoublePressHandler(onSingle: () => void, onDouble: () => void): () => void {
+  const pendingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  return useCallback(() => {
+    if (pendingTimeout.current) {
+      clearTimeout(pendingTimeout.current);
+      pendingTimeout.current = null;
+      onDouble();
+      return;
+    }
+    pendingTimeout.current = setTimeout(() => {
+      pendingTimeout.current = null;
+      onSingle();
+    }, DOUBLE_PRESS_DELAY_MS);
+  }, [onSingle, onDouble]);
+}
+
 const fileAccess = createFileAccess();
 const libraryStore = createLibraryStore();
 const audioEngine = createAudioEngine(fileAccess);
-const trackPlayer = new TrackPlayer(audioEngine);
-
-interface RootWithLibrary {
-  root: GrantedRoot;
-  playlists: PlaylistRecord[];
-  tracksById: Map<string, TrackRecord>;
-}
-
-type Screen =
-  | { kind: 'library' }
-  | { kind: 'playlist'; root: GrantedRoot; playlist: PlaylistRecord; tracksById: Map<string, TrackRecord> };
 
 function trackToFileRef(track: TrackRecord): FileRef {
   return {
@@ -44,6 +54,36 @@ function trackToFileRef(track: TrackRecord): FileRef {
 function trackDisplayName(track: TrackRecord): string {
   return track.relativePath.split('/').pop() ?? track.relativePath;
 }
+
+// PlaylistPlayer resolves a fileId to a FileRef via this module-level map,
+// kept pointed at whichever playlist screen is currently open (there's only
+// ever one active player/screen in this app). setError is likewise bridged
+// in on mount so the player's async load/decode errors reach the UI.
+let activeTracksById = new Map<string, TrackRecord>();
+let reportError: (error: unknown) => void = () => {};
+
+const playlistPlayer = new PlaylistPlayer(
+  audioEngine,
+  (fileId) => {
+    const track = activeTracksById.get(fileId);
+    if (!track) throw new Error(`Unknown track ${fileId}`);
+    return trackToFileRef(track);
+  },
+  { onError: (error) => reportError(error) },
+);
+
+const LOOP_MODE_CYCLE: LoopMode[] = ['off', 'all', 'one'];
+const LOOP_MODE_LABEL: Record<LoopMode, string> = { off: 'Loop: Off', all: 'Loop: All', one: 'Loop: One' };
+
+interface RootWithLibrary {
+  root: GrantedRoot;
+  playlists: PlaylistRecord[];
+  tracksById: Map<string, TrackRecord>;
+}
+
+type Screen =
+  | { kind: 'library' }
+  | { kind: 'playlist'; root: GrantedRoot; playlist: PlaylistRecord; tracksById: Map<string, TrackRecord> };
 
 function formatSeconds(seconds: number): string {
   if (!Number.isFinite(seconds)) return '0:00';
@@ -100,6 +140,71 @@ const TrackRow = memo(function TrackRow({
   );
 });
 
+/**
+ * Tap-to-seek only, deliberately not drag-to-scrub: a drag would need to
+ * call seek() continuously as the finger/mouse moves, which is exactly the
+ * rapid-fire native-source-churn pattern that crashes react-native-audio-api
+ * on Android. A tap fires exactly one seek() call, same as any other
+ * transport button.
+ */
+function SeekBar({
+  positionSeconds,
+  durationSeconds,
+  onSeekTo,
+}: {
+  positionSeconds: number;
+  durationSeconds: number;
+  onSeekTo: (positionSeconds: number) => void;
+}) {
+  // event.nativeEvent.locationX is unreliable on react-native-web (comes
+  // back undefined there, unlike native RN) - measure() + pageX works on
+  // both, so that's used instead of locationX everywhere (kept identical to
+  // the web app's SeekBar rather than diverging by platform).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const trackRef = useRef<any>(null);
+  const widthRef = useRef(0);
+  const pageXRef = useRef(0);
+
+  const measureTrack = () => {
+    trackRef.current?.measure((_x: number, _y: number, width: number, _height: number, pageX: number) => {
+      widthRef.current = width;
+      pageXRef.current = pageX;
+    });
+  };
+
+  const handleLayout = (_event: LayoutChangeEvent) => {
+    measureTrack();
+  };
+
+  const handlePress = (event: GestureResponderEvent) => {
+    if (widthRef.current <= 0 || durationSeconds <= 0) return;
+    // Prefer locationX (element-relative, no measure() dependency) when
+    // it's actually a usable number - true on native RN. Falls back to
+    // pageX minus the measured element offset, since locationX comes back
+    // undefined on react-native-web.
+    const relativeX = Number.isFinite(event.nativeEvent.locationX)
+      ? event.nativeEvent.locationX
+      : event.nativeEvent.pageX - pageXRef.current;
+    if (!Number.isFinite(relativeX)) return;
+    const fraction = Math.max(0, Math.min(1, relativeX / widthRef.current));
+    onSeekTo(fraction * durationSeconds);
+  };
+
+  const fillFraction = durationSeconds > 0 ? Math.max(0, Math.min(1, positionSeconds / durationSeconds)) : 0;
+
+  return (
+    <Pressable
+      ref={trackRef}
+      style={styles.seekBarTrack}
+      onLayout={handleLayout}
+      onPress={handlePress}
+      hitSlop={{ top: 14, bottom: 14, left: 4, right: 4 }}
+    >
+      <View style={[styles.seekBarFill, { width: `${fillFraction * 100}%` }]} />
+    </Pressable>
+  );
+}
+
 function AppContent() {
   const insets = useSafeAreaInsets();
   const isDarkMode = useColorScheme() === 'dark';
@@ -108,14 +213,29 @@ function AppContent() {
   const [busyRootId, setBusyRootId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [screen, setScreen] = useState<Screen>({ kind: 'library' });
-  const [nowPlayingFileId, setNowPlayingFileId] = useState<string | null>(null);
-  const [nowPlayingName, setNowPlayingName] = useState<string>('');
-  const [playerState, setPlayerState] = useState<TrackPlayerState>({
-    status: 'idle',
-    positionSeconds: 0,
-    durationSeconds: 0,
-  });
-  const loadTokenRef = useRef(0);
+  const [playerState, setPlayerState] = useState<PlaylistPlayerState>(playlistPlayer.getState());
+
+  // Shared cooldown across every action that creates/destroys a native audio
+  // source (seek, pause/resume, re-playing a track): a known bug in
+  // react-native-audio-api's Android native cleanup code can crash the app
+  // under rapid-fire source churn. This doesn't fix that bug, but keeps
+  // normal human-paced usage well clear of the trigger.
+  const lastTransportActionAtRef = useRef(0);
+  const transportActionAllowed = (): boolean => {
+    const now = Date.now();
+    if (now - lastTransportActionAtRef.current < TRANSPORT_THROTTLE_MS) {
+      return false;
+    }
+    lastTransportActionAtRef.current = now;
+    return true;
+  };
+
+  useEffect(() => {
+    reportError = (err) => setError(String(err));
+    return () => {
+      reportError = () => {};
+    };
+  }, []);
 
   const refresh = useCallback(async () => {
     const roots = await fileAccess.listGrantedRoots();
@@ -136,7 +256,7 @@ function AppContent() {
   }, [refresh]);
 
   useEffect(() => {
-    const interval = setInterval(() => setPlayerState(trackPlayer.getState()), 200);
+    const interval = setInterval(() => setPlayerState(playlistPlayer.getState()), 200);
     return () => clearInterval(interval);
   }, []);
 
@@ -171,72 +291,124 @@ function AppContent() {
     [refresh],
   );
 
-  const playTrack = useCallback(
-    async (track: TrackRecord) => {
+  const playFromTrack = useCallback(
+    async (playlist: PlaylistRecord, tracksById: Map<string, TrackRecord>, track: TrackRecord) => {
+      if (!transportActionAllowed()) return;
       setError(null);
-      if (nowPlayingFileId === track.fileId) {
-        trackPlayer.play();
-        setPlayerState(trackPlayer.getState());
-        return;
+      activeTracksById = tracksById;
+      // Tapping the already-current track just resumes it - re-running
+      // setPlaylist() (a full reload/redecode) on every repeat tap was both
+      // wasteful and, under rapid repeated taps, one of the ways we
+      // triggered the native crash the playToken guard now defends against.
+      if (playlistPlayer.getState().currentFileId === track.fileId) {
+        playlistPlayer.play();
+      } else {
+        await playlistPlayer.setPlaylist(playlist.trackFileIds, track.fileId);
       }
-      const token = ++loadTokenRef.current;
-      try {
-        setNowPlayingFileId(track.fileId);
-        setNowPlayingName(trackDisplayName(track));
-        await trackPlayer.load(trackToFileRef(track));
-        if (loadTokenRef.current !== token) return; // a newer play() call superseded this one
-        trackPlayer.play();
-        setPlayerState(trackPlayer.getState());
-      } catch (err) {
-        setError(String(err));
-      }
+      setPlayerState(playlistPlayer.getState());
     },
-    [nowPlayingFileId],
+    [],
   );
 
   const togglePause = useCallback(() => {
-    if (playerState.status === 'playing') {
-      trackPlayer.pause();
+    if (!transportActionAllowed()) return;
+    if (playerState.track.status === 'playing') {
+      playlistPlayer.pause();
     } else {
-      trackPlayer.play();
+      playlistPlayer.play();
     }
-    setPlayerState(trackPlayer.getState());
-  }, [playerState.status]);
-
-  const stop = useCallback(() => {
-    trackPlayer.stop();
-    setPlayerState(trackPlayer.getState());
-  }, []);
+    setPlayerState(playlistPlayer.getState());
+  }, [playerState.track.status]);
 
   const seekBy = useCallback(
     (deltaSeconds: number) => {
-      trackPlayer.seek(playerState.positionSeconds + deltaSeconds);
-      setPlayerState(trackPlayer.getState());
+      if (!transportActionAllowed()) return;
+      playlistPlayer.seek(playerState.track.positionSeconds + deltaSeconds);
+      setPlayerState(playlistPlayer.getState());
     },
-    [playerState.positionSeconds],
+    [playerState.track.positionSeconds],
   );
 
-  const nowPlayingBar = nowPlayingFileId && (
+  const seekTo = useCallback((positionSeconds: number) => {
+    if (!transportActionAllowed()) return;
+    playlistPlayer.seek(positionSeconds);
+    setPlayerState(playlistPlayer.getState());
+  }, []);
+
+  const goNext = useCallback(async (options?: { force?: boolean }) => {
+    await playlistPlayer.next(options);
+    setPlayerState(playlistPlayer.getState());
+  }, []);
+
+  const goPrevious = useCallback(async (options?: { force?: boolean }) => {
+    await playlistPlayer.previous(options);
+    setPlayerState(playlistPlayer.getState());
+  }, []);
+
+  // Single tap respects loop mode (restart-current on "One", wrap on "All",
+  // clamp on "Off"); double tap always moves tracks, wrapping regardless of
+  // loop mode - see PlaylistPlayer.next/previous's { force } option.
+  const handleNextPress = useDoublePressHandler(
+    () => void goNext(),
+    () => void goNext({ force: true }),
+  );
+  const handlePreviousPress = useDoublePressHandler(
+    () => void goPrevious(),
+    () => void goPrevious({ force: true }),
+  );
+
+  const cycleLoopMode = useCallback(() => {
+    const nextMode = LOOP_MODE_CYCLE[(LOOP_MODE_CYCLE.indexOf(playerState.loopMode) + 1) % LOOP_MODE_CYCLE.length]!;
+    playlistPlayer.setLoopMode(nextMode);
+    setPlayerState(playlistPlayer.getState());
+  }, [playerState.loopMode]);
+
+  const toggleShuffle = useCallback(() => {
+    playlistPlayer.setShuffle(!playerState.shuffleEnabled);
+    setPlayerState(playlistPlayer.getState());
+  }, [playerState.shuffleEnabled]);
+
+  const nowPlayingTrack = playerState.currentFileId ? activeTracksById.get(playerState.currentFileId) : undefined;
+
+  const nowPlayingBar = playerState.currentFileId && (
     <View style={styles.nowPlaying}>
       <Text style={[styles.nowPlayingName, { color: colors.text }]} numberOfLines={1}>
-        {nowPlayingName}
+        {nowPlayingTrack ? trackDisplayName(nowPlayingTrack) : playerState.currentFileId}
       </Text>
       <Text style={[styles.nowPlayingTime, { color: colors.subtleText }]}>
-        {formatSeconds(playerState.positionSeconds)} / {formatSeconds(playerState.durationSeconds)} (
-        {playerState.status})
+        {formatSeconds(playerState.track.positionSeconds)} / {formatSeconds(playerState.track.durationSeconds)} (
+        {playerState.track.status}) · track {playerState.position + 1}/{playerState.totalTracks}
       </Text>
+      <SeekBar
+        positionSeconds={playerState.track.positionSeconds}
+        durationSeconds={playerState.track.durationSeconds}
+        onSeekTo={seekTo}
+      />
       <View style={styles.transportRow}>
+        <Pressable style={styles.transportButton} onPress={handlePreviousPress}>
+          <Text style={styles.transportButtonText}>⏮</Text>
+        </Pressable>
         <Pressable style={styles.transportButton} onPress={() => seekBy(-10)}>
           <Text style={styles.transportButtonText}>-10s</Text>
         </Pressable>
         <Pressable style={styles.transportButton} onPress={togglePause}>
-          <Text style={styles.transportButtonText}>{playerState.status === 'playing' ? 'Pause' : 'Play'}</Text>
+          <Text style={styles.transportButtonText}>
+            {playerState.track.status === 'playing' ? 'Pause' : 'Play'}
+          </Text>
         </Pressable>
         <Pressable style={styles.transportButton} onPress={() => seekBy(10)}>
           <Text style={styles.transportButtonText}>+10s</Text>
         </Pressable>
-        <Pressable style={styles.transportButton} onPress={stop}>
-          <Text style={styles.transportButtonText}>Stop</Text>
+        <Pressable style={styles.transportButton} onPress={handleNextPress}>
+          <Text style={styles.transportButtonText}>⏭</Text>
+        </Pressable>
+      </View>
+      <View style={styles.transportRow}>
+        <Pressable style={styles.transportButton} onPress={cycleLoopMode}>
+          <Text style={styles.transportButtonText}>{LOOP_MODE_LABEL[playerState.loopMode]}</Text>
+        </Pressable>
+        <Pressable style={styles.transportButton} onPress={toggleShuffle}>
+          <Text style={styles.transportButtonText}>Shuffle: {playerState.shuffleEnabled ? 'On' : 'Off'}</Text>
         </Pressable>
       </View>
     </View>
@@ -261,10 +433,10 @@ function AppContent() {
             return (
               <TrackRow
                 track={track}
-                isCurrent={nowPlayingFileId === fileId}
-                isPlaying={playerState.status === 'playing'}
+                isCurrent={playerState.currentFileId === fileId}
+                isPlaying={playerState.track.status === 'playing'}
                 colors={colors}
-                onPress={playTrack}
+                onPress={(t) => void playFromTrack(playlist, tracksById, t)}
               />
             );
           }}
@@ -371,6 +543,17 @@ const styles = StyleSheet.create({
   nowPlayingTime: {
     fontSize: 12,
     marginTop: 2,
+  },
+  seekBarTrack: {
+    height: 10,
+    marginTop: 12,
+    borderRadius: 5,
+    backgroundColor: 'rgba(59, 130, 246, 0.25)',
+    overflow: 'hidden',
+  },
+  seekBarFill: {
+    height: '100%',
+    backgroundColor: '#3b82f6',
   },
   transportRow: {
     flexDirection: 'row',

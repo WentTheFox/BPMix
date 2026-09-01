@@ -5,6 +5,8 @@ export * from './playlist/m3u8';
 export * from './library-scan/walk';
 export * from './library-scan/scan';
 export * from './playback/trackPlayer';
+export * from './playback/shuffle';
+export * from './playback/playlistPlayer';
 
 /** Runtime marker used by the Stage 0 empty-shell screens to prove the workspace wiring resolves. */
 export const CORE_PACKAGE_NAME = '@bpmix/core';

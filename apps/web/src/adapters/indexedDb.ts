@@ -4,8 +4,21 @@ export function openDb(name: string, version: number, upgrade: (db: IDBDatabase)
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(name, version);
     request.onupgradeneeded = () => upgrade(request.result);
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      const db = request.result;
+      // Without this, a stale connection in another tab blocks that tab's
+      // own open() (or a version bump/reset) forever with no error - this
+      // lets this connection yield instead of hanging the other tab.
+      db.onversionchange = () => db.close();
+      resolve(db);
+    };
     request.onerror = () => reject(request.error);
+    // Fires when this open() can't proceed because another tab still holds
+    // an open connection (e.g. to a version this reset/upgrade invalidated).
+    // Without a handler here the promise never settles - "hangs forever"
+    // with no error - instead of surfacing the actual problem.
+    request.onblocked = () =>
+      reject(new Error(`IndexedDB "${name}" open blocked - close other tabs with this site open and retry`));
   });
 }
 

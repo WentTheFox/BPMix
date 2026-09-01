@@ -31,6 +31,24 @@ function audioBufferToDecoded(buffer: AudioBuffer): DecodedAudio {
  */
 const startFns = new WeakMap<SourceNode, (whenSeconds: number, offsetSeconds: number) => void>();
 
+/**
+ * Native AudioBuffers are cached per decoded track (keyed by the DecodedAudio
+ * object TrackPlayer holds onto for the track's whole loaded lifetime), not
+ * rebuilt on every createSource() call - see the identical, more critical
+ * note in the Android adapter (rebuilding one here is just wasteful; on
+ * Android it crashed the app under rapid repeated seeking).
+ */
+const nativeBufferCache = new WeakMap<DecodedAudio, AudioBuffer>();
+
+function getOrCreateBuffer(context: BaseAudioContext, decoded: DecodedAudio): AudioBuffer {
+  let buffer = nativeBufferCache.get(decoded);
+  if (!buffer) {
+    buffer = decodedAudioToBuffer(context, decoded);
+    nativeBufferCache.set(decoded, buffer);
+  }
+  return buffer;
+}
+
 export function createAudioEngine(fileAccess: FileAccess): AudioEngine {
   const context = new AudioContext();
   let nextId = 0;
@@ -43,7 +61,7 @@ export function createAudioEngine(fileAccess: FileAccess): AudioEngine {
     },
 
     createSource(audio: DecodedAudio, onEnded?: () => void): SourceNode {
-      const buffer = decodedAudioToBuffer(context, audio);
+      const buffer = getOrCreateBuffer(context, audio);
       const bufferSource = context.createBufferSource();
       bufferSource.buffer = buffer;
       const gainNode = context.createGain();

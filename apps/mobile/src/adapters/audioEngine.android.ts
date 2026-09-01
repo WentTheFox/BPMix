@@ -30,6 +30,26 @@ function audioBufferToDecoded(buffer: AudioBuffer): DecodedAudio {
  */
 const startFns = new WeakMap<SourceNode, (whenSeconds: number, offsetSeconds: number) => void>();
 
+/**
+ * Native AudioBuffers are cached per decoded track (keyed by the DecodedAudio
+ * object TrackPlayer holds onto for the track's whole loaded lifetime), not
+ * rebuilt on every createSource() call. The library's own docs say buffers
+ * are meant to be built once and reused across many cheap source nodes -
+ * rebuilding one (a full PCM copy, tens of MB for a multi-minute track) on
+ * every seek/pause/resume was both slow and, under rapid repeated seeking,
+ * crashed the app with a native SIGSEGV from the allocation churn.
+ */
+const nativeBufferCache = new WeakMap<DecodedAudio, AudioBuffer>();
+
+function getOrCreateBuffer(context: AudioContext, decoded: DecodedAudio): AudioBuffer {
+  let buffer = nativeBufferCache.get(decoded);
+  if (!buffer) {
+    buffer = decodedAudioToBuffer(context, decoded);
+    nativeBufferCache.set(decoded, buffer);
+  }
+  return buffer;
+}
+
 export function createAudioEngine(fileAccess: FileAccess): AudioEngine {
   const context = new AudioContext();
   let nextId = 0;
@@ -42,7 +62,7 @@ export function createAudioEngine(fileAccess: FileAccess): AudioEngine {
     },
 
     createSource(audio: DecodedAudio, onEnded?: () => void): SourceNode {
-      const buffer = decodedAudioToBuffer(context, audio);
+      const buffer = getOrCreateBuffer(context, audio);
       const bufferSource: AudioBufferSourceNode = context.createBufferSource({ pitchCorrection: false });
       bufferSource.buffer = buffer;
       const gainNode = context.createGain();
