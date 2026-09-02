@@ -20,6 +20,17 @@ export interface SourceNode {
   readonly id: string;
   setGain(value: number): void;
   rampGain(ramp: RampSpec): void;
+  /**
+   * Schedules an arbitrary gain curve (evenly-spaced sample values) over
+   * [atTimeSeconds, atTimeSeconds+durationSeconds), via the engine's native
+   * curve automation (Web Audio's setValueCurveAtTime or equivalent) - used
+   * for the Stage 7 crossfade's equal-power fade, since a single linear
+   * rampGain segment can't express that shape (and a JS-side approximation
+   * built from several rampGain calls back-to-back doesn't work either:
+   * each call anchors itself to the *current* live gain value at call time,
+   * not to where an in-flight scheduled ramp would be by then).
+   */
+  rampGainCurve(values: number[], atTimeSeconds: number, durationSeconds: number): void;
   setRate(value: number): void;
   rampRate(ramp: RampSpec): void;
   stop(whenSeconds?: number): void;

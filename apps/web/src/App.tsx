@@ -7,8 +7,16 @@ import type {
   PlaylistRecord,
   TrackRecord,
 } from '@bpmix/core';
-import { ensureTrackAnalyzed, PlaylistPlayer, scanRoot } from '@bpmix/core';
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import {
+  computeCrossfadeVisualization,
+  computeTransitionPlan,
+  ensureTrackAnalyzed,
+  PlaylistPlayer,
+  realTimeForOutgoingPosition,
+  scanRoot,
+} from '@bpmix/core';
+import { CrossfadePreview } from '@bpmix/ui';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GestureResponderEvent, LayoutChangeEvent } from 'react-native';
 import { FlatList, Pressable, StyleSheet, Text, useColorScheme, View } from 'react-native';
 import { createAudioEngine } from './adapters/audioEngine';
@@ -17,6 +25,12 @@ import { createLibraryStore } from './adapters/libraryStore';
 
 const DOUBLE_PRESS_DELAY_MS = 300;
 const TRANSPORT_THROTTLE_MS = 300;
+// A real settings screen (Stage 8) would persist this - for now it's a
+// simple in-memory control (see the "Crossfade" stepper below) that starts
+// here and can be adjusted live.
+const DEFAULT_CROSSFADE_SECONDS = 8;
+const MIN_CROSSFADE_SECONDS = 1;
+const MAX_CROSSFADE_SECONDS = 20;
 
 /** Single press fires onSingle after a short delay; a second press within that window fires onDouble instead. */
 function useDoublePressHandler(onSingle: () => void, onDouble: () => void): () => void {
@@ -38,6 +52,42 @@ function useDoublePressHandler(onSingle: () => void, onDouble: () => void): () =
 const fileAccess = createFileAccess();
 const libraryStore = createLibraryStore();
 const audioEngine = createAudioEngine(fileAccess);
+
+const ANALYSIS_RETRY_MS = 500;
+
+/**
+ * Fetches a track's analysis, retrying on a short interval until it
+ * resolves. JIT analysis (Stage 4) computes it asynchronously right after
+ * a track is decoded - the very first fetch immediately after selecting a
+ * track can easily land before that write actually completes, and a
+ * one-shot fetch would then show nothing for that track's whole session,
+ * since nothing else ever triggers a refetch once analysis does finish.
+ */
+function useTrackAnalysis(fileId: string | null): AnalysisResult | null {
+  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
+  useEffect(() => {
+    setAnalysis(null);
+    if (!fileId) return;
+    let cancelled = false;
+    let retryTimeout: ReturnType<typeof setTimeout> | undefined;
+    const tryFetch = () => {
+      libraryStore.getAnalysis(fileId).then((result) => {
+        if (cancelled) return;
+        if (result) {
+          setAnalysis(result);
+        } else {
+          retryTimeout = setTimeout(tryFetch, ANALYSIS_RETRY_MS);
+        }
+      });
+    };
+    tryFetch();
+    return () => {
+      cancelled = true;
+      if (retryTimeout) clearTimeout(retryTimeout);
+    };
+  }, [fileId]);
+  return analysis;
+}
 
 function trackToFileRef(track: TrackRecord): FileRef {
   return {
@@ -70,6 +120,11 @@ const playlistPlayer = new PlaylistPlayer(
   {
     onError: (error) => reportError(error),
     resolveGain: async (fileId) => (await libraryStore.getAnalysis(fileId))?.normalizationGain ?? 1,
+    // Stage 7: the same analysis lookup and duration the debug preview below
+    // uses for computeTransitionPlan - PlaylistPlayer schedules the actual
+    // audio crossfade from it, so what's previewed and what's heard match.
+    resolveAnalysis: (fileId) => libraryStore.getAnalysis(fileId).then((result) => result ?? undefined),
+    crossfadeSeconds: DEFAULT_CROSSFADE_SECONDS,
     // Just-in-time analysis (Stage 4): a track already needed a decode for
     // playback/preload, so analyzing it here is free - no separate eager
     // batch pass over the whole library.
@@ -78,6 +133,17 @@ const playlistPlayer = new PlaylistPlayer(
     },
   },
 );
+
+// playlistPlayer/audioEngine are module-level singletons, but the browser's
+// AudioContext they wrap isn't torn down just because a Vite HMR reload
+// discards this module's JS references to it - without this, a track would
+// keep playing (audibly) straight through every reload, orphaned from the
+// fresh instances the reloaded module creates.
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    playlistPlayer.pause();
+  });
+}
 
 const LOOP_MODE_CYCLE: LoopMode[] = ['off', 'all', 'one'];
 const LOOP_MODE_LABEL: Record<LoopMode, string> = { off: 'Loop: Off', all: 'Loop: All', one: 'Loop: One' };
@@ -375,20 +441,54 @@ function App() {
   // Debug view (Stage 4 exit criterion): shows the currently playing
   // track's computed BPM/gain, proving analysis actually ran and produced
   // real numbers, not just that it didn't crash.
-  const [currentAnalysis, setCurrentAnalysis] = useState<AnalysisResult | null>(null);
+  const currentAnalysis = useTrackAnalysis(playerState.currentFileId);
+
+  // Stage 7 debug view: preview of the crossfade into whatever's queued up
+  // next, computed from the same TransitionPlan/visualization data real
+  // playback scheduling will use - lets the alignment/fade math be checked
+  // by eye before (and regardless of) actual audio engine wiring.
+  const [nextFileId, setNextFileId] = useState<string | null>(null);
   useEffect(() => {
-    if (!playerState.currentFileId) {
-      setCurrentAnalysis(null);
-      return;
-    }
-    let cancelled = false;
-    libraryStore.getAnalysis(playerState.currentFileId).then((result) => {
-      if (!cancelled) setCurrentAnalysis(result);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [playerState.currentFileId]);
+    setNextFileId(playlistPlayer.getNextFileId());
+  }, [playerState.position, playerState.loopMode, playerState.shuffleEnabled, playerState.totalTracks]);
+  const nextAnalysis = useTrackAnalysis(nextFileId);
+  const nextTrack = nextFileId ? activeTracksById.get(nextFileId) : undefined;
+
+  // Live-adjustable crossfade duration (the "Crossfade" stepper below) -
+  // keeps playlistPlayer's actual scheduling in sync with whatever the
+  // preview is showing, so they never disagree.
+  const [crossfadeSeconds, setCrossfadeSecondsState] = useState(DEFAULT_CROSSFADE_SECONDS);
+  useEffect(() => {
+    playlistPlayer.setCrossfadeSeconds(crossfadeSeconds);
+  }, [crossfadeSeconds]);
+  const adjustCrossfadeSeconds = useCallback((delta: number) => {
+    setCrossfadeSecondsState((current) =>
+      Math.max(MIN_CROSSFADE_SECONDS, Math.min(MAX_CROSSFADE_SECONDS, current + delta)),
+    );
+  }, []);
+
+  const transitionPlan = useMemo(() => {
+    if (!currentAnalysis || !nextAnalysis || playerState.track.durationSeconds <= 0) return null;
+    return computeTransitionPlan(
+      { endWindow: currentAnalysis.endWindow, durationSeconds: playerState.track.durationSeconds },
+      { startWindow: nextAnalysis.startWindow },
+      crossfadeSeconds,
+    );
+  }, [currentAnalysis, nextAnalysis, playerState.track.durationSeconds, crossfadeSeconds]);
+
+  const crossfadeVisualization = useMemo(() => {
+    if (!transitionPlan || !currentAnalysis || !nextAnalysis) return null;
+    return computeCrossfadeVisualization(transitionPlan, currentAnalysis.endWindow.bpm, nextAnalysis.startWindow.bpm);
+  }, [transitionPlan, currentAnalysis, nextAnalysis]);
+
+  // The preview's timeline is relative to the fade start (t=0) - converting
+  // live playback position into that same frame lets the preview draw a
+  // real-time progress line instead of just a static plan. Uses the same
+  // piecewise (flat/ramp/flat) math the visualization itself is built from,
+  // since a plain subtraction is only correct outside the ramp phase.
+  const crossfadeProgressSeconds = transitionPlan
+    ? realTimeForOutgoingPosition(transitionPlan, playerState.track.positionSeconds)
+    : null;
 
   const nowPlayingBar = playerState.currentFileId && (
     <View style={styles.nowPlaying}>
@@ -401,32 +501,40 @@ function App() {
       </Text>
       {currentAnalysis && (
         <Text style={[styles.nowPlayingTime, { color: colors.subtleText }]}>
-          {currentAnalysis.startWindow.bpm.toFixed(0)}→{currentAnalysis.endWindow.bpm.toFixed(0)} BPM · gain{' '}
-          {currentAnalysis.normalizationGain.toFixed(2)}x
+          Tempo: start {currentAnalysis.startWindow.bpm.toFixed(0)} BPM · end {currentAnalysis.endWindow.bpm.toFixed(0)} BPM
+          · gain {currentAnalysis.normalizationGain.toFixed(2)}x
         </Text>
+      )}
+      {crossfadeVisualization && (
+        <CrossfadePreview
+          outgoingName={nowPlayingTrack ? trackDisplayName(nowPlayingTrack) : 'Current track'}
+          incomingName={nextTrack ? trackDisplayName(nextTrack) : 'Next track'}
+          visualization={crossfadeVisualization}
+          progressSeconds={crossfadeProgressSeconds}
+        />
       )}
       <SeekBar
         positionSeconds={playerState.track.positionSeconds}
         durationSeconds={playerState.track.durationSeconds}
         onSeekTo={seekTo}
       />
-      <View style={styles.transportRow}>
-        <Pressable style={styles.transportButton} onPress={handlePreviousPress}>
-          <Text style={styles.transportButtonText}>⏮</Text>
+      <View style={styles.playerControlsRow}>
+        <Pressable style={styles.controlButton} onPress={handlePreviousPress}>
+          <Text style={styles.controlIcon}>⏮</Text>
         </Pressable>
-        <Pressable style={styles.transportButton} onPress={() => seekBy(-10)}>
-          <Text style={styles.transportButtonText}>-10s</Text>
+        <Pressable style={styles.controlButtonWide} onPress={() => seekBy(-10)}>
+          <Text style={styles.controlIconWide}>⏪10</Text>
         </Pressable>
-        <Pressable style={styles.transportButton} onPress={togglePause}>
-          <Text style={styles.transportButtonText}>
-            {playerState.track.status === 'playing' ? 'Pause' : 'Play'}
+        <Pressable style={[styles.controlButton, styles.controlButtonPrimary]} onPress={togglePause}>
+          <Text style={[styles.controlIcon, styles.controlIconPrimary]}>
+            {playerState.track.status === 'playing' ? '⏸' : '▶'}
           </Text>
         </Pressable>
-        <Pressable style={styles.transportButton} onPress={() => seekBy(10)}>
-          <Text style={styles.transportButtonText}>+10s</Text>
+        <Pressable style={styles.controlButtonWide} onPress={() => seekBy(10)}>
+          <Text style={styles.controlIconWide}>10⏩</Text>
         </Pressable>
-        <Pressable style={styles.transportButton} onPress={handleNextPress}>
-          <Text style={styles.transportButtonText}>⏭</Text>
+        <Pressable style={styles.controlButton} onPress={handleNextPress}>
+          <Text style={styles.controlIcon}>⏭</Text>
         </Pressable>
       </View>
       <View style={styles.transportRow}>
@@ -435,6 +543,25 @@ function App() {
         </Pressable>
         <Pressable style={styles.transportButton} onPress={toggleShuffle}>
           <Text style={styles.transportButtonText}>Shuffle: {playerState.shuffleEnabled ? 'On' : 'Off'}</Text>
+        </Pressable>
+      </View>
+      <View style={styles.transportRow}>
+        <Pressable
+          style={styles.transportButton}
+          onPress={() => adjustCrossfadeSeconds(-1)}
+          disabled={crossfadeSeconds <= MIN_CROSSFADE_SECONDS}
+        >
+          <Text style={styles.transportButtonText}>-1s</Text>
+        </Pressable>
+        <Text style={[styles.transportButtonText, { color: colors.text, minWidth: 100, textAlign: 'center' }]}>
+          Crossfade: {crossfadeSeconds}s
+        </Text>
+        <Pressable
+          style={styles.transportButton}
+          onPress={() => adjustCrossfadeSeconds(1)}
+          disabled={crossfadeSeconds >= MAX_CROSSFADE_SECONDS}
+        >
+          <Text style={styles.transportButtonText}>+1s</Text>
         </Pressable>
       </View>
     </View>
@@ -601,6 +728,52 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: '600',
     fontSize: 12,
+  },
+  // The primary play/pause/seek/skip row, styled like a real player's
+  // transport bar: big circular icon buttons, evenly spaced, with
+  // play/pause noticeably larger and centered - easier to tap accurately
+  // on mobile than the small text-label buttons every other row still uses.
+  playerControlsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 16,
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  controlButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#3b82f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  controlButtonWide: {
+    width: 60,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#3b82f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  controlButtonPrimary: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: '#2563eb',
+  },
+  controlIcon: {
+    color: 'white',
+    fontSize: 20,
+  },
+  controlIconWide: {
+    color: 'white',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  controlIconPrimary: {
+    fontSize: 30,
   },
   list: {
     flex: 1,

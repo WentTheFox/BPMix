@@ -1,0 +1,23 @@
+{
+  "name": "@bpmix/ui",
+  "version": "0.0.1",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@bpmix/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "react": "19.2.3",
+    "react-native": "0.87.0",
+    "typescript": "^5.9.0"
+  }
+}

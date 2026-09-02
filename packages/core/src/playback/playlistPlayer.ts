@@ -1,12 +1,25 @@
 import type { AudioEngine, DecodedAudio } from '../audio-engine/types';
+import { computeTransitionPlan, RAMP_DURATION_SECONDS } from '../crossfade/computeTransitionPlan';
 import type { FileRef } from '../file-access/types';
-import type { LoopMode } from '../library-store/types';
+import type { AnalysisResult, LoopMode } from '../library-store/types';
 import { PreloadScheduler } from './preloadScheduler';
 import { fisherYatesShuffle } from './shuffle';
 import { TrackPlayer, type TrackPlayerState } from './trackPlayer';
 
 /** How many tracks ahead of the current one to keep decoded and ready - the currently playing track plus this many preloaded is "2-3 songs" resident at once. */
 const PRELOAD_DEPTH = 2;
+/** Default crossfade duration (seconds) if the caller doesn't specify one - matches the plan's 1-10s "Crossfade" setting range, pending the Stage 8 UI control. */
+const DEFAULT_CROSSFADE_SECONDS = 5;
+/**
+ * How far ahead of the plan's exact beat-snapped transition point to start
+ * evaluating whether a crossfade can begin (resolving analysis, taking the
+ * preloaded buffer, calling into the engine) - gives that async work a
+ * moment to land before the precise moment the transition should audibly
+ * start, without meaningfully changing the transition's position within
+ * the track (it's re-derived from the plan itself, not from when this
+ * check happened to run).
+ */
+const CROSSFADE_LEAD_SECONDS = 1;
 
 export interface PlaylistPlayerState {
   totalTracks: number;
@@ -36,6 +49,8 @@ export class PlaylistPlayer {
   private readonly trackPlayer: TrackPlayer;
   private readonly resolveTrack: (fileId: string) => FileRef | Promise<FileRef>;
   private readonly resolveGain?: (fileId: string) => number | Promise<number>;
+  private readonly resolveAnalysis?: (fileId: string) => AnalysisResult | undefined | Promise<AnalysisResult | undefined>;
+  private crossfadeSeconds: number;
   private readonly onDecoded?: (ref: FileRef, decoded: DecodedAudio) => void | Promise<void>;
   private readonly onError?: (error: unknown) => void;
   private readonly preloadScheduler: PreloadScheduler;
@@ -46,6 +61,10 @@ export class PlaylistPlayer {
   private loopMode: LoopMode = 'off';
   private shuffleEnabled = false;
   private playToken = 0;
+  /** The playback position a crossfade has already been triggered (or ruled out as impossible) for - guards against re-triggering every ~200ms tick for the remainder of the same track. */
+  private crossfadeTriggeredForPosition: number | null = null;
+  /** True while maybeStartCrossfade's async analysis/gain lookups are in flight - guards against a second tick re-entering and double-triggering before the first attempt has committed or bailed. */
+  private crossfadeInFlight = false;
 
   constructor(
     engine: AudioEngine,
@@ -54,6 +73,15 @@ export class PlaylistPlayer {
       onError?: (error: unknown) => void;
       /** Normalization gain (Stage 5) for a track, e.g. from its stored AnalysisResult - defaults to 1 (no change) if omitted or it throws. */
       resolveGain?: (fileId: string) => number | Promise<number>;
+      /**
+       * Looks up a track's stored AnalysisResult (BPM/beat-anchor windows),
+       * e.g. from LibraryStore - enables the Stage 7 BPM-matched crossfade:
+       * without this, tracks still play back-to-back but with a hard cut,
+       * same as before Stage 7.
+       */
+      resolveAnalysis?: (fileId: string) => AnalysisResult | undefined | Promise<AnalysisResult | undefined>;
+      /** Crossfade duration (seconds) - same value used for computeTransitionPlan, so what's scheduled matches what any preview UI shows. Defaults to DEFAULT_CROSSFADE_SECONDS. */
+      crossfadeSeconds?: number;
       /**
        * Fired (fire-and-forget - never awaited, never blocks playback)
        * whenever a track is freshly decoded, whether for immediate playback
@@ -68,10 +96,15 @@ export class PlaylistPlayer {
   ) {
     this.engine = engine;
     this.resolveTrack = resolveTrack;
+    this.resolveAnalysis = options.resolveAnalysis;
+    this.crossfadeSeconds = options.crossfadeSeconds ?? DEFAULT_CROSSFADE_SECONDS;
     this.onError = options.onError;
     this.resolveGain = options.resolveGain;
     this.onDecoded = options.onDecoded;
-    this.trackPlayer = new TrackPlayer(engine, { onEnded: () => this.handleTrackEnded() });
+    this.trackPlayer = new TrackPlayer(engine, {
+      onEnded: () => this.handleTrackEnded(),
+      onCrossfadeCompleted: () => this.handleCrossfadeCompleted(),
+    });
     this.preloadScheduler = new PreloadScheduler({
       decode: (fileId) => this.decodeAndNotify(fileId),
       // Stage 6's "flag a playback error" - playback itself is unaffected,
@@ -106,6 +139,15 @@ export class PlaylistPlayer {
 
   setLoopMode(mode: LoopMode): void {
     this.loopMode = mode;
+  }
+
+  /** Changes the crossfade duration used for any future transition - takes effect the next time maybeStartCrossfade evaluates, not retroactively on one already in flight. */
+  setCrossfadeSeconds(seconds: number): void {
+    this.crossfadeSeconds = seconds;
+  }
+
+  getCrossfadeSeconds(): number {
+    return this.crossfadeSeconds;
   }
 
   /** Re-shuffles (or restores original order) without interrupting the currently playing track. */
@@ -182,6 +224,99 @@ export class PlaylistPlayer {
       remainingSeconds: trackState.durationSeconds - trackState.positionSeconds,
       upcomingFileIds: this.computeUpcomingFileIds(PRELOAD_DEPTH),
     });
+    void this.maybeStartCrossfade(trackState);
+  }
+
+  /**
+   * Stage 7: once the current track is within crossfadeSeconds (plus a
+   * small lead-in) of ending, and the next track's buffer is already
+   * preloaded, computes the real TransitionPlan from both tracks' stored
+   * analysis and hands it to TrackPlayer.crossfadeTo() so the transition
+   * is actually scheduled on the engine - not just previewed. If
+   * resolveAnalysis wasn't supplied, or analysis for either track isn't
+   * available yet, or the preload isn't ready in time, this simply does
+   * nothing and the track proceeds to its existing hard-cut natural end -
+   * the same fallback preload misses already had before Stage 7.
+   */
+  private async maybeStartCrossfade(trackState: TrackPlayerState): Promise<void> {
+    if (!this.resolveAnalysis || this.crossfadeInFlight) return;
+    if (trackState.status !== 'playing') return;
+    if (this.crossfadeTriggeredForPosition === this.position) return;
+    // The plan's ramp phase (when the outgoing track needs to speed up) can
+    // start up to RAMP_DURATION_SECONDS before the fade itself - the trigger
+    // check has to account for that worst case too, not just the fade,
+    // since we don't know whether a ramp is actually needed until the async
+    // analysis lookup below resolves both tracks' BPMs. Triggering earlier
+    // than strictly necessary when no ramp turns out to be needed is
+    // harmless (computeTransitionPlan/crossfadeTo already handle that).
+    const remaining = trackState.durationSeconds - trackState.positionSeconds;
+    if (remaining > RAMP_DURATION_SECONDS + this.crossfadeSeconds + CROSSFADE_LEAD_SECONDS) return;
+
+    const nextFileId = this.getNextFileId();
+    if (!nextFileId || !this.preloadScheduler.hasPreloaded(nextFileId)) return;
+
+    const currentTrackIndex = this.order[this.position];
+    const currentFileId = currentTrackIndex !== undefined ? this.trackFileIds[currentTrackIndex] : undefined;
+    if (currentFileId === undefined) return;
+
+    const position = this.position;
+    const token = this.playToken;
+    this.crossfadeInFlight = true;
+    try {
+      const [outgoingAnalysis, incomingAnalysis, incomingGain] = await Promise.all([
+        Promise.resolve(this.resolveAnalysis(currentFileId)),
+        Promise.resolve(this.resolveAnalysis(nextFileId)),
+        this.resolveGainFor(nextFileId),
+      ]);
+      // A manual skip/track change landed while the lookups above were in
+      // flight - the transition this was computing for no longer applies.
+      if (token !== this.playToken || position !== this.position) return;
+      if (!outgoingAnalysis || !incomingAnalysis) return;
+
+      const decoded = this.preloadScheduler.takePreloaded(nextFileId);
+      if (!decoded) return; // taken or expired since the check above - rare; falls back to the natural hard-cut end
+
+      const plan = computeTransitionPlan(
+        { endWindow: outgoingAnalysis.endWindow, durationSeconds: trackState.durationSeconds },
+        { startWindow: incomingAnalysis.startWindow },
+        this.crossfadeSeconds,
+      );
+      this.trackPlayer.crossfadeTo(decoded, plan, incomingGain);
+      // Mark this position as handled whether crossfadeTo actually started
+      // a transition or declined (e.g. status changed underneath us) -
+      // either way, retrying on the very next ~200ms tick would just
+      // re-evaluate the same already-decided outcome. This also covers a
+      // crossfadeTo that partially scheduled something before throwing
+      // (falls to the catch below) - without this, a genuinely repeatable
+      // failure would retry every tick, each attempt scheduling another
+      // conflicting rate/gain automation on top of whatever the previous
+      // attempt already got applied to the outgoing source.
+      this.crossfadeTriggeredForPosition = position;
+    } catch (error) {
+      this.crossfadeTriggeredForPosition = position;
+      this.onError?.(error);
+    } finally {
+      this.crossfadeInFlight = false;
+    }
+  }
+
+  /**
+   * The transition scheduled by maybeStartCrossfade has completed and
+   * TrackPlayer has already swapped over to the incoming track's audio -
+   * this just catches PlaylistPlayer's own position bookkeeping up to
+   * match (mirroring the same advance handleTrackEnded would have made),
+   * so getState()/preload lookahead reflect what's actually playing now.
+   * No playAt() call here - the audio is already playing.
+   */
+  private handleCrossfadeCompleted(): void {
+    const isLast = this.position >= this.order.length - 1;
+    this.position = isLast ? 0 : this.position + 1;
+    this.crossfadeTriggeredForPosition = null;
+  }
+
+  /** The track that would play next (respecting loop mode/shuffle order), or null if there isn't one - e.g. for a Stage 7 crossfade preview. */
+  getNextFileId(): string | null {
+    return this.computeUpcomingFileIds(1)[0] ?? null;
   }
 
   /** The next `depth` tracks' fileIds after the current position, nearest first, respecting loop mode. */

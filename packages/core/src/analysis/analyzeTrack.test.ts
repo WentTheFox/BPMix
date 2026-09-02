@@ -22,6 +22,18 @@ function silence(durationSeconds: number): Float32Array {
   return new Float32Array(Math.round(durationSeconds * SAMPLE_RATE));
 }
 
+/** Deterministic (seeded), non-periodic noise - audible (above the silence threshold) but with nothing for a comb filter to lock onto, like a sparse/vocal-only intro or a breakdown. */
+function noise(durationSeconds: number, amplitude = 0.05): Float32Array {
+  const length = Math.round(durationSeconds * SAMPLE_RATE);
+  const out = new Float32Array(length);
+  let seed = 42;
+  for (let i = 0; i < length; i++) {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    out[i] = amplitude * ((seed / 0x7fffffff) * 2 - 1);
+  }
+  return out;
+}
+
 function concat(...chunks: Float32Array[]): Float32Array {
   const total = chunks.reduce((sum, c) => sum + c.length, 0);
   const out = new Float32Array(total);
@@ -68,6 +80,33 @@ describe('analyzeTrack', () => {
     // The beat anchor must fall after the leading silence, in the region
     // where content actually starts - not at some point inside the silence.
     expect(startWindow.beatAnchorSeconds).toBeGreaterThanOrEqual(leadingSilenceSeconds - 0.1);
+  });
+
+  it("finds the confident beat within the start window even when it doesn't kick in until well after the window begins (a vocal-only/non-percussive intro)", () => {
+    // 20s of non-periodic noise (audible, not silence) followed by 10s of a
+    // clear 140bpm click train - exactly ANALYSIS_WINDOW_SECONDS together,
+    // so the full-window estimate would dilute across all 30s of it.
+    const samples = concat(silence(2), noise(20), clickTrain(10, 140), silence(2));
+    const audio = makeDecodedAudio(samples);
+
+    const { startWindow } = analyzeTrack(audio);
+
+    expect(startWindow.bpm).toBeGreaterThan(135);
+    expect(startWindow.bpm).toBeLessThan(145);
+    expect(startWindow.bpmConfidence).toBeGreaterThan(0.3);
+  });
+
+  it("finds the confident beat within the end window even when it fades out before the window ends (a breakdown/outro)", () => {
+    // Mirror image for the end window: a clear 140bpm click train, then 20s
+    // of non-periodic noise before the (already-trimmed) trailing silence.
+    const samples = concat(silence(2), clickTrain(10, 140), noise(20), silence(2));
+    const audio = makeDecodedAudio(samples);
+
+    const { endWindow } = analyzeTrack(audio);
+
+    expect(endWindow.bpm).toBeGreaterThan(135);
+    expect(endWindow.bpm).toBeLessThan(145);
+    expect(endWindow.bpmConfidence).toBeGreaterThan(0.3);
   });
 
   it('handles a short track where the first/last windows overlap without crashing', () => {

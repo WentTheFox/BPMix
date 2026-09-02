@@ -95,6 +95,9 @@ export function createAudioEngine(fileAccess: FileAccess): AudioEngine {
           gainNode.gain.setValueAtTime(gainNode.gain.value, ramp.atTimeSeconds);
           gainNode.gain.linearRampToValueAtTime(ramp.toValue, endTime);
         },
+        rampGainCurve(values, atTimeSeconds, durationSeconds) {
+          gainNode.gain.setValueCurveAtTime(new Float32Array(values), atTimeSeconds, durationSeconds);
+        },
         setRate(value) {
           bufferSource.playbackRate.value = value;
         },
@@ -104,12 +107,22 @@ export function createAudioEngine(fileAccess: FileAccess): AudioEngine {
           bufferSource.playbackRate.linearRampToValueAtTime(ramp.toValue, endTime);
         },
         stop(whenSeconds) {
+          const effectiveWhen = whenSeconds ?? context.currentTime;
           try {
-            bufferSource.stop(whenSeconds ?? context.currentTime);
+            bufferSource.stop(effectiveWhen);
           } catch {
             // Already stopped/never started - fine, this is a best-effort stop.
           }
-          disconnectNodes();
+          // disconnect() silences output immediately, regardless of
+          // whenSeconds - correct for an immediate stop (pause/seek/track
+          // switch, the vast majority of calls), but a *scheduled future*
+          // stop (Stage 7's crossfade fade-out) must keep playing until
+          // then, not go silent the instant stop() is called. onended
+          // (wired above to also disconnect) fires when the scheduled stop
+          // actually takes effect, so that call handles cleanup instead.
+          if (effectiveWhen <= context.currentTime) {
+            disconnectNodes();
+          }
         },
       };
 

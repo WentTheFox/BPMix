@@ -13,6 +13,9 @@ export * from './analysis/ensureAnalyzed';
 export * from './analysis/bpm';
 export * from './analysis/loudness';
 export * from './analysis/silence';
+export * from './crossfade/computeTransitionPlan';
+export * from './crossfade/computeCrossfadeVisualization';
+export * from './crossfade/equalPowerGain';
 
 /** Runtime marker used by the Stage 0 empty-shell screens to prove the workspace wiring resolves. */
 export const CORE_PACKAGE_NAME = '@bpmix/core';

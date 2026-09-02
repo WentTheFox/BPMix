@@ -74,6 +74,11 @@ export class PreloadScheduler {
     return decoded;
   }
 
+  /** Checks readiness without consuming it - used to decide *whether* to start a crossfade before committing to it via takePreloaded. */
+  hasPreloaded(fileId: string): boolean {
+    return this.ready.has(fileId);
+  }
+
   /** Drops any preloaded/in-progress state for tracks no longer in the current lookahead window, bounding memory to what's actually still relevant. */
   private forgetStale(upcomingFileIds: string[]): void {
     const keep = new Set(upcomingFileIds);
