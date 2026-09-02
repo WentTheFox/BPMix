@@ -6,6 +6,7 @@ import { TrackPlayer } from './trackPlayer';
 class FakeAudioEngine implements AudioEngine {
   clock = 0;
   stoppedSourceIds: string[] = [];
+  gainBySourceId = new Map<string, number>();
   /**
    * Some real native audio engines (confirmed: react-native-audio-api on
    * Android) invoke a source's onEnded callback SYNCHRONOUSLY from within
@@ -27,7 +28,7 @@ class FakeAudioEngine implements AudioEngine {
     if (onEnded) this.endedCallbacks.set(id, onEnded);
     return {
       id,
-      setGain: () => {},
+      setGain: (value) => this.gainBySourceId.set(id, value),
       rampGain: () => {},
       setRate: () => {},
       rampRate: () => {},
@@ -251,5 +252,31 @@ describe('TrackPlayer', () => {
 
     expect(racingPlayer.getState().status).toBe('playing');
     expect(racingPlayer.getState().durationSeconds).toBe(20);
+  });
+
+  it('setGain() applies to the currently playing source immediately', () => {
+    player.play();
+    const [sourceId] = engine.gainBySourceId.keys();
+
+    player.setGain(0.5);
+
+    expect(engine.gainBySourceId.get(sourceId!)).toBe(0.5);
+  });
+
+  it('setGain() carries over to a source created later by seek/resume', () => {
+    player.setGain(0.5);
+    player.play();
+    player.seek(3); // tears down the current source and creates a new one
+
+    const gains = [...engine.gainBySourceId.values()];
+    expect(gains.every((g) => g === 0.5)).toBe(true);
+    expect(gains.length).toBeGreaterThanOrEqual(2); // the original source and the one seek() created
+  });
+
+  it('defaults to gain 1 (no change) when never set', () => {
+    player.play();
+    const [sourceId] = engine.gainBySourceId.keys();
+
+    expect(engine.gainBySourceId.get(sourceId!)).toBe(1);
   });
 });

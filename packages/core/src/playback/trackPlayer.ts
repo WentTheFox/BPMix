@@ -29,6 +29,7 @@ export class TrackPlayer {
   private startedAtEngineTime = 0;
   private startOffsetSeconds = 0;
   private loadToken = 0;
+  private currentGain = 1;
 
   constructor(engine: AudioEngine, callbacks: TrackPlayerCallbacks = {}) {
     this.engine = engine;
@@ -109,6 +110,19 @@ export class TrackPlayer {
   }
 
   /**
+   * Sets the gain multiplier applied to this track (normalization, per
+   * Stage 5 - relative to the fixed reference loudness target computed
+   * during analysis). Takes effect on the currently playing source
+   * immediately, and on every source created afterward (seek/resume/pause
+   * all tear down and recreate the source - see the class doc - so this
+   * has to be remembered and re-applied each time, not just set once).
+   */
+  setGain(value: number): void {
+    this.currentGain = value;
+    this.source?.setGain(value);
+  }
+
+  /**
    * Nulls this.source BEFORE calling stop() on the old one, not after. Some
    * native engines invoke the source's onEnded callback synchronously from
    * within stop() (unlike the browser, where it's always async) - if
@@ -163,6 +177,7 @@ export class TrackPlayer {
     // needs this.source to already equal the new source, so it processes a
     // genuine immediate end correctly instead of silently dropping it.
     this.source = source;
+    source.setGain(this.currentGain);
     this.startedAtEngineTime = when;
     this.startOffsetSeconds = offsetSeconds;
     this.status = 'playing';

@@ -30,6 +30,7 @@ export interface PlaylistPlayerState {
 export class PlaylistPlayer {
   private readonly trackPlayer: TrackPlayer;
   private readonly resolveTrack: (fileId: string) => FileRef | Promise<FileRef>;
+  private readonly resolveGain?: (fileId: string) => number | Promise<number>;
   private readonly onError?: (error: unknown) => void;
 
   private trackFileIds: string[] = [];
@@ -42,10 +43,15 @@ export class PlaylistPlayer {
   constructor(
     engine: AudioEngine,
     resolveTrack: (fileId: string) => FileRef | Promise<FileRef>,
-    options: { onError?: (error: unknown) => void } = {},
+    options: {
+      onError?: (error: unknown) => void;
+      /** Normalization gain (Stage 5) for a track, e.g. from its stored AnalysisResult - defaults to 1 (no change) if omitted or it throws. */
+      resolveGain?: (fileId: string) => number | Promise<number>;
+    } = {},
   ) {
     this.resolveTrack = resolveTrack;
     this.onError = options.onError;
+    this.resolveGain = options.resolveGain;
     this.trackPlayer = new TrackPlayer(engine, { onEnded: () => this.handleTrackEnded() });
   }
 
@@ -150,7 +156,9 @@ export class PlaylistPlayer {
     // ordering bug).
     const token = ++this.playToken;
     try {
-      const ref = await this.resolveTrack(fileId);
+      const [ref, gain] = await Promise.all([this.resolveTrack(fileId), this.resolveGainFor(fileId)]);
+      if (token !== this.playToken) return;
+      this.trackPlayer.setGain(gain);
       await this.trackPlayer.load(ref);
       if (token !== this.playToken) return;
       this.trackPlayer.play();
@@ -158,6 +166,16 @@ export class PlaylistPlayer {
       if (token === this.playToken) {
         this.onError?.(error);
       }
+    }
+  }
+
+  /** Falls back to 1 (no change) if no resolveGain was given, or it fails - a missing/failed gain lookup shouldn't block playback. */
+  private async resolveGainFor(fileId: string): Promise<number> {
+    if (!this.resolveGain) return 1;
+    try {
+      return await this.resolveGain(fileId);
+    } catch {
+      return 1;
     }
   }
 

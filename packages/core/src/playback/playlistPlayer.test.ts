@@ -9,6 +9,7 @@ class FakeAudioEngine implements AudioEngine {
   private endedCallbacks = new Map<string, () => void>();
   /** id of the most recently created source, so tests can fire its ended callback without tracking ids by hand. */
   lastSourceId: string | null = null;
+  gainBySourceId = new Map<string, number>();
 
   async decodeFile(_ref: FileRef): Promise<DecodedAudio> {
     return { sampleRate: 44100, numberOfChannels: 2, channelData: [], durationSeconds: 10 };
@@ -20,7 +21,7 @@ class FakeAudioEngine implements AudioEngine {
     if (onEnded) this.endedCallbacks.set(id, onEnded);
     return {
       id,
-      setGain: () => {},
+      setGain: (value) => this.gainBySourceId.set(id, value),
       rampGain: () => {},
       setRate: () => {},
       rampRate: () => {},
@@ -194,5 +195,50 @@ describe('PlaylistPlayer', () => {
     seen.add(player.getState().currentFileId);
     expect(seen.size).toBe(3);
     expect([...seen].sort()).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('PlaylistPlayer normalization gain (Stage 5)', () => {
+  it('applies resolveGain() to the source when a track starts playing', async () => {
+    const engine = new FakeAudioEngine();
+    const gainsByFileId: Record<string, number> = { a: 0.5, b: 2 };
+    const player = new PlaylistPlayer(engine, (fileId) => makeFileRef(fileId), {
+      resolveGain: (fileId) => gainsByFileId[fileId] ?? 1,
+    });
+
+    await player.setPlaylist(TRACKS); // starts on 'a'
+    await flush();
+
+    expect(engine.gainBySourceId.get(engine.lastSourceId!)).toBe(0.5);
+
+    await player.next();
+    await flush();
+
+    expect(engine.gainBySourceId.get(engine.lastSourceId!)).toBe(2);
+  });
+
+  it('defaults to gain 1 when no resolveGain is given', async () => {
+    const engine = new FakeAudioEngine();
+    const player = new PlaylistPlayer(engine, (fileId) => makeFileRef(fileId));
+
+    await player.setPlaylist(TRACKS);
+    await flush();
+
+    expect(engine.gainBySourceId.get(engine.lastSourceId!)).toBe(1);
+  });
+
+  it('falls back to gain 1 instead of failing playback if resolveGain throws', async () => {
+    const engine = new FakeAudioEngine();
+    const player = new PlaylistPlayer(engine, (fileId) => makeFileRef(fileId), {
+      resolveGain: () => {
+        throw new Error('lookup failed');
+      },
+    });
+
+    await player.setPlaylist(TRACKS);
+    await flush();
+
+    expect(player.getState().track.status).toBe('playing');
+    expect(engine.gainBySourceId.get(engine.lastSourceId!)).toBe(1);
   });
 });

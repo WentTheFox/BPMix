@@ -78,7 +78,10 @@ const playlistPlayer = new PlaylistPlayer(
     if (!track) throw new Error(`Unknown track ${fileId}`);
     return trackToFileRef(track);
   },
-  { onError: (error) => reportError(error) },
+  {
+    onError: (error) => reportError(error),
+    resolveGain: async (fileId) => (await libraryStore.getAnalysis(fileId))?.normalizationGain ?? 1,
+  },
 );
 
 const LOOP_MODE_CYCLE: LoopMode[] = ['off', 'all', 'one'];
