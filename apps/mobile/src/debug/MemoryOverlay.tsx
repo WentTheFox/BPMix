@@ -15,8 +15,9 @@ const MemoryInfo = NativeModules.MemoryInfo as MemoryInfoNativeModule | undefine
  * Dev-only live RSS sparkline, backed by the native MemoryInfo module (reads
  * /proc/self/status directly - see its comment for why, vs. android.os.Debug
  * or dumpsys, both of which force a GC as a side effect of measuring, which
- * would mask the exact leak this was built to chase). Absolutely positioned
- * and pointerEvents="none" so it never intercepts touches from the UI below.
+ * would mask the exact leak this was built to chase). Renders inline (takes
+ * up its own space at the top of the screen) rather than as an absolutely
+ * positioned overlay, so it never obscures the header/title beneath it.
  */
 export function MemoryOverlay(): React.JSX.Element | null {
   const [samples, setSamples] = useState<number[]>([]);
@@ -55,7 +56,7 @@ export function MemoryOverlay(): React.JSX.Element | null {
   const peakKb = Math.max(peakRef.current, 1);
 
   return (
-    <View style={styles.container} pointerEvents="none">
+    <View style={styles.container}>
       <Text style={styles.label}>
         RSS {(latestKb / 1024).toFixed(0)} MB · peak {(peakRef.current / 1024).toFixed(0)} MB
       </Text>
@@ -76,11 +77,6 @@ export function MemoryOverlay(): React.JSX.Element | null {
 
 const styles = StyleSheet.create({
   container: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 999,
     backgroundColor: 'rgba(0,0,0,0.7)',
     paddingHorizontal: 8,
     paddingTop: 4,
