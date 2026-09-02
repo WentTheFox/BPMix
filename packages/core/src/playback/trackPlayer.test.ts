@@ -18,8 +18,10 @@ class FakeAudioEngine implements AudioEngine {
   throwOnScheduleStart = false;
   private nextId = 0;
   private endedCallbacks = new Map<string, () => void>();
+  decodeCallCount = 0;
 
   async decodeFile(_ref: FileRef): Promise<DecodedAudio> {
+    this.decodeCallCount++;
     return { sampleRate: 44100, numberOfChannels: 2, channelData: [], durationSeconds: 10 };
   }
 
@@ -278,5 +280,41 @@ describe('TrackPlayer', () => {
     const [sourceId] = engine.gainBySourceId.keys();
 
     expect(engine.gainBySourceId.get(sourceId!)).toBe(1);
+  });
+
+  it('loadDecoded() makes an already-decoded buffer playable without a decodeFile() round trip', () => {
+    const decodeCallsBefore = engine.decodeCallCount;
+
+    player.loadDecoded({ sampleRate: 44100, numberOfChannels: 2, channelData: [], durationSeconds: 30 });
+
+    expect(engine.decodeCallCount).toBe(decodeCallsBefore); // no new decode
+    expect(player.getState()).toEqual({ status: 'stopped', positionSeconds: 0, durationSeconds: 30 });
+
+    player.play();
+    expect(player.getState().status).toBe('playing');
+  });
+
+  it('loadDecoded() stops whatever was already playing first', () => {
+    player.play();
+    expect(player.getState().status).toBe('playing');
+
+    player.loadDecoded({ sampleRate: 44100, numberOfChannels: 2, channelData: [], durationSeconds: 5 });
+
+    expect(player.getState()).toEqual({ status: 'stopped', positionSeconds: 0, durationSeconds: 5 });
+  });
+
+  it('loadDecoded() invalidates a still-in-flight async load(), like a newer load() would', () => {
+    const controllable = new (class extends FakeAudioEngine {
+      override decodeFile(): Promise<DecodedAudio> {
+        return new Promise(() => {}); // never resolves
+      }
+    })();
+    const racingPlayer = new TrackPlayer(controllable);
+    const staleLoad = racingPlayer.load(fileRef);
+
+    racingPlayer.loadDecoded({ sampleRate: 44100, numberOfChannels: 1, channelData: [], durationSeconds: 7 });
+
+    expect(racingPlayer.getState().durationSeconds).toBe(7);
+    void staleLoad; // deliberately never resolves - not awaited, just proving loadDecoded() doesn't wait on it either
   });
 });

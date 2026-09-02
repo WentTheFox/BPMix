@@ -7,7 +7,7 @@ import type {
   PlaylistRecord,
   TrackRecord,
 } from '@bpmix/core';
-import { analyzeLibrary, PlaylistPlayer, scanRoot } from '@bpmix/core';
+import { ensureTrackAnalyzed, PlaylistPlayer, scanRoot } from '@bpmix/core';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { GestureResponderEvent, LayoutChangeEvent } from 'react-native';
 import { FlatList, Pressable, StyleSheet, Text, useColorScheme, View } from 'react-native';
@@ -70,6 +70,12 @@ const playlistPlayer = new PlaylistPlayer(
   {
     onError: (error) => reportError(error),
     resolveGain: async (fileId) => (await libraryStore.getAnalysis(fileId))?.normalizationGain ?? 1,
+    // Just-in-time analysis (Stage 4): a track already needed a decode for
+    // playback/preload, so analyzing it here is free - no separate eager
+    // batch pass over the whole library.
+    onDecoded: (ref, decoded) => {
+      void ensureTrackAnalyzed(libraryStore, ref, decoded);
+    },
   },
 );
 
@@ -227,35 +233,6 @@ function App() {
     };
   }, []);
 
-  // Analysis (BPM/loudness) runs in the background, decoupled from refresh()'s
-  // await chain - decoding hundreds of tracks can take a long time, and
-  // nothing about scanning/showing the library should block on it. The
-  // analyzeLibrary() freshness check makes re-running this over the same
-  // track list cheap (a skip, no decode) for anything already analyzed, so
-  // it's safe to kick off from every trigger point without extra bookkeeping.
-  const analysisRunningRef = useRef(false);
-  const [analysisProgress, setAnalysisProgress] = useState<{ done: number; total: number; skipped: number } | null>(
-    null,
-  );
-  const runAnalysisPass = useCallback((tracks: TrackRecord[]) => {
-    if (analysisRunningRef.current || tracks.length === 0) return;
-    analysisRunningRef.current = true;
-    let done = 0;
-    let skipped = 0;
-    setAnalysisProgress({ done: 0, total: tracks.length, skipped: 0 });
-    analyzeLibrary(audioEngine, libraryStore, tracks, {
-      onProgress: (p) => {
-        done++;
-        if (p.skipped) skipped++;
-        setAnalysisProgress({ done, total: tracks.length, skipped });
-      },
-    })
-      .catch((err) => setError(String(err)))
-      .finally(() => {
-        analysisRunningRef.current = false;
-      });
-  }, []);
-
   const refresh = useCallback(async () => {
     const roots = await fileAccess.listGrantedRoots();
     const withLibrary = await Promise.all(
@@ -271,17 +248,15 @@ function App() {
     return withLibrary;
   }, []);
 
-  // "Every startup" analysis trigger - re-checks whatever's already in the
-  // store, catching e.g. a previous session's analysis pass that got cut
-  // short.
   useEffect(() => {
-    refresh()
-      .then((withLibrary) => runAnalysisPass(withLibrary.flatMap((r) => [...r.tracksById.values()])))
-      .catch((err) => setError(String(err)));
-  }, [refresh, runAnalysisPass]);
+    refresh().catch((err) => setError(String(err)));
+  }, [refresh]);
 
   useEffect(() => {
-    const interval = setInterval(() => setPlayerState(playlistPlayer.getState()), 200);
+    const interval = setInterval(() => {
+      setPlayerState(playlistPlayer.getState());
+      playlistPlayer.checkPreload(); // Stage 6 lookahead - reuses this poll instead of a second timer
+    }, 200);
     return () => clearInterval(interval);
   }, []);
 
@@ -291,24 +266,22 @@ function App() {
       const root = await fileAccess.requestRoot();
       if (!root) return; // user cancelled the picker
       setBusyRootId(root.id);
-      const scanResult = await scanRoot(fileAccess, libraryStore, root.id);
+      await scanRoot(fileAccess, libraryStore, root.id);
       await refresh();
-      runAnalysisPass(scanResult.tracks);
     } catch (err) {
       setError(String(err));
     } finally {
       setBusyRootId(null);
     }
-  }, [refresh, runAnalysisPass]);
+  }, [refresh]);
 
   const rescan = useCallback(
     async (rootId: string) => {
       setError(null);
       setBusyRootId(rootId);
       try {
-        const scanResult = await scanRoot(fileAccess, libraryStore, rootId);
+        await scanRoot(fileAccess, libraryStore, rootId);
         await refresh();
-        runAnalysisPass(scanResult.tracks);
       } catch (err) {
         setError(String(err));
       } finally {
@@ -417,13 +390,6 @@ function App() {
     };
   }, [playerState.currentFileId]);
 
-  const analysisProgressLine = analysisProgress && (
-    <Text style={[styles.nowPlayingTime, { color: colors.subtleText }]}>
-      Analyzing {analysisProgress.done}/{analysisProgress.total} ({analysisProgress.skipped} already up to date)
-      {analysisProgress.done >= analysisProgress.total ? ' - done' : '…'}
-    </Text>
-  );
-
   const nowPlayingBar = playerState.currentFileId && (
     <View style={styles.nowPlaying}>
       <Text style={[styles.nowPlayingName, { color: colors.text }]} numberOfLines={1}>
@@ -482,7 +448,6 @@ function App() {
           <Text style={[styles.backLink, { color: colors.text }]}>← {playlist.name}</Text>
         </Pressable>
         {error && <Text style={styles.error}>{error}</Text>}
-        {analysisProgressLine}
         {nowPlayingBar}
         <FlatList
           style={styles.list}
@@ -515,7 +480,6 @@ function App() {
         <Text style={styles.buttonText}>Add Folder</Text>
       </Pressable>
       {error && <Text style={styles.error}>{error}</Text>}
-      {analysisProgressLine}
       {nowPlayingBar}
 
       <FlatList

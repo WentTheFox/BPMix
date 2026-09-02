@@ -9,6 +9,7 @@ export * from './playback/shuffle';
 export * from './playback/playlistPlayer';
 export * from './analysis/analyzeTrack';
 export * from './analysis/analyzeLibrary';
+export * from './analysis/ensureAnalyzed';
 export * from './analysis/bpm';
 export * from './analysis/loudness';
 export * from './analysis/silence';

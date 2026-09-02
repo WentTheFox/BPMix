@@ -1,8 +1,12 @@
-import type { AudioEngine } from '../audio-engine/types';
+import type { AudioEngine, DecodedAudio } from '../audio-engine/types';
 import type { FileRef } from '../file-access/types';
 import type { LoopMode } from '../library-store/types';
+import { PreloadScheduler } from './preloadScheduler';
 import { fisherYatesShuffle } from './shuffle';
 import { TrackPlayer, type TrackPlayerState } from './trackPlayer';
+
+/** How many tracks ahead of the current one to keep decoded and ready - the currently playing track plus this many preloaded is "2-3 songs" resident at once. */
+const PRELOAD_DEPTH = 2;
 
 export interface PlaylistPlayerState {
   totalTracks: number;
@@ -28,10 +32,13 @@ export interface PlaylistPlayerState {
  * let you escape loop='one'/'off' clamping when you explicitly want to.
  */
 export class PlaylistPlayer {
+  private readonly engine: AudioEngine;
   private readonly trackPlayer: TrackPlayer;
   private readonly resolveTrack: (fileId: string) => FileRef | Promise<FileRef>;
   private readonly resolveGain?: (fileId: string) => number | Promise<number>;
+  private readonly onDecoded?: (ref: FileRef, decoded: DecodedAudio) => void | Promise<void>;
   private readonly onError?: (error: unknown) => void;
+  private readonly preloadScheduler: PreloadScheduler;
 
   private trackFileIds: string[] = [];
   private order: number[] = [];
@@ -47,12 +54,44 @@ export class PlaylistPlayer {
       onError?: (error: unknown) => void;
       /** Normalization gain (Stage 5) for a track, e.g. from its stored AnalysisResult - defaults to 1 (no change) if omitted or it throws. */
       resolveGain?: (fileId: string) => number | Promise<number>;
+      /**
+       * Fired (fire-and-forget - never awaited, never blocks playback)
+       * whenever a track is freshly decoded, whether for immediate playback
+       * or preload lookahead. Lets a caller lazily analyze+cache a track
+       * (Stage 4) the first time it's actually needed instead of an eager
+       * batch pass over the whole library - that pass turned out to starve
+       * the UI thread for as long as it ran, for tracks that might never
+       * even get played.
+       */
+      onDecoded?: (ref: FileRef, decoded: DecodedAudio) => void | Promise<void>;
     } = {},
   ) {
+    this.engine = engine;
     this.resolveTrack = resolveTrack;
     this.onError = options.onError;
     this.resolveGain = options.resolveGain;
+    this.onDecoded = options.onDecoded;
     this.trackPlayer = new TrackPlayer(engine, { onEnded: () => this.handleTrackEnded() });
+    this.preloadScheduler = new PreloadScheduler({
+      decode: (fileId) => this.decodeAndNotify(fileId),
+      // Stage 6's "flag a playback error" - playback itself is unaffected,
+      // playAt() just decodes cold (its existing fallback) when it gets
+      // there, since an empty preload cache is a no-op, not a special case.
+      onGiveUp: (fileId) =>
+        this.onError?.(new Error(`Preload failed for track ${fileId} after every retry - it'll load normally when reached.`)),
+    });
+  }
+
+  /** Decodes a track and fires onDecoded - the single decode path shared by playAt()'s cache-miss case and the preload scheduler, so both feed the same just-in-time analysis hook. */
+  private async decodeAndNotify(fileId: string): Promise<DecodedAudio> {
+    const ref = await this.resolveTrack(fileId);
+    const decoded = await this.engine.decodeFile(ref);
+    try {
+      void Promise.resolve(this.onDecoded?.(ref, decoded)).catch(() => {});
+    } catch {
+      // onDecoded threw synchronously - it's fire-and-forget, never let it affect playback.
+    }
+    return decoded;
   }
 
   /** Loads a new playlist and starts playing at the given track (default: the first). */
@@ -130,6 +169,40 @@ export class PlaylistPlayer {
     await this.playAt(this.position - 1);
   }
 
+  /**
+   * Drives the Stage 6 lookahead preload scheduler - call this regularly
+   * (both apps do it from their existing ~200ms UI poll interval, rather
+   * than adding a second timer) while a track is playing or paused.
+   */
+  checkPreload(): void {
+    if (this.order.length === 0) return;
+    const trackState = this.trackPlayer.getState();
+    if (trackState.status !== 'playing' && trackState.status !== 'paused') return;
+    this.preloadScheduler.tick({
+      remainingSeconds: trackState.durationSeconds - trackState.positionSeconds,
+      upcomingFileIds: this.computeUpcomingFileIds(PRELOAD_DEPTH),
+    });
+  }
+
+  /** The next `depth` tracks' fileIds after the current position, nearest first, respecting loop mode. */
+  private computeUpcomingFileIds(depth: number): string[] {
+    if (this.loopMode === 'one' || this.order.length <= 1) return [];
+    const result: string[] = [];
+    for (let i = 1; i <= depth; i++) {
+      let pos = this.position + i;
+      if (pos >= this.order.length) {
+        if (this.loopMode !== 'all') break; // loop off - nothing past the end
+        pos = pos % this.order.length;
+      }
+      const trackIndex = this.order[pos];
+      if (trackIndex === undefined) break;
+      const fileId = this.trackFileIds[trackIndex];
+      if (fileId === undefined) break;
+      result.push(fileId);
+    }
+    return result;
+  }
+
   getState(): PlaylistPlayerState {
     const currentTrackIndex = this.position >= 0 ? this.order[this.position] : undefined;
     return {
@@ -156,11 +229,17 @@ export class PlaylistPlayer {
     // ordering bug).
     const token = ++this.playToken;
     try {
-      const [ref, gain] = await Promise.all([this.resolveTrack(fileId), this.resolveGainFor(fileId)]);
+      // A track the preload scheduler already finished decoding skips
+      // straight to loadDecoded() - no redundant decodeFile() round trip,
+      // and effectively instant since there's nothing left to await there.
+      const preloaded = this.preloadScheduler.takePreloaded(fileId);
+      const [decoded, gain] = await Promise.all([
+        preloaded ? Promise.resolve(preloaded) : this.decodeAndNotify(fileId),
+        this.resolveGainFor(fileId),
+      ]);
       if (token !== this.playToken) return;
       this.trackPlayer.setGain(gain);
-      await this.trackPlayer.load(ref);
-      if (token !== this.playToken) return;
+      this.trackPlayer.loadDecoded(decoded);
       this.trackPlayer.play();
     } catch (error) {
       if (token === this.playToken) {

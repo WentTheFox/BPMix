@@ -1,7 +1,7 @@
 import type { AudioEngine } from '../audio-engine/types';
 import type { FileRef } from '../file-access/types';
 import type { LibraryStore, TrackRecord } from '../library-store/types';
-import { analyzeTrack } from './analyzeTrack';
+import { ensureTrackAnalyzed } from './ensureAnalyzed';
 
 export interface AnalyzeProgress {
   track: TrackRecord;
@@ -26,13 +26,21 @@ function trackToFileRef(track: TrackRecord): FileRef {
   };
 }
 
+/** Yields to the JS event loop (a macrotask, not just a microtask) so queued UI/touch events get a chance to run between tracks. */
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 /**
- * Analyzes every track that's new or whose stored analysis is stale
- * (sizeBytes/lastModifiedMs changed since it was last analyzed) - a track
- * unchanged since its last analysis is skipped entirely, no decode
- * performed. One function serves all three trigger points from the plan
- * (initial folder add, every startup, manual rescan) - callers just pass
- * whichever TrackRecord[] is relevant for that trigger.
+ * Eagerly analyzes every track in the given list that's new or whose
+ * stored analysis is stale (built on the same ensureTrackAnalyzed()
+ * primitive the just-in-time path uses when a track is decoded for
+ * playback/preload). Not auto-triggered by either app - decoding and
+ * analyzing an entire library up front turned out to starve the UI thread
+ * for as long as it ran, for tracks the user might never even play. Kept
+ * as an available utility (e.g. for an explicit "analyze everything now"
+ * action) since the per-track logic and skip/retry semantics are still
+ * useful on their own.
  *
  * Analysis failures (corrupt/unreadable file, decode error) are caught per
  * track and reported via onProgress rather than aborting the whole run -
@@ -49,24 +57,18 @@ export async function analyzeLibrary(
     const existing = await store.getAnalysis(track.fileId);
     if (existing && existing.sizeBytes === track.sizeBytes && existing.lastModifiedMs === track.lastModifiedMs) {
       options.onProgress?.({ track, index, total: tracks.length, skipped: true });
+      await yieldToEventLoop();
       continue;
     }
 
     try {
-      const decoded = await audioEngine.decodeFile(trackToFileRef(track));
-      const { startWindow, endWindow, normalizationGain } = analyzeTrack(decoded);
-      await store.putAnalysis({
-        fileId: track.fileId,
-        startWindow,
-        endWindow,
-        normalizationGain,
-        analyzedAtMs: Date.now(),
-        sizeBytes: track.sizeBytes,
-        lastModifiedMs: track.lastModifiedMs,
-      });
+      const ref = trackToFileRef(track);
+      const decoded = await audioEngine.decodeFile(ref);
+      await ensureTrackAnalyzed(store, ref, decoded);
       options.onProgress?.({ track, index, total: tracks.length, skipped: false });
     } catch (error) {
       options.onProgress?.({ track, index, total: tracks.length, skipped: false, error });
     }
+    await yieldToEventLoop();
   }
 }

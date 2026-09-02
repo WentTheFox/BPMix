@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AudioEngine, DecodedAudio, SourceNode } from '../audio-engine/types';
 import type { FileRef } from '../file-access/types';
 import { PlaylistPlayer } from './playlistPlayer';
@@ -10,8 +10,10 @@ class FakeAudioEngine implements AudioEngine {
   /** id of the most recently created source, so tests can fire its ended callback without tracking ids by hand. */
   lastSourceId: string | null = null;
   gainBySourceId = new Map<string, number>();
+  decodedFileIds: string[] = [];
 
-  async decodeFile(_ref: FileRef): Promise<DecodedAudio> {
+  async decodeFile(ref: FileRef): Promise<DecodedAudio> {
+    this.decodedFileIds.push(ref.id);
     return { sampleRate: 44100, numberOfChannels: 2, channelData: [], durationSeconds: 10 };
   }
 
@@ -240,5 +242,106 @@ describe('PlaylistPlayer normalization gain (Stage 5)', () => {
 
     expect(player.getState().track.status).toBe('playing');
     expect(engine.gainBySourceId.get(engine.lastSourceId!)).toBe(1);
+  });
+});
+
+describe('PlaylistPlayer lookahead preload (Stage 6)', () => {
+  it('checkPreload() decodes upcoming tracks ahead of time', async () => {
+    const engine = new FakeAudioEngine();
+    const player = new PlaylistPlayer(engine, (fileId) => makeFileRef(fileId));
+    await player.setPlaylist(TRACKS); // starts on 'a'
+    await flush();
+    expect(engine.decodedFileIds).toEqual(['a']);
+
+    player.checkPreload();
+    await flush();
+
+    // depth 2: both 'b' and 'c' get preloaded ahead of 'a' finishing.
+    expect(engine.decodedFileIds).toEqual(['a', 'b', 'c']);
+  });
+
+  it('advancing to a preloaded track does not decode it again', async () => {
+    const engine = new FakeAudioEngine();
+    const player = new PlaylistPlayer(engine, (fileId) => makeFileRef(fileId));
+    await player.setPlaylist(TRACKS);
+    await flush();
+    player.checkPreload();
+    await flush();
+    expect(engine.decodedFileIds).toEqual(['a', 'b', 'c']);
+
+    await player.next(); // -> 'b', already preloaded
+    await flush();
+    expect(engine.decodedFileIds).toEqual(['a', 'b', 'c']); // no new decode
+
+    await player.next(); // -> 'c', already preloaded
+    await flush();
+    expect(engine.decodedFileIds).toEqual(['a', 'b', 'c']); // still no new decode
+    expect(player.getState().currentFileId).toBe('c');
+  });
+
+  it('does nothing when nothing is playing or paused', () => {
+    const engine = new FakeAudioEngine();
+    const player = new PlaylistPlayer(engine, (fileId) => makeFileRef(fileId));
+    // No setPlaylist() call - order is empty, nothing playing.
+
+    expect(() => player.checkPreload()).not.toThrow();
+    expect(engine.decodedFileIds).toEqual([]);
+  });
+
+  it('does not preload anything while looping the current track', async () => {
+    const engine = new FakeAudioEngine();
+    const player = new PlaylistPlayer(engine, (fileId) => makeFileRef(fileId));
+    await player.setPlaylist(TRACKS);
+    await flush();
+    player.setLoopMode('one');
+
+    player.checkPreload();
+    await flush();
+
+    expect(engine.decodedFileIds).toEqual(['a']); // no preload beyond the current track
+  });
+});
+
+describe('PlaylistPlayer just-in-time analysis hook (Stage 4 revision)', () => {
+  it('fires onDecoded for the current track on first play, without blocking playback', async () => {
+    const engine = new FakeAudioEngine();
+    const onDecoded = vi.fn();
+    const player = new PlaylistPlayer(engine, (fileId) => makeFileRef(fileId), { onDecoded });
+
+    await player.setPlaylist(TRACKS);
+    await flush();
+
+    expect(player.getState().track.status).toBe('playing'); // not blocked on onDecoded
+    expect(onDecoded).toHaveBeenCalledTimes(1);
+    expect(onDecoded.mock.calls[0]![0]).toMatchObject({ id: 'a' });
+  });
+
+  it('fires onDecoded for tracks the preload scheduler decodes ahead of time', async () => {
+    const engine = new FakeAudioEngine();
+    const onDecoded = vi.fn();
+    const player = new PlaylistPlayer(engine, (fileId) => makeFileRef(fileId), { onDecoded });
+
+    await player.setPlaylist(TRACKS);
+    await flush();
+    player.checkPreload();
+    await flush();
+
+    const decodedIds = onDecoded.mock.calls.map((call) => (call[0] as { id: string }).id);
+    expect(decodedIds.sort()).toEqual(['a', 'b', 'c']);
+  });
+
+  it('does not let a throwing onDecoded affect playback', async () => {
+    const engine = new FakeAudioEngine();
+    const player = new PlaylistPlayer(engine, (fileId) => makeFileRef(fileId), {
+      onDecoded: () => {
+        throw new Error('analysis blew up');
+      },
+    });
+
+    await player.setPlaylist(TRACKS);
+    await flush();
+
+    expect(player.getState().track.status).toBe('playing');
+    expect(player.getState().currentFileId).toBe('a');
   });
 });

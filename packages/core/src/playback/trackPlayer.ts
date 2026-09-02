@@ -51,6 +51,22 @@ export class TrackPlayer {
     if (token !== this.loadToken) {
       return;
     }
+    this.applyDecoded(decoded);
+  }
+
+  /**
+   * Loads an already-decoded buffer synchronously - no decodeFile() round
+   * trip. Used by PlaylistPlayer's preload scheduler (Stage 6) to make an
+   * advance to a track it already finished decoding ahead of time
+   * effectively instant, instead of redundantly decoding it again.
+   */
+  loadDecoded(decoded: DecodedAudio): void {
+    this.stop();
+    ++this.loadToken; // invalidates any in-flight async load() a caller might have started and then superseded with this
+    this.applyDecoded(decoded);
+  }
+
+  private applyDecoded(decoded: DecodedAudio): void {
     this.decoded = decoded;
     this.startOffsetSeconds = 0;
     this.status = 'stopped';
