@@ -15,7 +15,8 @@ import {
   realTimeForOutgoingPosition,
   scanRoot,
 } from '@bpmix/core';
-import { CrossfadePreview } from '@bpmix/ui';
+import { CrossfadePreview, Icon } from '@bpmix/ui';
+import { mdiFastForward10, mdiPause, mdiPlay, mdiRewind10, mdiSkipNext, mdiSkipPrevious } from '@mdi/js';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GestureResponderEvent, LayoutChangeEvent } from 'react-native';
 import { FlatList, Pressable, StyleSheet, Text, useColorScheme, View } from 'react-native';
@@ -194,10 +195,12 @@ const TrackRow = memo(function TrackRow({
 }) {
   return (
     <Pressable style={styles.trackRow} onPress={() => onPress(track)}>
-      <Text style={[styles.trackName, { color: isCurrent ? '#3b82f6' : colors.text }]} numberOfLines={1}>
-        {isCurrent && isPlaying ? '▶ ' : ''}
-        {trackDisplayName(track)}
-      </Text>
+      <View style={styles.trackRowContent}>
+        {isCurrent && isPlaying && <Icon path={mdiPlay} size={14} color="#3b82f6" />}
+        <Text style={[styles.trackName, { color: isCurrent ? '#3b82f6' : colors.text }]} numberOfLines={1}>
+          {trackDisplayName(track)}
+        </Text>
+      </View>
     </Pressable>
   );
 });
@@ -520,21 +523,19 @@ function App() {
       />
       <View style={styles.playerControlsRow}>
         <Pressable style={styles.controlButton} onPress={handlePreviousPress}>
-          <Text style={styles.controlIcon}>⏮</Text>
+          <Icon path={mdiSkipPrevious} size={20} color="white" />
         </Pressable>
         <Pressable style={styles.controlButtonWide} onPress={() => seekBy(-10)}>
-          <Text style={styles.controlIconWide}>⏪10</Text>
+          <Icon path={mdiRewind10} size={22} color="white" />
         </Pressable>
         <Pressable style={[styles.controlButton, styles.controlButtonPrimary]} onPress={togglePause}>
-          <Text style={[styles.controlIcon, styles.controlIconPrimary]}>
-            {playerState.track.status === 'playing' ? '⏸' : '▶'}
-          </Text>
+          <Icon path={playerState.track.status === 'playing' ? mdiPause : mdiPlay} size={30} color="white" />
         </Pressable>
         <Pressable style={styles.controlButtonWide} onPress={() => seekBy(10)}>
-          <Text style={styles.controlIconWide}>10⏩</Text>
+          <Icon path={mdiFastForward10} size={22} color="white" />
         </Pressable>
         <Pressable style={styles.controlButton} onPress={handleNextPress}>
-          <Text style={styles.controlIcon}>⏭</Text>
+          <Icon path={mdiSkipNext} size={20} color="white" />
         </Pressable>
       </View>
       <View style={styles.transportRow}>
@@ -763,18 +764,6 @@ const styles = StyleSheet.create({
     borderRadius: 36,
     backgroundColor: '#2563eb',
   },
-  controlIcon: {
-    color: 'white',
-    fontSize: 20,
-  },
-  controlIconWide: {
-    color: 'white',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  controlIconPrimary: {
-    fontSize: 30,
-  },
   list: {
     flex: 1,
     marginTop: 24,
@@ -816,8 +805,14 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 16,
   },
+  trackRowContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   trackName: {
     fontSize: 14,
+    flexShrink: 1,
   },
 });
 

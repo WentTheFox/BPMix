@@ -45,19 +45,19 @@ const ready = (async () => {
   await run('CREATE INDEX IF NOT EXISTS idx_playlists_rootId ON playlists(rootId)');
 
   // CREATE TABLE IF NOT EXISTS is a no-op against a table created under an
-  // older schema (e.g. from before the startWindow/endWindow split) - it
-  // silently leaves the old columns in place, so every putAnalysis() insert
-  // against the new column set fails with "no such column" and nothing
-  // ever persists. Analysis results are fully re-derivable by re-running
-  // analysis (unlike tracks/playlists, which come from the user's actual
-  // files), so it's safe to just drop and recreate rather than write a
-  // real migration.
+  // older schema (e.g. from before the startWindow/endWindow split, or
+  // before algorithmVersion was added) - it silently leaves the old columns
+  // in place, so every putAnalysis() insert against the new column set
+  // fails with "no such column" and nothing ever persists. Analysis results
+  // are fully re-derivable by re-running analysis (unlike tracks/playlists,
+  // which come from the user's actual files), so it's safe to just drop and
+  // recreate rather than write a real migration.
   const analysisTableInfo = await run('PRAGMA table_info(analysis)');
   const analysisColumns = new Set<string>();
   for (let i = 0; i < analysisTableInfo.rows.length; i++) {
     analysisColumns.add((analysisTableInfo.rows.item(i) as { name: string }).name);
   }
-  if (analysisColumns.size > 0 && !analysisColumns.has('startBpm')) {
+  if (analysisColumns.size > 0 && (!analysisColumns.has('startBpm') || !analysisColumns.has('algorithmVersion'))) {
     await run('DROP TABLE analysis');
   }
 
@@ -73,7 +73,8 @@ const ready = (async () => {
       normalizationGain REAL NOT NULL,
       analyzedAtMs INTEGER NOT NULL,
       sizeBytes INTEGER NOT NULL,
-      lastModifiedMs INTEGER NOT NULL
+      lastModifiedMs INTEGER NOT NULL,
+      algorithmVersion INTEGER NOT NULL
     )`,
   );
   await run(
@@ -147,6 +148,7 @@ export function createLibraryStore(): LibraryStore {
         analyzedAtMs: number;
         sizeBytes: number;
         lastModifiedMs: number;
+        algorithmVersion: number;
       }>(result);
       const row = rows[0];
       if (!row) return null;
@@ -162,6 +164,7 @@ export function createLibraryStore(): LibraryStore {
         analyzedAtMs: row.analyzedAtMs,
         sizeBytes: row.sizeBytes,
         lastModifiedMs: row.lastModifiedMs,
+        algorithmVersion: row.algorithmVersion,
       };
     },
 
@@ -171,15 +174,16 @@ export function createLibraryStore(): LibraryStore {
         `INSERT INTO analysis (
            fileId, startBpm, startBpmConfidence, startBeatAnchorSeconds,
            endBpm, endBpmConfidence, endBeatAnchorSeconds,
-           normalizationGain, analyzedAtMs, sizeBytes, lastModifiedMs
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           normalizationGain, analyzedAtMs, sizeBytes, lastModifiedMs, algorithmVersion
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(fileId) DO UPDATE SET
            startBpm=excluded.startBpm, startBpmConfidence=excluded.startBpmConfidence,
            startBeatAnchorSeconds=excluded.startBeatAnchorSeconds,
            endBpm=excluded.endBpm, endBpmConfidence=excluded.endBpmConfidence,
            endBeatAnchorSeconds=excluded.endBeatAnchorSeconds,
            normalizationGain=excluded.normalizationGain, analyzedAtMs=excluded.analyzedAtMs,
-           sizeBytes=excluded.sizeBytes, lastModifiedMs=excluded.lastModifiedMs`,
+           sizeBytes=excluded.sizeBytes, lastModifiedMs=excluded.lastModifiedMs,
+           algorithmVersion=excluded.algorithmVersion`,
         [
           analysisResult.fileId,
           analysisResult.startWindow.bpm,
@@ -192,6 +196,7 @@ export function createLibraryStore(): LibraryStore {
           analysisResult.analyzedAtMs,
           analysisResult.sizeBytes,
           analysisResult.lastModifiedMs,
+          analysisResult.algorithmVersion,
         ],
       );
     },

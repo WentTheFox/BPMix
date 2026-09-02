@@ -10,8 +10,10 @@
   "dependencies": {
     "@bpmix/core": "workspace:*",
     "@bpmix/ui": "workspace:*",
+    "@mdi/js": "^7.4.47",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "react-native-svg": "^15.15.5",
     "react-native-web": "^0.21.0"
   },
   "devDependencies": {

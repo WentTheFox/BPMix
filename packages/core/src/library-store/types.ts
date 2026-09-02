@@ -46,6 +46,8 @@ export interface AnalysisResult {
    */
   sizeBytes: number;
   lastModifiedMs: number;
+  /** ANALYSIS_ALGORITHM_VERSION at analysis time - a mismatch means the algorithm changed since, so the result is stale even though the file itself didn't. */
+  algorithmVersion: number;
 }
 
 export type LoopMode = 'off' | 'all' | 'one';

@@ -44,7 +44,15 @@ export interface TransitionPlan {
    * artifacts that speeding up doesn't, so this plan never asks for it.
    */
   incomingRate: number;
-  /** Position (seconds) in the INCOMING track to start playback from - snapped to its own beat grid. */
+  /**
+   * Position (seconds) in the INCOMING track to start playback from - its
+   * own first confidently-detected beat (see analyzeTrack's extended
+   * search for a long/weak intro), not backward-extrapolated toward 0 on
+   * the same grid: extrapolating back would walk the start position into
+   * whatever non-rhythmic content came before the beat was ever
+   * established, which is exactly the region the analysis had to search
+   * past to find a confident tempo in the first place.
+   */
   incomingStartSeconds: number;
   /** How long the audible gain crossfade itself lasts (seconds), once both tracks are tempo+phase matched. */
   fadeDurationSeconds: number;
@@ -64,13 +72,6 @@ export interface IncomingTransitionInfo {
 function nearestBeat(anchorSeconds: number, periodSeconds: number, targetSeconds: number): number {
   if (periodSeconds <= 0) return targetSeconds;
   const steps = Math.round((targetSeconds - anchorSeconds) / periodSeconds);
-  return anchorSeconds + steps * periodSeconds;
-}
-
-/** The earliest beat (from the same kind of grid) at or after minSeconds. */
-function earliestBeatAtOrAfter(anchorSeconds: number, periodSeconds: number, minSeconds: number): number {
-  if (periodSeconds <= 0) return Math.max(anchorSeconds, minSeconds);
-  const steps = Math.ceil((minSeconds - anchorSeconds) / periodSeconds);
   return anchorSeconds + steps * periodSeconds;
 }
 
@@ -139,7 +140,6 @@ export function computeTransitionPlan(
   const outgoingBpm = outgoing.endWindow.bpmConfidence >= MIN_BPM_CONFIDENCE ? outgoing.endWindow.bpm : 0;
   const incomingBpm = incoming.startWindow.bpmConfidence >= MIN_BPM_CONFIDENCE ? incoming.startWindow.bpm : 0;
   const outgoingPeriod = outgoingBpm > 0 ? 60 / outgoingBpm : 0;
-  const incomingPeriod = incomingBpm > 0 ? 60 / incomingBpm : 0;
   const bothUsable = outgoingBpm > 0 && incomingBpm > 0;
 
   const needsOutgoingRamp = bothUsable && outgoingBpm < incomingBpm;
@@ -180,7 +180,7 @@ export function computeTransitionPlan(
     beatWaitSeconds = trackTimeToNextBeat / outgoingTargetRate;
   }
 
-  const incomingStartSeconds = Math.max(0, earliestBeatAtOrAfter(incoming.startWindow.beatAnchorSeconds, incomingPeriod, 0));
+  const incomingStartSeconds = Math.max(0, incoming.startWindow.beatAnchorSeconds);
 
   return {
     rampStartSeconds,

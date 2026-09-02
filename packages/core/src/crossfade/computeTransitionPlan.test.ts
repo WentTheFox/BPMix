@@ -109,18 +109,23 @@ describe('computeTransitionPlan', () => {
     expect(plan.outgoingTargetRate).toBeCloseTo(128 / 120, 6);
   });
 
-  it('snaps the incoming start to the earliest beat at or after 0 on its own grid', () => {
-    // Anchor is behind 0 by a non-whole number of periods - the earliest beat >= 0 must still land on-grid.
+  it("starts the incoming track at its own detected beat anchor, not extrapolated earlier (regression: rewinding toward 0 on the same grid could land inside a non-rhythmic intro that came before the beat was ever confidently established)", () => {
+    // Anchor found well into the track - e.g. a 25.4s non-rhythmic intro before the beat kicks in.
+    const outgoing = { endWindow: { bpm: 100, bpmConfidence: 0.9, beatAnchorSeconds: 100 }, durationSeconds: 200 };
+    const incoming = { startWindow: { bpm: 90, bpmConfidence: 0.9, beatAnchorSeconds: 25.4 } };
+
+    const plan = computeTransitionPlan(outgoing, incoming, 4);
+
+    expect(plan.incomingStartSeconds).toBe(25.4);
+  });
+
+  it('clamps a hand-constructed negative anchor to 0 rather than starting playback before the track begins', () => {
     const outgoing = { endWindow: { bpm: 100, bpmConfidence: 0.9, beatAnchorSeconds: 100 }, durationSeconds: 200 };
     const incoming = { startWindow: { bpm: 90, bpmConfidence: 0.9, beatAnchorSeconds: -1.2 } };
 
     const plan = computeTransitionPlan(outgoing, incoming, 4);
 
-    const period = 60 / 90;
-    const stepsFromAnchor = (plan.incomingStartSeconds - -1.2) / period;
-    expect(stepsFromAnchor).toBeCloseTo(Math.round(stepsFromAnchor), 9);
-    expect(plan.incomingStartSeconds).toBeGreaterThanOrEqual(0);
-    expect(plan.incomingStartSeconds).toBeLessThan(period); // the *earliest* qualifying beat, not just any
+    expect(plan.incomingStartSeconds).toBe(0);
   });
 
   it('uses the requested crossfade duration as-is for the fade phase', () => {

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AudioEngine, DecodedAudio, RampSpec, SourceNode } from '../audio-engine/types';
 import type { FileRef } from '../file-access/types';
+import { ANALYSIS_ALGORITHM_VERSION } from '../analysis/analyzeTrack';
 import type { AnalysisResult } from '../library-store/types';
 import { PlaylistPlayer } from './playlistPlayer';
 
@@ -84,6 +85,7 @@ function makeAnalysis(fileId: string, bpm: number, gain = 1): AnalysisResult {
     analyzedAtMs: 0,
     sizeBytes: 0,
     lastModifiedMs: 0,
+    algorithmVersion: ANALYSIS_ALGORITHM_VERSION,
   };
 }
 

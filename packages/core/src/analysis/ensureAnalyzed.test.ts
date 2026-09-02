@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DecodedAudio } from '../audio-engine/types';
 import type { FileRef } from '../file-access/types';
 import type { AnalysisResult, LibraryStore, PlaybackState, PlaylistRecord, TrackRecord } from '../library-store/types';
+import { ANALYSIS_ALGORITHM_VERSION } from './analyzeTrack';
 import { ensureTrackAnalyzed } from './ensureAnalyzed';
 
 class FakeLibraryStore implements LibraryStore {
@@ -71,5 +72,16 @@ describe('ensureTrackAnalyzed', () => {
 
     expect(result.sizeBytes).toBe(2000);
     expect(result.lastModifiedMs).toBe(42);
+  });
+
+  it('re-analyzes a cached result from an older algorithm version even though size/mtime still match (regression: an algorithm fix must apply to already-analyzed files, not just newly-changed ones)', async () => {
+    const store = new FakeLibraryStore();
+    const first = await ensureTrackAnalyzed(store, ref, decodedAudio());
+    await store.putAnalysis({ ...first, algorithmVersion: first.algorithmVersion - 1, analyzedAtMs: 1 });
+
+    const second = await ensureTrackAnalyzed(store, ref, decodedAudio());
+
+    expect(second.algorithmVersion).toBe(ANALYSIS_ALGORITHM_VERSION);
+    expect(second.analyzedAtMs).not.toBe(1); // proves it was actually recomputed, not just returned as-is
   });
 });

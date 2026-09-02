@@ -8,16 +8,19 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@bpmix/core": "workspace:*"
+    "@bpmix/core": "workspace:*",
+    "@mdi/js": "^7.4.47"
   },
   "peerDependencies": {
     "react": "*",
-    "react-native": "*"
+    "react-native": "*",
+    "react-native-svg": "*"
   },
   "devDependencies": {
     "@types/react": "^19.2.0",
     "react": "19.2.3",
     "react-native": "0.87.0",
+    "react-native-svg": "^15.15.5",
     "typescript": "^5.9.0"
   }
 }

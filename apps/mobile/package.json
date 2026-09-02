@@ -12,12 +12,14 @@
   "dependencies": {
     "@bpmix/core": "workspace:*",
     "@bpmix/ui": "workspace:*",
+    "@mdi/js": "^7.4.47",
     "react": "19.2.3",
     "react-native": "0.87.0",
     "react-native-audio-api": "^0.13.3",
     "react-native-safe-area-context": "^5.5.2",
     "react-native-scoped-storage": "^1.9.0",
-    "react-native-sqlite-2": "^3.6.2"
+    "react-native-sqlite-2": "^3.6.2",
+    "react-native-svg": "^15.15.5"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

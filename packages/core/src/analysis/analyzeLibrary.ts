@@ -1,7 +1,8 @@
 import type { AudioEngine } from '../audio-engine/types';
 import type { FileRef } from '../file-access/types';
 import type { LibraryStore, TrackRecord } from '../library-store/types';
-import { ensureTrackAnalyzed } from './ensureAnalyzed';
+import { ensureTrackAnalyzed, isAnalysisFresh } from './ensureAnalyzed';
+import { yieldToEventLoop } from './yieldToEventLoop';
 
 export interface AnalyzeProgress {
   track: TrackRecord;
@@ -24,11 +25,6 @@ function trackToFileRef(track: TrackRecord): FileRef {
     sizeBytes: track.sizeBytes,
     lastModifiedMs: track.lastModifiedMs,
   };
-}
-
-/** Yields to the JS event loop (a macrotask, not just a microtask) so queued UI/touch events get a chance to run between tracks. */
-function yieldToEventLoop(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 /**
@@ -55,7 +51,7 @@ export async function analyzeLibrary(
   for (let index = 0; index < tracks.length; index++) {
     const track = tracks[index]!;
     const existing = await store.getAnalysis(track.fileId);
-    if (existing && existing.sizeBytes === track.sizeBytes && existing.lastModifiedMs === track.lastModifiedMs) {
+    if (isAnalysisFresh(existing, track)) {
       options.onProgress?.({ track, index, total: tracks.length, skipped: true });
       await yieldToEventLoop();
       continue;

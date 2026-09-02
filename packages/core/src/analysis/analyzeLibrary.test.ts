@@ -3,6 +3,7 @@ import type { AudioEngine, DecodedAudio, SourceNode } from '../audio-engine/type
 import type { FileRef } from '../file-access/types';
 import type { AnalysisResult, LibraryStore, PlaybackState, PlaylistRecord, TrackRecord } from '../library-store/types';
 import { analyzeLibrary } from './analyzeLibrary';
+import { ANALYSIS_ALGORITHM_VERSION } from './analyzeTrack';
 
 class FakeAudioEngine implements AudioEngine {
   decodedRefIds: string[] = [];
@@ -75,6 +76,7 @@ function existingAnalysis(overrides: Partial<AnalysisResult> & { fileId: string 
     analyzedAtMs: 0,
     sizeBytes: 1000,
     lastModifiedMs: 1,
+    algorithmVersion: ANALYSIS_ALGORITHM_VERSION,
     ...overrides,
   };
 }
@@ -105,6 +107,22 @@ describe('analyzeLibrary', () => {
 
     expect(engine.decodedRefIds).toEqual([]);
     expect(progress).toEqual([true]);
+  });
+
+  it('re-analyzes a track whose stored analysis predates the current algorithm version, even though the file itself is unchanged', async () => {
+    const engine = new FakeAudioEngine();
+    const store = new FakeLibraryStore();
+    const t = track({ fileId: 'a', sizeBytes: 1000, lastModifiedMs: 1 });
+    store.analysis.set(
+      'a',
+      existingAnalysis({ fileId: 'a', sizeBytes: 1000, lastModifiedMs: 1, algorithmVersion: ANALYSIS_ALGORITHM_VERSION - 1 }),
+    );
+
+    await analyzeLibrary(engine, store, [t]);
+
+    expect(engine.decodedRefIds).toEqual(['a']);
+    const result = await store.getAnalysis('a');
+    expect(result!.algorithmVersion).toBe(ANALYSIS_ALGORITHM_VERSION);
   });
 
   it('re-analyzes a track whose file changed since its last analysis', async () => {
