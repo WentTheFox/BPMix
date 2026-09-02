@@ -18,7 +18,7 @@ import {
 import { CrossfadePreview, Icon } from '@bpmix/ui';
 import { mdiFastForward10, mdiPause, mdiPlay, mdiRewind10, mdiSkipNext, mdiSkipPrevious } from '@mdi/js';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { GestureResponderEvent, LayoutChangeEvent } from 'react-native';
+import type { DimensionValue, GestureResponderEvent, LayoutChangeEvent } from 'react-native';
 import { FlatList, Pressable, StyleSheet, Text, useColorScheme, View } from 'react-native';
 import { createAudioEngine } from './adapters/audioEngine';
 import { createFileAccess } from './adapters/fileAccess';
@@ -651,7 +651,9 @@ const styles = StyleSheet.create({
     // and actually virtualize - minHeight lets the page grow past 100vh and
     // never gives it one, so on web it was effectively rendering every row
     // anyway despite using FlatList.
-    height: '100vh',
+    // react-native-web accepts CSS units like this at runtime; core RN's
+    // own DimensionValue type (what resolves here) doesn't include them.
+    height: '100vh' as unknown as DimensionValue,
     alignItems: 'center',
     paddingTop: 48,
   },

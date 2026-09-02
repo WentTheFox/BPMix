@@ -120,7 +120,14 @@ export class PlaylistPlayer {
     const ref = await this.resolveTrack(fileId);
     const decoded = await this.engine.decodeFile(ref);
     try {
-      void Promise.resolve(this.onDecoded?.(ref, decoded)).catch(() => {});
+      // Fire-and-forget (never awaited here - decoded is returned to the
+      // caller, e.g. for playback, immediately below regardless), but an
+      // engine whose decodeFile() can resolve before channelData holds
+      // real data (Windows - see AudioEngine.awaitAnalysisReady) needs
+      // this to wait for that before onDecoded reads it for analysis.
+      void Promise.resolve(this.engine.awaitAnalysisReady?.(decoded))
+        .then(() => this.onDecoded?.(ref, decoded))
+        .catch(() => {});
     } catch {
       // onDecoded threw synchronously - it's fire-and-forget, never let it affect playback.
     }
@@ -356,6 +363,7 @@ export class PlaylistPlayer {
     const fileId = this.trackFileIds[trackIndex];
     if (fileId === undefined) return;
     this.position = position;
+    this.trackPlayer.markLoading();
     // If a newer playAt() (from a rapid manual skip, or a duplicate/spurious
     // onEnded firing) starts before this one finishes decoding, this call's
     // eventual .play() must not run - two overlapping loads racing to start

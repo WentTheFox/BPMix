@@ -1,4 +1,4 @@
-import type { DecodedAudio } from '../audio-engine/types';
+import type { AudioEngine, DecodedAudio } from '../audio-engine/types';
 import type { FileRef } from '../file-access/types';
 import type { AnalysisResult, LibraryStore } from '../library-store/types';
 import { ANALYSIS_ALGORITHM_VERSION, analyzeTrack } from './analyzeTrack';
@@ -31,17 +31,22 @@ export function isAnalysisFresh(
  * playback/preload decoding a track for the first time - callers that
  * already have a DecodedAudio (they decoded it for playback or preload
  * anyway) get analysis at no extra decode cost.
+ *
+ * `engine`, when given and it implements AudioEngine.analyzeTrack, runs
+ * analysis there instead of the shared JS analyzeTrack() - see that
+ * optional method's doc comment for why (Windows UI-thread stutter).
  */
 export async function ensureTrackAnalyzed(
   store: LibraryStore,
   ref: FileRef,
   decoded: DecodedAudio,
+  engine?: AudioEngine,
 ): Promise<AnalysisResult> {
   const existing = await store.getAnalysis(ref.id);
   if (isAnalysisFresh(existing, ref)) {
     return existing;
   }
-  const { startWindow, endWindow, normalizationGain } = await analyzeTrack(decoded);
+  const { startWindow, endWindow, normalizationGain } = await (engine?.analyzeTrack?.(decoded) ?? analyzeTrack(decoded));
   const result: AnalysisResult = {
     fileId: ref.id,
     startWindow,
