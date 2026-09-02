@@ -43,13 +43,37 @@ const ready = (async () => {
     )`,
   );
   await run('CREATE INDEX IF NOT EXISTS idx_playlists_rootId ON playlists(rootId)');
+
+  // CREATE TABLE IF NOT EXISTS is a no-op against a table created under an
+  // older schema (e.g. from before the startWindow/endWindow split) - it
+  // silently leaves the old columns in place, so every putAnalysis() insert
+  // against the new column set fails with "no such column" and nothing
+  // ever persists. Analysis results are fully re-derivable by re-running
+  // analysis (unlike tracks/playlists, which come from the user's actual
+  // files), so it's safe to just drop and recreate rather than write a
+  // real migration.
+  const analysisTableInfo = await run('PRAGMA table_info(analysis)');
+  const analysisColumns = new Set<string>();
+  for (let i = 0; i < analysisTableInfo.rows.length; i++) {
+    analysisColumns.add((analysisTableInfo.rows.item(i) as { name: string }).name);
+  }
+  if (analysisColumns.size > 0 && !analysisColumns.has('startBpm')) {
+    await run('DROP TABLE analysis');
+  }
+
   await run(
     `CREATE TABLE IF NOT EXISTS analysis (
       fileId TEXT PRIMARY KEY,
-      bpm REAL NOT NULL,
-      bpmConfidence REAL NOT NULL,
+      startBpm REAL NOT NULL,
+      startBpmConfidence REAL NOT NULL,
+      startBeatAnchorSeconds REAL NOT NULL,
+      endBpm REAL NOT NULL,
+      endBpmConfidence REAL NOT NULL,
+      endBeatAnchorSeconds REAL NOT NULL,
       normalizationGain REAL NOT NULL,
-      analyzedAtMs INTEGER NOT NULL
+      analyzedAtMs INTEGER NOT NULL,
+      sizeBytes INTEGER NOT NULL,
+      lastModifiedMs INTEGER NOT NULL
     )`,
   );
   await run(
@@ -111,22 +135,63 @@ export function createLibraryStore(): LibraryStore {
     async getAnalysis(fileId: string): Promise<AnalysisResult | null> {
       await ready;
       const result = await run('SELECT * FROM analysis WHERE fileId = ?', [fileId]);
-      const rows = rowsToArray<AnalysisResult>(result);
-      return rows[0] ?? null;
+      const rows = rowsToArray<{
+        fileId: string;
+        startBpm: number;
+        startBpmConfidence: number;
+        startBeatAnchorSeconds: number;
+        endBpm: number;
+        endBpmConfidence: number;
+        endBeatAnchorSeconds: number;
+        normalizationGain: number;
+        analyzedAtMs: number;
+        sizeBytes: number;
+        lastModifiedMs: number;
+      }>(result);
+      const row = rows[0];
+      if (!row) return null;
+      return {
+        fileId: row.fileId,
+        startWindow: {
+          bpm: row.startBpm,
+          bpmConfidence: row.startBpmConfidence,
+          beatAnchorSeconds: row.startBeatAnchorSeconds,
+        },
+        endWindow: { bpm: row.endBpm, bpmConfidence: row.endBpmConfidence, beatAnchorSeconds: row.endBeatAnchorSeconds },
+        normalizationGain: row.normalizationGain,
+        analyzedAtMs: row.analyzedAtMs,
+        sizeBytes: row.sizeBytes,
+        lastModifiedMs: row.lastModifiedMs,
+      };
     },
 
     async putAnalysis(analysisResult: AnalysisResult): Promise<void> {
       await ready;
       await run(
-        `INSERT INTO analysis (fileId, bpm, bpmConfidence, normalizationGain, analyzedAtMs) VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(fileId) DO UPDATE SET bpm=excluded.bpm, bpmConfidence=excluded.bpmConfidence,
-           normalizationGain=excluded.normalizationGain, analyzedAtMs=excluded.analyzedAtMs`,
+        `INSERT INTO analysis (
+           fileId, startBpm, startBpmConfidence, startBeatAnchorSeconds,
+           endBpm, endBpmConfidence, endBeatAnchorSeconds,
+           normalizationGain, analyzedAtMs, sizeBytes, lastModifiedMs
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(fileId) DO UPDATE SET
+           startBpm=excluded.startBpm, startBpmConfidence=excluded.startBpmConfidence,
+           startBeatAnchorSeconds=excluded.startBeatAnchorSeconds,
+           endBpm=excluded.endBpm, endBpmConfidence=excluded.endBpmConfidence,
+           endBeatAnchorSeconds=excluded.endBeatAnchorSeconds,
+           normalizationGain=excluded.normalizationGain, analyzedAtMs=excluded.analyzedAtMs,
+           sizeBytes=excluded.sizeBytes, lastModifiedMs=excluded.lastModifiedMs`,
         [
           analysisResult.fileId,
-          analysisResult.bpm,
-          analysisResult.bpmConfidence,
+          analysisResult.startWindow.bpm,
+          analysisResult.startWindow.bpmConfidence,
+          analysisResult.startWindow.beatAnchorSeconds,
+          analysisResult.endWindow.bpm,
+          analysisResult.endWindow.bpmConfidence,
+          analysisResult.endWindow.beatAnchorSeconds,
           analysisResult.normalizationGain,
           analysisResult.analyzedAtMs,
+          analysisResult.sizeBytes,
+          analysisResult.lastModifiedMs,
         ],
       );
     },
