@@ -315,11 +315,13 @@ function App() {
   }, []);
 
   const goNext = useCallback(async (options?: { force?: boolean }) => {
+    if (!transportActionAllowed()) return;
     await playlistPlayer.next(options);
     setPlayerState(playlistPlayer.getState());
   }, []);
 
   const goPrevious = useCallback(async (options?: { force?: boolean }) => {
+    if (!transportActionAllowed()) return;
     await playlistPlayer.previous(options);
     setPlayerState(playlistPlayer.getState());
   }, []);

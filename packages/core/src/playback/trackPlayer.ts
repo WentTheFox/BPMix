@@ -28,6 +28,7 @@ export class TrackPlayer {
   private status: TrackPlayerStatus = 'idle';
   private startedAtEngineTime = 0;
   private startOffsetSeconds = 0;
+  private loadToken = 0;
 
   constructor(engine: AudioEngine, callbacks: TrackPlayerCallbacks = {}) {
     this.engine = engine;
@@ -37,7 +38,19 @@ export class TrackPlayer {
   async load(ref: FileRef): Promise<void> {
     this.stop();
     this.status = 'loading';
-    this.decoded = await this.engine.decodeFile(ref);
+    // If a newer load() supersedes this one before decodeFile() resolves,
+    // this call must not touch state on completion - PlaylistPlayer's own
+    // playToken guard stops a stale load from being *played*, but without
+    // this, a slow superseded decode finishing after a newer, faster one
+    // has already started playing would silently overwrite this.decoded
+    // and force status back to 'stopped' out from under the track that's
+    // actually audible right now.
+    const token = ++this.loadToken;
+    const decoded = await this.engine.decodeFile(ref);
+    if (token !== this.loadToken) {
+      return;
+    }
+    this.decoded = decoded;
     this.startOffsetSeconds = 0;
     this.status = 'stopped';
   }

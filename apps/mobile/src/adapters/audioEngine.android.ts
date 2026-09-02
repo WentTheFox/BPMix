@@ -68,8 +68,34 @@ export function createAudioEngine(fileAccess: FileAccess): AudioEngine {
       const gainNode = context.createGain();
       bufferSource.connect(gainNode);
       gainNode.connect(context.destination);
+
+      // A Web-Audio-style graph keeps every connected node alive (a native,
+      // non-JS-GC-tracked reference held by the graph itself) until it's
+      // explicitly disconnected - browsers release finished one-shot source
+      // nodes automatically, but this native reimplementation doesn't. Every
+      // seek/pause/track-switch creates a fresh source+gain pair (even when
+      // getOrCreateBuffer reuses the same underlying buffer, e.g. repeated
+      // seeking within one track), so without this every one of those piles
+      // up a permanently-retained node pair - the real cause of the Hermes
+      // "external memory" OOM crash under rapid seeking this fixes.
+      const disconnectNodes = () => {
+        try {
+          bufferSource.disconnect();
+        } catch {
+          // Already disconnected - fine.
+        }
+        try {
+          gainNode.disconnect();
+        } catch {
+          // Already disconnected - fine.
+        }
+      };
+
       if (onEnded) {
-        bufferSource.onEnded = () => onEnded();
+        bufferSource.onEnded = () => {
+          onEnded();
+          disconnectNodes();
+        };
       }
 
       const node: SourceNode = {
@@ -96,6 +122,7 @@ export function createAudioEngine(fileAccess: FileAccess): AudioEngine {
           } catch {
             // Already stopped/never started - fine, this is a best-effort stop.
           }
+          disconnectNodes();
         },
       };
 

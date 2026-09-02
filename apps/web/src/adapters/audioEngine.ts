@@ -67,8 +67,22 @@ export function createAudioEngine(fileAccess: FileAccess): AudioEngine {
       const gainNode = context.createGain();
       bufferSource.connect(gainNode);
       gainNode.connect(context.destination);
+
+      // Browsers release a finished one-shot AudioBufferSourceNode on their
+      // own, but explicitly disconnecting keeps this adapter's node lifetime
+      // handling identical to the Android adapter (see its longer note),
+      // where a native, non-JS-GC-tracked graph reference makes this
+      // required, not just tidy.
+      const disconnectNodes = () => {
+        bufferSource.disconnect();
+        gainNode.disconnect();
+      };
+
       if (onEnded) {
-        bufferSource.onended = () => onEnded();
+        bufferSource.onended = () => {
+          onEnded();
+          disconnectNodes();
+        };
       }
 
       const node: SourceNode = {
@@ -95,6 +109,7 @@ export function createAudioEngine(fileAccess: FileAccess): AudioEngine {
           } catch {
             // Already stopped/never started - fine, this is a best-effort stop.
           }
+          disconnectNodes();
         },
       };
 

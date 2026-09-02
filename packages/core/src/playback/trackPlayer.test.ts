@@ -214,4 +214,42 @@ describe('TrackPlayer', () => {
     throwingPlayer.play();
     expect(throwingPlayer.getState().status).toBe('playing');
   });
+
+  it('a stale load() resolving after a newer one must not corrupt the now-playing state', async () => {
+    // Regression test found via rapid-fire track-skip stress testing on
+    // Android: two overlapping load() calls (e.g. two fast next-track taps)
+    // don't necessarily decode in call order. If the FIRST call's decode
+    // resolves AFTER the second one already finished and started playing,
+    // the first call must not be allowed to silently overwrite
+    // decoded/status out from under the track that's actually playing now.
+    class ControllableEngine extends FakeAudioEngine {
+      private resolvers: Array<(audio: DecodedAudio) => void> = [];
+      override async decodeFile(_ref: FileRef): Promise<DecodedAudio> {
+        return new Promise((resolve) => {
+          this.resolvers.push(resolve);
+        });
+      }
+      resolve(index: number, durationSeconds: number): void {
+        this.resolvers[index]?.({ sampleRate: 44100, numberOfChannels: 2, channelData: [], durationSeconds });
+      }
+    }
+
+    const controllable = new ControllableEngine();
+    const racingPlayer = new TrackPlayer(controllable);
+
+    const staleLoad = racingPlayer.load({ ...fileRef, id: 'stale' });
+    const freshLoad = racingPlayer.load({ ...fileRef, id: 'fresh' });
+
+    controllable.resolve(1, 20); // the newer call's decode resolves first
+    await freshLoad;
+    racingPlayer.play();
+    expect(racingPlayer.getState().status).toBe('playing');
+    expect(racingPlayer.getState().durationSeconds).toBe(20);
+
+    controllable.resolve(0, 10); // the stale call's decode finally resolves
+    await staleLoad;
+
+    expect(racingPlayer.getState().status).toBe('playing');
+    expect(racingPlayer.getState().durationSeconds).toBe(20);
+  });
 });

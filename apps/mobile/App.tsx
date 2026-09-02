@@ -16,6 +16,7 @@ import {
 import { createAudioEngine } from './src/adapters/audioEngine';
 import { createFileAccess } from './src/adapters/fileAccess';
 import { createLibraryStore } from './src/adapters/libraryStore';
+import { MemoryOverlay } from './src/debug/MemoryOverlay';
 
 const DOUBLE_PRESS_DELAY_MS = 300;
 const TRANSPORT_THROTTLE_MS = 300;
@@ -336,11 +337,13 @@ function AppContent() {
   }, []);
 
   const goNext = useCallback(async (options?: { force?: boolean }) => {
+    if (!transportActionAllowed()) return;
     await playlistPlayer.next(options);
     setPlayerState(playlistPlayer.getState());
   }, []);
 
   const goPrevious = useCallback(async (options?: { force?: boolean }) => {
+    if (!transportActionAllowed()) return;
     await playlistPlayer.previous(options);
     setPlayerState(playlistPlayer.getState());
   }, []);
@@ -418,6 +421,7 @@ function AppContent() {
     const { playlist, tracksById } = screen;
     return (
       <View style={[styles.container, { paddingTop: insets.top, backgroundColor: colors.background }]}>
+        {__DEV__ && <MemoryOverlay />}
         <Pressable onPress={() => setScreen({ kind: 'library' })} style={styles.backRow}>
           <Text style={[styles.backLink, { color: colors.text }]}>← {playlist.name}</Text>
         </Pressable>
@@ -449,6 +453,7 @@ function AppContent() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top, backgroundColor: colors.background }]}>
+      {__DEV__ && <MemoryOverlay />}
       <Text style={[styles.title, { color: colors.text }]}>BPMix</Text>
       <Pressable style={styles.button} onPress={addFolder}>
         <Text style={styles.buttonText}>Add Folder</Text>
