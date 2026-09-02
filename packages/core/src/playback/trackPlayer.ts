@@ -88,6 +88,17 @@ export class TrackPlayer {
   }
 
   /**
+   * Marks status='loading' immediately, synchronously - for callers (like
+   * PlaylistPlayer.playAt) that decode outside of load() (e.g. to run the
+   * decode and gain lookup concurrently) but still want getState() to
+   * reflect "loading" for the whole decode window rather than leaving
+   * status parked on whatever it was left at until loadDecoded() resolves.
+   */
+  markLoading(): void {
+    this.status = 'loading';
+  }
+
+  /**
    * Loads an already-decoded buffer synchronously - no decodeFile() round
    * trip. Used by PlaylistPlayer's preload scheduler (Stage 6) to make an
    * advance to a track it already finished decoding ahead of time

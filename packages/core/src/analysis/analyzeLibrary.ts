@@ -60,7 +60,7 @@ export async function analyzeLibrary(
     try {
       const ref = trackToFileRef(track);
       const decoded = await audioEngine.decodeFile(ref);
-      await ensureTrackAnalyzed(store, ref, decoded);
+      await ensureTrackAnalyzed(store, ref, decoded, audioEngine);
       options.onProgress?.({ track, index, total: tracks.length, skipped: false });
     } catch (error) {
       options.onProgress?.({ track, index, total: tracks.length, skipped: false, error });

@@ -25,7 +25,7 @@ import { CrossfadePreview, Icon } from '@bpmix/ui';
 import { mdiFastForward10, mdiPause, mdiPlay, mdiRewind10, mdiSkipNext, mdiSkipPrevious } from '@mdi/js';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GestureResponderEvent, LayoutChangeEvent } from 'react-native';
-import { FlatList, Pressable, StatusBar, StyleSheet, Text, useColorScheme, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, StatusBar, StyleSheet, Text, useColorScheme, View } from 'react-native';
 import {
   SafeAreaProvider,
   useSafeAreaInsets,
@@ -147,7 +147,7 @@ const playlistPlayer = new PlaylistPlayer(
     // playback/preload, so analyzing it here is free - no separate eager
     // batch pass over the whole library.
     onDecoded: (ref, decoded) => {
-      void ensureTrackAnalyzed(libraryStore, ref, decoded);
+      void ensureTrackAnalyzed(libraryStore, ref, decoded, audioEngine);
     },
   },
 );
@@ -525,15 +525,26 @@ function AppContent() {
     ? realTimeForOutgoingPosition(transitionPlan, playerState.track.positionSeconds)
     : null;
 
+  const isLoadingTrack = playerState.track.status === 'loading';
+
   const nowPlayingBar = playerState.currentFileId && (
     <View style={styles.nowPlaying}>
       <Text style={[styles.nowPlayingName, { color: colors.text }]} numberOfLines={1}>
         {nowPlayingTrack ? trackDisplayName(nowPlayingTrack) : playerState.currentFileId}
       </Text>
-      <Text style={[styles.nowPlayingTime, { color: colors.subtleText }]}>
-        {formatSeconds(playerState.track.positionSeconds)} / {formatSeconds(playerState.track.durationSeconds)} (
-        {playerState.track.status}) · track {playerState.position + 1}/{playerState.totalTracks}
-      </Text>
+      {isLoadingTrack ? (
+        <View style={styles.buttonRow}>
+          <ActivityIndicator size="small" color={colors.subtleText} style={styles.buttonSpinner} />
+          <Text style={[styles.nowPlayingTime, { color: colors.subtleText }]}>
+            Loading… · track {playerState.position + 1}/{playerState.totalTracks}
+          </Text>
+        </View>
+      ) : (
+        <Text style={[styles.nowPlayingTime, { color: colors.subtleText }]}>
+          {formatSeconds(playerState.track.positionSeconds)} / {formatSeconds(playerState.track.durationSeconds)} (
+          {playerState.track.status}) · track {playerState.position + 1}/{playerState.totalTracks}
+        </Text>
+      )}
       {currentAnalysis && (
         <Text style={[styles.nowPlayingTime, { color: colors.subtleText }]}>
           Tempo: start {currentAnalysis.startWindow.bpm.toFixed(0)} BPM · end {currentAnalysis.endWindow.bpm.toFixed(0)} BPM
@@ -634,12 +645,25 @@ function AppContent() {
     );
   }
 
+  // busyRootId is also set for a brand-new root while it's being scanned,
+  // before it exists in rootsWithLibrary - the "Scanning…" link next to an
+  // already-listed root's name doesn't cover that case, so this is the only
+  // signal available while a first-time Add Folder scan is running.
+  const isAddingFolder = busyRootId !== null && !rootsWithLibrary.some(({ root }) => root.id === busyRootId);
+
   return (
     <View style={[styles.container, { paddingTop: insets.top, backgroundColor: colors.background }]}>
       {__DEV__ && SHOW_MEMORY_OVERLAY && <MemoryOverlay />}
       <Text style={[styles.title, { color: colors.text }]}>BPMix</Text>
-      <Pressable style={styles.button} onPress={addFolder}>
-        <Text style={styles.buttonText}>Add Folder</Text>
+      <Pressable style={[styles.button, isAddingFolder && styles.buttonDisabled]} onPress={addFolder} disabled={isAddingFolder}>
+        {isAddingFolder ? (
+          <View style={styles.buttonRow}>
+            <ActivityIndicator color="#fff" style={styles.buttonSpinner} />
+            <Text style={styles.buttonText}>Scanning folder…</Text>
+          </View>
+        ) : (
+          <Text style={styles.buttonText}>Add Folder</Text>
+        )}
       </Pressable>
       {error && <Text style={styles.error}>{error}</Text>}
       {nowPlayingBar}
@@ -698,6 +722,16 @@ const styles = StyleSheet.create({
   buttonText: {
     color: 'white',
     fontWeight: '600',
+  },
+  buttonDisabled: {
+    opacity: 0.7,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  buttonSpinner: {
+    marginRight: 8,
   },
   error: {
     color: '#dc2626',

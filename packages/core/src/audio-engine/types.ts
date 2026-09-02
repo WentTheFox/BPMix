@@ -1,4 +1,5 @@
 import type { FileRef } from '../file-access/types';
+import type { WindowAnalysis } from '../library-store/types';
 
 /** Decoded PCM audio, platform-independent. */
 export interface DecodedAudio {
@@ -36,12 +37,48 @@ export interface SourceNode {
   stop(whenSeconds?: number): void;
 }
 
+/** Structurally identical to analysis/analyzeTrack's TrackAnalysis - duplicated here (rather than imported) so audio-engine/types doesn't depend on the analysis module. */
+export interface EngineTrackAnalysis {
+  startWindow: WindowAnalysis;
+  endWindow: WindowAnalysis;
+  normalizationGain: number;
+}
+
 export interface AudioEngine {
   /**
    * Decodes an entire file to PCM. Callers slice the first/last-30s
    * windows themselves - see the plan's "decode whole file once" note.
    */
   decodeFile(ref: FileRef): Promise<DecodedAudio>;
+
+  /**
+   * Optional: resolves once `audio.channelData` holds real sample data
+   * usable for analysis, if it might not yet when decodeFile() resolves.
+   * Exists for engines (Windows) whose decodeFile() returns as soon as
+   * playback is possible - which never reads channelData, it plays from
+   * a native-cached buffer - filling in real channelData values into the
+   * same typed arrays afterward in the background, since that transfer
+   * alone can take several seconds on a multi-minute track and playback
+   * shouldn't have to wait for it. Engines that always return full real
+   * data (Android, Web) simply don't implement this; callers that care
+   * about analysis correctness (PlaylistPlayer.decodeAndNotify) must
+   * await it before reading channelData, treating it as already-resolved
+   * when absent.
+   */
+  awaitAnalysisReady?(audio: DecodedAudio): Promise<void>;
+
+  /**
+   * Optional: an engine-native implementation of BPM/loudness analysis
+   * (analysis/analyzeTrack's algorithm), for platforms where running that
+   * analysis in JS visibly stutters the UI thread - Windows, whose old-RN-
+   * bridge architecture blocks UI responsiveness on JS work unlike Android/
+   * Web's genuinely separate JS and UI threads. When present,
+   * ensureTrackAnalyzed() uses this instead of the shared JS analyzeTrack(),
+   * running against the engine's own already-decoded native buffer rather
+   * than audio.channelData. Engines without a stutter problem (Android,
+   * Web) simply don't implement this.
+   */
+  analyzeTrack?(audio: DecodedAudio): Promise<EngineTrackAnalysis>;
 
   /**
    * A SourceNode is one-shot: once stopped it can't be restarted, so pause/

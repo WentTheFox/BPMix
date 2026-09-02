@@ -187,17 +187,25 @@ async function bestBpmEstimateForPrefixes(
  * opening and closing tempo estimates naturally end up close to each
  * other, which is correct, not a bug).
  *
- * Async, and yields before doing any work: called synchronously from the
- * just-in-time analysis path the instant a track starts playing
- * (ensureTrackAnalyzed, triggered from decodeAndNotify), this used to run
- * as one uninterrupted block on the same JS thread React Native uses for
- * UI - stalling the very first render after pressing play, worse the
- * longer the search runs (see bestBpmEstimateForSuffixes/Prefixes).
+ * Async, and yields between every major step - not just for its own sake:
+ * this is called synchronously from the just-in-time analysis path the
+ * instant a track starts playing (ensureTrackAnalyzed, triggered from
+ * decodeAndNotify), not just analyzeLibrary's already-yielding batch pass,
+ * so running as one uninterrupted block would stall the very first render
+ * after pressing play - worse the longer the search runs (see
+ * bestBpmEstimateForSuffixes/Prefixes). mixToMono/findContentBounds chunk
+ * and yield internally too (a multi-minute track's single-pass scan is
+ * still real synchronous work on its own), so the explicit yields here are
+ * on top of that, at the boundaries between the major phases.
  */
 export async function analyzeTrack(audio: DecodedAudio): Promise<TrackAnalysis> {
   await yieldToEventLoop();
-  const mono = mixToMono(audio);
-  const { startSample, endSample } = findContentBounds(audio);
+  const mono = await mixToMono(audio);
+  await yieldToEventLoop();
+
+  const { startSample, endSample } = await findContentBounds(audio, mono);
+  await yieldToEventLoop();
+
   const windowSamples = Math.round(ANALYSIS_WINDOW_SECONDS * audio.sampleRate);
 
   const firstWindowEnd = Math.min(startSample + windowSamples, endSample);

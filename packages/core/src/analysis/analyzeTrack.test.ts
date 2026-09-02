@@ -153,7 +153,6 @@ describe('analyzeTrack', () => {
     const samples = clickTrain(10, 100); // well under the 30s window size
     const audio = makeDecodedAudio(samples);
 
-    await expect(analyzeTrack(audio)).resolves.toBeTruthy();
     const { startWindow, endWindow } = await analyzeTrack(audio);
     expect(startWindow.bpm).toBeGreaterThan(0);
     expect(endWindow.bpm).toBeGreaterThan(0);
