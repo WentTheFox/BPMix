@@ -31,9 +31,10 @@
 // the AudioEngine/SourceNode contract the Android (react-native-audio-api)
 // and Web (Web Audio API) adapters get for free:
 //  - gain/rate changes are applied immediately via SetVolume/
-//    SetFrequencyRatio; rampGain/rampRate approximate a linear ramp with a
-//    background thread stepping the value every ~20ms rather than XAudio2
-//    having any real AudioParam-style automation.
+//    SetFrequencyRatio; rampGain/rampRate/rampGainCurve approximate
+//    AudioParam-style automation with a background thread stepping the
+//    value every ~20ms (linearly interpolating through the sample points
+//    for rampGainCurve) rather than XAudio2 having any real automation.
 //  - scheduleStart's "whenSeconds" in the future is approximated with a
 //    background sleep + Start(), not a sample-accurate scheduled start.
 // Good enough to actually hear music and verify crossfade-adjacent logic
@@ -130,6 +131,19 @@ struct SourceState {
   std::shared_ptr<DecodedBuffer> buffer;
   std::unique_ptr<VoiceCallback> callback;
   std::atomic<bool> stopped{false};
+  // Guards every call into `voice` (SetVolume/SetFrequencyRatio/Start/Stop/
+  // DestroyVoice/etc) across the several detached background threads
+  // (ramp steppers, ScheduleStart's delayed Start, Stop's DestroyVoice)
+  // that can all touch it concurrently. `stopped` alone isn't enough - a
+  // thread can check it, see false, and then Stop() destroys the voice
+  // before that same thread's very next `voice->` call runs (crashed with
+  // 0xc0000005 inside xaudio2_9.dll, hit reliably by the Stage 7 crossfade
+  // since it schedules stop() at exactly the moment rampGainCurve's own
+  // ramp is expected to finish). Every access - including checking
+  // `stopped` - must happen while holding this lock, and Stop() must hold
+  // it for the whole Stop/FlushSourceBuffers/DestroyVoice sequence, or the
+  // race just moves rather than closes.
+  std::mutex voiceMutex;
 };
 
 std::mutex g_sourcesMutex;
@@ -778,16 +792,15 @@ struct AudioEngineModule {
     double delaySeconds = whenSeconds - EngineNowSeconds();
     DebugLog("ScheduleStart delaySeconds=" + std::to_string(delaySeconds));
     if (delaySeconds > 0.001) {
-      auto voice = state->voice;
-      auto stoppedFlag = &state->stopped;
-      std::thread([voice, delaySeconds, stoppedFlag] {
+      std::thread([state, delaySeconds] {
         std::this_thread::sleep_for(std::chrono::duration<double>(delaySeconds));
-        if (!stoppedFlag->load()) {
-          HRESULT startHr = voice->Start();
-          DebugLog("ScheduleStart (delayed) Start hr=" + std::to_string(startHr));
-        }
+        std::lock_guard<std::mutex> lock(state->voiceMutex);
+        if (state->stopped.load()) return;
+        HRESULT startHr = state->voice->Start();
+        DebugLog("ScheduleStart (delayed) Start hr=" + std::to_string(startHr));
       }).detach();
     } else {
+      std::lock_guard<std::mutex> lock(state->voiceMutex);
       HRESULT startHr = state->voice->Start();
       DebugLog("ScheduleStart (immediate) Start hr=" + std::to_string(startHr));
     }
@@ -799,6 +812,8 @@ struct AudioEngineModule {
     auto state = FindSource(sourceId);
     if (!state) return false;
     DebugLog("SetGain sourceId=" + sourceId + " value=" + std::to_string(value));
+    std::lock_guard<std::mutex> lock(state->voiceMutex);
+    if (state->stopped.load()) return false;
     state->voice->SetVolume(static_cast<float>(value));
     return true;
   }
@@ -807,6 +822,8 @@ struct AudioEngineModule {
   bool SetRate(std::string sourceId, double value) noexcept {
     auto state = FindSource(sourceId);
     if (!state) return false;
+    std::lock_guard<std::mutex> lock(state->voiceMutex);
+    if (state->stopped.load()) return false;
     state->voice->SetFrequencyRatio(static_cast<float>(value));
     return true;
   }
@@ -824,6 +841,58 @@ struct AudioEngineModule {
     return StartRamp(sourceId, toValue, atTimeSeconds, durationSeconds, /*isGain*/ false);
   }
 
+  // Same background-thread stepping as StartRamp, but interpolating through
+  // an arbitrary sampled curve (Stage 7's equal-power crossfade shape)
+  // instead of a single from/to pair - XAudio2 has nothing like Web Audio's
+  // setValueCurveAtTime, so this reimplements its linear-interpolation-
+  // between-sample-points semantics by hand. One call schedules the whole
+  // curve fresh from atTimeSeconds, so it doesn't have the "chained rampGain
+  // calls re-anchor to the live value" problem the JS-side callers avoid by
+  // using this instead of several rampGain calls in a row.
+  REACT_SYNC_METHOD(RampGainCurve, L"rampGainCurve")
+  bool RampGainCurve(std::string sourceId, std::vector<double> values, double atTimeSeconds, double durationSeconds) noexcept {
+    auto state = FindSource(sourceId);
+    if (!state || values.empty()) return false;
+
+    DebugLog("RampGainCurve sourceId=" + sourceId + " points=" + std::to_string(values.size())
+        + " atTimeSeconds=" + std::to_string(atTimeSeconds) + " durationSeconds=" + std::to_string(durationSeconds));
+
+    std::thread([state, values, atTimeSeconds, durationSeconds] {
+      double startDelay = atTimeSeconds - EngineNowSeconds();
+      if (startDelay > 0) {
+        std::this_thread::sleep_for(std::chrono::duration<double>(startDelay));
+      }
+
+      if (values.size() == 1) {
+        std::lock_guard<std::mutex> lock(state->voiceMutex);
+        if (!state->stopped.load()) {
+          state->voice->SetVolume(static_cast<float>(values[0]));
+        }
+        return;
+      }
+
+      constexpr double stepSeconds = 0.02;
+      int steps = std::max(1, static_cast<int>(durationSeconds / stepSeconds));
+      for (int i = 1; i <= steps; i++) {
+        double t = static_cast<double>(i) / static_cast<double>(steps);
+        double curvePos = t * static_cast<double>(values.size() - 1);
+        size_t index = static_cast<size_t>(curvePos);
+        size_t nextIndex = std::min(index + 1, values.size() - 1);
+        double frac = curvePos - static_cast<double>(index);
+        double value = values[index] + (values[nextIndex] - values[index]) * frac;
+        {
+          std::lock_guard<std::mutex> lock(state->voiceMutex);
+          if (state->stopped.load()) return;
+          state->voice->SetVolume(static_cast<float>(value));
+        }
+        if (i < steps) {
+          std::this_thread::sleep_for(std::chrono::duration<double>(durationSeconds / steps));
+        }
+      }
+    }).detach();
+    return true;
+  }
+
   REACT_SYNC_METHOD(Stop, L"stop")
   bool Stop(std::string sourceId, double whenSeconds) noexcept {
     std::shared_ptr<SourceState> state;
@@ -836,14 +905,24 @@ struct AudioEngineModule {
       state = it->second;
       g_sources.erase(it);
     }
-    state->stopped.store(true);
 
+    // `stopped` is deliberately NOT set here for a *future* whenSeconds - it
+    // must only flip true when the stop actually takes effect, not the
+    // instant Stop() is called. The Stage 7 crossfade calls rampGainCurve()
+    // then stop(fadeWhen + fadeDuration) back to back, well before either
+    // time arrives; flipping the flag immediately (the previous bug) made
+    // every ramp/curve thread's very next `stopped` check see it as already
+    // cancelled, silently skipping the whole ramp-then-fade sequence. An
+    // immediate stop (delaySeconds <= 0.001, e.g. pause/seek/track-switch)
+    // still cancels everything right away, same as before, since doStop()
+    // runs synchronously in that branch.
     double delaySeconds = whenSeconds - EngineNowSeconds();
-    auto voice = state->voice;
-    auto doStop = [voice] {
-      voice->Stop();
-      voice->FlushSourceBuffers();
-      voice->DestroyVoice();
+    auto doStop = [state] {
+      std::lock_guard<std::mutex> lock(state->voiceMutex);
+      if (state->stopped.exchange(true)) return; // already stopped via another path
+      state->voice->Stop();
+      state->voice->FlushSourceBuffers();
+      state->voice->DestroyVoice();
     };
     if (delaySeconds > 0.001) {
       std::thread([doStop, delaySeconds] {
@@ -868,32 +947,36 @@ struct AudioEngineModule {
     auto state = FindSource(sourceId);
     if (!state) return false;
 
-    auto voice = state->voice;
-    auto stoppedFlag = &state->stopped;
-    std::thread([voice, toValue, atTimeSeconds, durationSeconds, isGain, stoppedFlag] {
+    std::thread([state, toValue, atTimeSeconds, durationSeconds, isGain] {
       double startDelay = atTimeSeconds - EngineNowSeconds();
       if (startDelay > 0) {
         std::this_thread::sleep_for(std::chrono::duration<double>(startDelay));
       }
-      if (stoppedFlag->load()) return;
 
       float fromValue = 0.0f;
-      if (isGain) {
-        voice->GetVolume(&fromValue);
-      } else {
-        voice->GetFrequencyRatio(&fromValue);
+      {
+        std::lock_guard<std::mutex> lock(state->voiceMutex);
+        if (state->stopped.load()) return;
+        if (isGain) {
+          state->voice->GetVolume(&fromValue);
+        } else {
+          state->voice->GetFrequencyRatio(&fromValue);
+        }
       }
 
       constexpr double stepSeconds = 0.02;
       int steps = std::max(1, static_cast<int>(durationSeconds / stepSeconds));
       for (int i = 1; i <= steps; i++) {
-        if (stoppedFlag->load()) return;
         float t = static_cast<float>(i) / static_cast<float>(steps);
         float value = fromValue + (static_cast<float>(toValue) - fromValue) * t;
-        if (isGain) {
-          voice->SetVolume(value);
-        } else {
-          voice->SetFrequencyRatio(value);
+        {
+          std::lock_guard<std::mutex> lock(state->voiceMutex);
+          if (state->stopped.load()) return;
+          if (isGain) {
+            state->voice->SetVolume(value);
+          } else {
+            state->voice->SetFrequencyRatio(value);
+          }
         }
         if (i < steps) {
           std::this_thread::sleep_for(std::chrono::duration<double>(durationSeconds / steps));

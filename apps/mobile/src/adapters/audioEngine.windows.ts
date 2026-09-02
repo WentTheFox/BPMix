@@ -36,6 +36,7 @@ interface NativeAudioEngine {
   setGain(sourceId: string, value: number): boolean;
   setRate(sourceId: string, value: number): boolean;
   rampGain(sourceId: string, toValue: number, atTimeSeconds: number, durationSeconds: number): boolean;
+  rampGainCurve(sourceId: string, values: number[], atTimeSeconds: number, durationSeconds: number): boolean;
   rampRate(sourceId: string, toValue: number, atTimeSeconds: number, durationSeconds: number): boolean;
   stop(sourceId: string, whenSeconds: number): boolean;
 }
@@ -110,6 +111,9 @@ export function createAudioEngine(_fileAccess: FileAccess): AudioEngine {
         },
         rampGain(ramp: RampSpec) {
           native.rampGain(sourceId, ramp.toValue, ramp.atTimeSeconds, ramp.durationSeconds);
+        },
+        rampGainCurve(values: number[], atTimeSeconds: number, durationSeconds: number) {
+          native.rampGainCurve(sourceId, values, atTimeSeconds, durationSeconds);
         },
         setRate(value: number) {
           native.setRate(sourceId, value);
