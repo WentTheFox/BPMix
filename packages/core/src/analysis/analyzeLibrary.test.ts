@@ -70,8 +70,6 @@ function track(overrides: Partial<TrackRecord> & { fileId: string }): TrackRecor
 
 function existingAnalysis(overrides: Partial<AnalysisResult> & { fileId: string }): AnalysisResult {
   return {
-    startWindow: { bpm: 120, bpmConfidence: 0.9, beatAnchorSeconds: 0 },
-    endWindow: { bpm: 120, bpmConfidence: 0.9, beatAnchorSeconds: 0 },
     normalizationGain: 1,
     analyzedAtMs: 0,
     sizeBytes: 1000,

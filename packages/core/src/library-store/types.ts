@@ -16,25 +16,8 @@ export interface PlaylistRecord {
   trackFileIds: string[];
 }
 
-export interface WindowAnalysis {
-  bpm: number;
-  bpmConfidence: number;
-  /**
-   * Absolute position (seconds from the very start of the track, sample 0 -
-   * not relative to the analysis window) of a beat that lines up with the
-   * detected tempo within this window. A transition needs to know where a
-   * beat actually falls, not just how far apart beats are - bpm alone can't
-   * answer "where do I cut from/into this track."
-   */
-  beatAnchorSeconds: number;
-}
-
 export interface AnalysisResult {
   fileId: string;
-  /** BPM/beat-grid analysis of the track's opening (post-leading-silence-trim) - the "incoming" side of a transition. */
-  startWindow: WindowAnalysis;
-  /** BPM/beat-grid analysis of the track's ending (pre-trailing-silence-trim) - the "outgoing" side of a transition. */
-  endWindow: WindowAnalysis;
   /** Gain multiplier to apply so this track matches the reference loudness target. */
   normalizationGain: number;
   analyzedAtMs: number;
@@ -58,6 +41,8 @@ export interface PlaybackState {
   positionSeconds: number;
   loopMode: LoopMode;
   shuffleEnabled: boolean;
+  /** User-facing master volume [0,1] - see PlaylistPlayer.setVolume. Persisted so the next launch doesn't blast out at whatever volume happened to be in effect (e.g. full, its default) before it's set once. */
+  volume: number;
 }
 
 export interface LibraryStore {

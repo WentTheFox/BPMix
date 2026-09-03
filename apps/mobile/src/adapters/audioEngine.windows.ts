@@ -122,7 +122,19 @@ export function createAudioEngine(_fileAccess: FileAccess): AudioEngine {
           native.rampRate(sourceId, ramp.toValue, ramp.atTimeSeconds, ramp.durationSeconds);
         },
         stop(whenSeconds?: number) {
-          onEndedBySourceId.delete(sourceId);
+          // Deliberately does NOT delete onEndedBySourceId here - whenSeconds
+          // can be a future scheduled stop (the crossfade's outgoing source
+          // is always stopped ahead of time, via stop(fadeWhen+fadeDuration)),
+          // and deleting the mapping immediately meant the 'playbackEnded'
+          // native event correctly firing later at that future time found
+          // nothing to call: the whole crossfade completion signal
+          // (TrackPlayer.handleEnded -> handleCrossfadeCompleted) silently
+          // never fired, leaving playback and the "now playing" display
+          // both stuck on the outgoing track forever. The listener above
+          // already deletes the mapping once the event actually arrives;
+          // TrackPlayer's own staleness guard (this.source !== source)
+          // handles a late event for a source it already moved past for an
+          // unrelated reason (e.g. a manual immediate stop).
           native.stop(sourceId, whenSeconds ?? native.now());
         },
       };

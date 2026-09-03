@@ -76,11 +76,9 @@ class FakeAudioEngine implements AudioEngine {
   }
 }
 
-function makeAnalysis(fileId: string, bpm: number, gain = 1): AnalysisResult {
+function makeAnalysis(fileId: string, gain = 1): AnalysisResult {
   return {
     fileId,
-    startWindow: { bpm, bpmConfidence: 0.9, beatAnchorSeconds: 0 },
-    endWindow: { bpm, bpmConfidence: 0.9, beatAnchorSeconds: 0 },
     normalizationGain: gain,
     analyzedAtMs: 0,
     sizeBytes: 0,
@@ -194,16 +192,19 @@ describe('PlaylistPlayer', () => {
 
   it('loop "all" wraps on natural end of the last track', async () => {
     player.setLoopMode('all');
-    await player.next();
-    await player.next(); // now on 'c', the last track
+    // setPlaylist(..., 'c') rather than two manual next() calls: manual
+    // next() now crossfades (see "manual next()/previous() crossfades
+    // instead of hard-cutting" below), which - unlike a plain load+play -
+    // doesn't map onto fireEndedOnCurrentSource()'s single-source model;
+    // this test is specifically about the natural-end path, not skipping.
+    await player.setPlaylist(TRACKS, 'c');
     engine.fireEndedOnCurrentSource();
     await flush();
     expect(player.getState().currentFileId).toBe('a');
   });
 
   it('loop "off" stops (does not advance) when the last track ends naturally', async () => {
-    await player.next();
-    await player.next(); // now on 'c', the last track
+    await player.setPlaylist(TRACKS, 'c'); // see the previous test's note on why not two next() calls
     engine.fireEndedOnCurrentSource();
     await flush();
     expect(player.getState().currentFileId).toBe('c');
@@ -291,7 +292,12 @@ describe('PlaylistPlayer normalization gain (Stage 5)', () => {
     await player.next();
     await flush();
 
-    expect(engine.gainBySourceId.get(engine.lastSourceId!)).toBe(2);
+    // Manual next() crossfades (see "manual next()/previous() crossfades
+    // instead of hard-cutting" below): the incoming source starts silent
+    // (setGain(0)) and ramps up via a gain curve, not a single setGain()
+    // call, so the resolved gain shows up as the curve's final value here.
+    const incomingCurve = engine.gainCurvesBySourceId.get(engine.lastSourceId!)?.[0];
+    expect(incomingCurve?.values[incomingCurve.values.length - 1]).toBeCloseTo(2, 6);
   });
 
   it('defaults to gain 1 when no resolveGain is given', async () => {
@@ -421,63 +427,70 @@ describe('PlaylistPlayer just-in-time analysis hook (Stage 4 revision)', () => {
   });
 });
 
-describe('PlaylistPlayer BPM-matched crossfade (Stage 7)', () => {
+describe('PlaylistPlayer volume-only crossfade', () => {
   const analysisByFileId: Record<string, AnalysisResult> = {
-    a: makeAnalysis('a', 120, 1),
-    b: makeAnalysis('b', 128, 0.8),
-    c: makeAnalysis('c', 100, 1),
+    a: makeAnalysis('a', 1),
+    b: makeAnalysis('b', 0.8),
+    c: makeAnalysis('c', 1),
   };
 
   function makePlayer(engine: FakeAudioEngine, extraOptions: Record<string, unknown> = {}): PlaylistPlayer {
     return new PlaylistPlayer(engine, (fileId) => makeFileRef(fileId), {
-      resolveAnalysis: (fileId) => analysisByFileId[fileId],
       resolveGain: (fileId) => analysisByFileId[fileId]?.normalizationGain ?? 1,
       crossfadeSeconds: 5,
       ...extraOptions,
     });
   }
 
-  it("schedules a real transition (rate/gain ramps on the outgoing source, a new started source for the incoming one) once the track is near its end and the next one is already preloaded", async () => {
+  it('schedules a real transition (equal-power gain curves, a new started source for the incoming one) once the track is near its end and the next one is already preloaded - with no rate change on either side', async () => {
     const engine = new FakeAudioEngine();
-    engine.durationSecondsByFileId.a = 300; // long enough to fit the ramp phase (RAMP_DURATION_SECONDS=20) comfortably before the fade
     const player = makePlayer(engine);
     await player.setPlaylist(TRACKS); // playing 'a' on source-0
     await flush();
-    player.checkPreload(); // 'a' is 300s long, so 'b' (the nearest preload slot) isn't within its own retry thresholds [60,50,40,35] yet at position 0
-    await flush();
-
-    // Cross the preload scheduler's nearest-slot threshold first, so 'b' is
-    // actually ready by the time the crossfade trigger below checks for it.
-    engine.clock = 245; // remaining 55s - within the [60,50,40,35] retry thresholds
     player.checkPreload();
     await flush();
 
-    // 'a' is 120bpm, 'b' (next) is 128bpm - 'a' needs to speed up (targetRate
-    // 128/120=1.0667), so a ramp is expected. Nominal ramp start accounts
-    // for track-time consumed at the ramp's averaged rate and the fade's
-    // held rate: 300 - (20*(1+1.0667)/2 + 5*1.0667) = 300 - 26 = 274,
-    // beat-snapped (anchor 0, period 0.5) -> stays 274.
-    engine.clock = 274; // remaining (26s) within RAMP_DURATION_SECONDS(20) + crossfadeSeconds(5) + lead(1)
+    engine.clock = 5; // remaining 5s - within crossfadeSeconds(5) + lead(1)
     player.checkPreload();
     await flush();
-
-    expect(engine.rateRampsBySourceId.get('source-0')?.length).toBe(1); // the outgoing source's rate ramp
-    const rateRamp = engine.rateRampsBySourceId.get('source-0')?.[0];
-    expect(rateRamp?.atTimeSeconds).toBeCloseTo(274, 6);
-    expect(rateRamp?.durationSeconds).toBe(20);
 
     const outgoingCurve = engine.gainCurvesBySourceId.get('source-0')?.[0];
-    const fadeWhen = outgoingCurve?.atTimeSeconds ?? 0;
-    expect(fadeWhen).toBeGreaterThan(274 + 20); // strictly after the ramp completes
+    expect(outgoingCurve?.atTimeSeconds).toBe(5); // starts essentially immediately, no ramp/wait phase
     expect(outgoingCurve?.durationSeconds).toBe(5);
-    expect(outgoingCurve?.values[0]).toBeCloseTo(1, 6); // equal-power fade-out starts at full volume
+    expect(outgoingCurve?.values[0]).toBeCloseTo(1, 6); // 'a's own gain is 1, so the fade-out starts at full volume
     expect(outgoingCurve?.values[outgoingCurve.values.length - 1]).toBeCloseTo(0, 6); // ...and ends silent
+    expect(engine.rateRampsBySourceId.get('source-0')).toBeUndefined(); // no rate change this round
+
     const incomingStart = engine.scheduleStartCalls.find((call) => call.sourceId !== 'source-0');
     expect(incomingStart).toBeDefined(); // a new source was started for 'b'
-    expect(incomingStart?.whenSeconds).toBeCloseTo(fadeWhen, 6);
+    expect(incomingStart?.whenSeconds).toBeCloseTo(5, 6);
 
     // Still reporting 'a' as current - the transition hasn't completed yet.
     expect(player.getState().currentFileId).toBe('a');
+  });
+
+  it("scales the outgoing gain curve by the outgoing track's own normalization gain (regression: the curve used to jump straight to raw 1.0 regardless of the track's actual current gain)", async () => {
+    const engine = new FakeAudioEngine();
+    const gainedAnalysis: Record<string, AnalysisResult> = {
+      a: makeAnalysis('a', 0.57),
+      b: makeAnalysis('b', 1),
+      c: makeAnalysis('c', 1),
+    };
+    const player = new PlaylistPlayer(engine, (fileId) => makeFileRef(fileId), {
+      resolveGain: (fileId) => gainedAnalysis[fileId]?.normalizationGain ?? 1,
+      crossfadeSeconds: 5,
+    });
+    await player.setPlaylist(TRACKS);
+    await flush();
+    player.checkPreload();
+    await flush();
+
+    engine.clock = 5;
+    player.checkPreload();
+    await flush();
+
+    const outgoingCurve = engine.gainCurvesBySourceId.get('source-0')?.[0];
+    expect(outgoingCurve?.values[0]).toBeCloseTo(0.57, 6); // continues from 'a's actual gain, not a bare 1.0
   });
 
   it('setCrossfadeSeconds() changes the duration used for the next transition (e.g. a live UI slider)', async () => {
@@ -519,9 +532,9 @@ describe('PlaylistPlayer BPM-matched crossfade (Stage 7)', () => {
     expect(player.getState().track.status).toBe('playing'); // kept playing straight through, no hard cut
   });
 
-  it('does not schedule a crossfade without resolveAnalysis - falls back to the existing hard cut on natural end', async () => {
+  it('schedules a crossfade even without a resolveGain option - no longer conditional on any analysis lookup succeeding', async () => {
     const engine = new FakeAudioEngine();
-    const player = new PlaylistPlayer(engine, (fileId) => makeFileRef(fileId)); // no resolveAnalysis
+    const player = new PlaylistPlayer(engine, (fileId) => makeFileRef(fileId), { crossfadeSeconds: 5 }); // no resolveGain
     await player.setPlaylist(TRACKS);
     await flush();
     player.checkPreload();
@@ -531,8 +544,7 @@ describe('PlaylistPlayer BPM-matched crossfade (Stage 7)', () => {
     player.checkPreload();
     await flush();
 
-    expect(engine.gainCurvesBySourceId.get('source-0')).toBeUndefined();
-    expect(engine.rateRampsBySourceId.get('source-0')).toBeUndefined();
+    expect(engine.gainCurvesBySourceId.get('source-0')).toBeDefined();
   });
 
   it('does not schedule a crossfade before the next track has finished preloading', async () => {
@@ -594,35 +606,69 @@ describe('PlaylistPlayer BPM-matched crossfade (Stage 7)', () => {
     expect(onError).toHaveBeenCalledTimes(1);
   });
 
-  it("falls back to a plain (rate-unchanged) fade when a track's BPM is unusable, instead of skipping the crossfade entirely", async () => {
+});
+
+describe('PlaylistPlayer manual next()/previous() crossfades instead of hard-cutting', () => {
+  it('schedules a short (not the full crossfadeSeconds) crossfade into the target track, and updates currentFileId immediately rather than waiting for it to complete', async () => {
     const engine = new FakeAudioEngine();
-    const unusableAnalysis: Record<string, AnalysisResult> = {
-      a: makeAnalysis('a', 0, 1), // unanalyzable BPM
-      b: makeAnalysis('b', 128, 0.8),
-      c: makeAnalysis('c', 100, 1),
-    };
-    const player = new PlaylistPlayer(engine, (fileId) => makeFileRef(fileId), {
-      resolveAnalysis: (fileId) => unusableAnalysis[fileId],
-      resolveGain: (fileId) => unusableAnalysis[fileId]?.normalizationGain ?? 1,
-      crossfadeSeconds: 5,
-    });
+    const player = new PlaylistPlayer(engine, (fileId) => makeFileRef(fileId), { crossfadeSeconds: 5 });
+    await player.setPlaylist(TRACKS); // playing 'a' on source-0
+    await flush();
+
+    await player.next();
+    await flush();
+
+    expect(player.getState().currentFileId).toBe('b'); // reflects the target immediately, same as playAt() does
+    expect(player.getState().track.status).toBe('playing'); // still audibly playing throughout - not stuck "loading"
+
+    const outgoingCurve = engine.gainCurvesBySourceId.get('source-0')?.[0];
+    expect(outgoingCurve?.durationSeconds).toBeLessThan(5); // much shorter than the natural end-of-track crossfadeSeconds
+    expect(engine.scheduleStartCalls.some((call) => call.sourceId !== 'source-0')).toBe(true); // a new source was started for 'b'
+  });
+
+  it('actually completes the transition once the outgoing source is fully faded out', async () => {
+    const engine = new FakeAudioEngine();
+    const player = new PlaylistPlayer(engine, (fileId) => makeFileRef(fileId));
     await player.setPlaylist(TRACKS);
     await flush();
-    player.checkPreload();
+
+    await player.next();
+    await flush();
+    expect(player.getState().currentFileId).toBe('b');
+
+    engine.fireEnded('source-0'); // the outgoing source's scheduled stop firing
+    expect(player.getState().track.status).toBe('playing'); // swapped straight through, no hard cut/reload
+    expect(player.getState().position).toBe(1); // position bookkeeping wasn't double-advanced by handleCrossfadeCompleted
+  });
+
+  it('falls back to a plain hard cut when nothing is currently playing to crossfade away from', async () => {
+    const engine = new FakeAudioEngine();
+    const player = new PlaylistPlayer(engine, (fileId) => makeFileRef(fileId));
+    await player.setPlaylist(TRACKS);
+    await flush();
+    player.pause();
+
+    await player.next();
     await flush();
 
-    engine.clock = 5;
-    player.checkPreload();
+    expect(player.getState().currentFileId).toBe('b');
+    expect(engine.gainCurvesBySourceId.size).toBe(0); // no crossfade gain curve was ever scheduled
+  });
+
+  it("exposes pendingCrossfadeFileIds correctly during the crossfade, despite currentFileId/getNextFileId() already having moved past it (regression: those two mean something different here than for the natural end-of-track crossfade, since a manual skip advances `position` immediately instead of waiting for completion)", async () => {
+    const engine = new FakeAudioEngine();
+    const player = new PlaylistPlayer(engine, (fileId) => makeFileRef(fileId));
+    await player.setPlaylist(TRACKS); // playing 'a'
     await flush();
 
-    // Gain still fades out even with an unusable BPM (computeTransitionPlan's
-    // existing bpm<=0 fallback) - and since neither side needs to change
-    // tempo, no rate ramp is scheduled at all (not even a pointless "ramp to 1").
-    const outgoingCurve = engine.gainCurvesBySourceId.get('source-0')?.[0];
-    expect(outgoingCurve?.atTimeSeconds).toBe(5);
-    expect(outgoingCurve?.durationSeconds).toBe(5);
-    expect(outgoingCurve?.values[0]).toBeCloseTo(1, 6);
-    expect(outgoingCurve?.values[outgoingCurve.values.length - 1]).toBeCloseTo(0, 6);
-    expect(engine.rateRampsBySourceId.get('source-0')).toBeUndefined();
+    await player.next(); // crossfading 'a' -> 'b'
+    await flush();
+
+    expect(player.getState().pendingCrossfadeFileIds).toEqual({ outgoing: 'a', incoming: 'b' });
+    expect(player.getState().currentFileId).toBe('b'); // already the target, NOT the outgoing side
+    expect(player.getState().position).toBe(1);
+
+    engine.fireEnded('source-0'); // the crossfade actually completes
+    expect(player.getState().pendingCrossfadeFileIds).toBeNull();
   });
 });

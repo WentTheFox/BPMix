@@ -1,6 +1,7 @@
 export * from './file-access/types';
 export * from './audio-engine/types';
 export * from './library-store/types';
+export * from './library-store/trackDisplayName';
 export * from './playlist/m3u8';
 export * from './library-scan/walk';
 export * from './library-scan/scan';

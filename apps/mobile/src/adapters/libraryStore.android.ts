@@ -45,11 +45,13 @@ const ready = (async () => {
   await run('CREATE INDEX IF NOT EXISTS idx_playlists_rootId ON playlists(rootId)');
 
   // CREATE TABLE IF NOT EXISTS is a no-op against a table created under an
-  // older schema (e.g. from before the startWindow/endWindow split, or
-  // before algorithmVersion was added) - it silently leaves the old columns
-  // in place, so every putAnalysis() insert against the new column set
-  // fails with "no such column" and nothing ever persists. Analysis results
-  // are fully re-derivable by re-running analysis (unlike tracks/playlists,
+  // older schema (e.g. from before algorithmVersion was added, or before the
+  // startWindow/endWindow BPM columns were dropped in favor of a live/
+  // just-in-time BPM calibration instead of a precomputed one - see
+  // CLAUDE.md's crossfade rework) - it silently leaves the old columns in
+  // place, so every putAnalysis() insert against the new column set fails
+  // with "no such column" and nothing ever persists. Analysis results are
+  // fully re-derivable by re-running analysis (unlike tracks/playlists,
   // which come from the user's actual files), so it's safe to just drop and
   // recreate rather than write a real migration.
   const analysisTableInfo = await run('PRAGMA table_info(analysis)');
@@ -57,19 +59,13 @@ const ready = (async () => {
   for (let i = 0; i < analysisTableInfo.rows.length; i++) {
     analysisColumns.add((analysisTableInfo.rows.item(i) as { name: string }).name);
   }
-  if (analysisColumns.size > 0 && (!analysisColumns.has('startBpm') || !analysisColumns.has('algorithmVersion'))) {
+  if (analysisColumns.size > 0 && (analysisColumns.has('startBpm') || !analysisColumns.has('algorithmVersion'))) {
     await run('DROP TABLE analysis');
   }
 
   await run(
     `CREATE TABLE IF NOT EXISTS analysis (
       fileId TEXT PRIMARY KEY,
-      startBpm REAL NOT NULL,
-      startBpmConfidence REAL NOT NULL,
-      startBeatAnchorSeconds REAL NOT NULL,
-      endBpm REAL NOT NULL,
-      endBpmConfidence REAL NOT NULL,
-      endBeatAnchorSeconds REAL NOT NULL,
       normalizationGain REAL NOT NULL,
       analyzedAtMs INTEGER NOT NULL,
       sizeBytes INTEGER NOT NULL,
@@ -77,6 +73,18 @@ const ready = (async () => {
       algorithmVersion INTEGER NOT NULL
     )`,
   );
+  // Same reasoning/pattern as the analysis table's migration guard above -
+  // a table created before the `volume` column existed would silently
+  // reject every putPlaybackState() insert with "no such column".
+  const playbackStateTableInfo = await run('PRAGMA table_info(playback_state)');
+  const playbackStateColumns = new Set<string>();
+  for (let i = 0; i < playbackStateTableInfo.rows.length; i++) {
+    playbackStateColumns.add((playbackStateTableInfo.rows.item(i) as { name: string }).name);
+  }
+  if (playbackStateColumns.size > 0 && !playbackStateColumns.has('volume')) {
+    await run('DROP TABLE playback_state');
+  }
+
   await run(
     `CREATE TABLE IF NOT EXISTS playback_state (
       id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -84,7 +92,8 @@ const ready = (async () => {
       currentTrackFileId TEXT,
       positionSeconds REAL NOT NULL,
       loopMode TEXT NOT NULL,
-      shuffleEnabled INTEGER NOT NULL
+      shuffleEnabled INTEGER NOT NULL,
+      volume REAL NOT NULL
     )`,
   );
 })();
@@ -138,12 +147,6 @@ export function createLibraryStore(): LibraryStore {
       const result = await run('SELECT * FROM analysis WHERE fileId = ?', [fileId]);
       const rows = rowsToArray<{
         fileId: string;
-        startBpm: number;
-        startBpmConfidence: number;
-        startBeatAnchorSeconds: number;
-        endBpm: number;
-        endBpmConfidence: number;
-        endBeatAnchorSeconds: number;
         normalizationGain: number;
         analyzedAtMs: number;
         sizeBytes: number;
@@ -154,12 +157,6 @@ export function createLibraryStore(): LibraryStore {
       if (!row) return null;
       return {
         fileId: row.fileId,
-        startWindow: {
-          bpm: row.startBpm,
-          bpmConfidence: row.startBpmConfidence,
-          beatAnchorSeconds: row.startBeatAnchorSeconds,
-        },
-        endWindow: { bpm: row.endBpm, bpmConfidence: row.endBpmConfidence, beatAnchorSeconds: row.endBeatAnchorSeconds },
         normalizationGain: row.normalizationGain,
         analyzedAtMs: row.analyzedAtMs,
         sizeBytes: row.sizeBytes,
@@ -172,26 +169,14 @@ export function createLibraryStore(): LibraryStore {
       await ready;
       await run(
         `INSERT INTO analysis (
-           fileId, startBpm, startBpmConfidence, startBeatAnchorSeconds,
-           endBpm, endBpmConfidence, endBeatAnchorSeconds,
-           normalizationGain, analyzedAtMs, sizeBytes, lastModifiedMs, algorithmVersion
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           fileId, normalizationGain, analyzedAtMs, sizeBytes, lastModifiedMs, algorithmVersion
+         ) VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(fileId) DO UPDATE SET
-           startBpm=excluded.startBpm, startBpmConfidence=excluded.startBpmConfidence,
-           startBeatAnchorSeconds=excluded.startBeatAnchorSeconds,
-           endBpm=excluded.endBpm, endBpmConfidence=excluded.endBpmConfidence,
-           endBeatAnchorSeconds=excluded.endBeatAnchorSeconds,
            normalizationGain=excluded.normalizationGain, analyzedAtMs=excluded.analyzedAtMs,
            sizeBytes=excluded.sizeBytes, lastModifiedMs=excluded.lastModifiedMs,
            algorithmVersion=excluded.algorithmVersion`,
         [
           analysisResult.fileId,
-          analysisResult.startWindow.bpm,
-          analysisResult.startWindow.bpmConfidence,
-          analysisResult.startWindow.beatAnchorSeconds,
-          analysisResult.endWindow.bpm,
-          analysisResult.endWindow.bpmConfidence,
-          analysisResult.endWindow.beatAnchorSeconds,
           analysisResult.normalizationGain,
           analysisResult.analyzedAtMs,
           analysisResult.sizeBytes,
@@ -210,6 +195,7 @@ export function createLibraryStore(): LibraryStore {
         positionSeconds: number;
         loopMode: PlaybackState['loopMode'];
         shuffleEnabled: number;
+        volume: number;
       }>(result);
       const row = rows[0];
       if (!row) return null;
@@ -219,11 +205,19 @@ export function createLibraryStore(): LibraryStore {
     async putPlaybackState(state: PlaybackState): Promise<void> {
       await ready;
       await run(
-        `INSERT INTO playback_state (id, playlistId, currentTrackFileId, positionSeconds, loopMode, shuffleEnabled)
-         VALUES (1, ?, ?, ?, ?, ?)
+        `INSERT INTO playback_state (id, playlistId, currentTrackFileId, positionSeconds, loopMode, shuffleEnabled, volume)
+         VALUES (1, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET playlistId=excluded.playlistId, currentTrackFileId=excluded.currentTrackFileId,
-           positionSeconds=excluded.positionSeconds, loopMode=excluded.loopMode, shuffleEnabled=excluded.shuffleEnabled`,
-        [state.playlistId, state.currentTrackFileId, state.positionSeconds, state.loopMode, state.shuffleEnabled ? 1 : 0],
+           positionSeconds=excluded.positionSeconds, loopMode=excluded.loopMode, shuffleEnabled=excluded.shuffleEnabled,
+           volume=excluded.volume`,
+        [
+          state.playlistId,
+          state.currentTrackFileId,
+          state.positionSeconds,
+          state.loopMode,
+          state.shuffleEnabled ? 1 : 0,
+          state.volume,
+        ],
       );
     },
   };

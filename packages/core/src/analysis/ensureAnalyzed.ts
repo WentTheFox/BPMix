@@ -46,11 +46,9 @@ export async function ensureTrackAnalyzed(
   if (isAnalysisFresh(existing, ref)) {
     return existing;
   }
-  const { startWindow, endWindow, normalizationGain } = await (engine?.analyzeTrack?.(decoded) ?? analyzeTrack(decoded));
+  const { normalizationGain } = await (engine?.analyzeTrack?.(decoded) ?? analyzeTrack(decoded));
   const result: AnalysisResult = {
     fileId: ref.id,
-    startWindow,
-    endWindow,
     normalizationGain,
     analyzedAtMs: Date.now(),
     sizeBytes: ref.sizeBytes,

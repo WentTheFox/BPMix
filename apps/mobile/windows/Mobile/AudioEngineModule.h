@@ -917,12 +917,28 @@ struct AudioEngineModule {
     // still cancels everything right away, same as before, since doStop()
     // runs synchronously in that branch.
     double delaySeconds = whenSeconds - EngineNowSeconds();
-    auto doStop = [state] {
+    auto doStop = [this, state, sourceId] {
       std::lock_guard<std::mutex> lock(state->voiceMutex);
       if (state->stopped.exchange(true)) return; // already stopped via another path
       state->voice->Stop();
       state->voice->FlushSourceBuffers();
       state->voice->DestroyVoice();
+      // XAudio2 only calls VoiceCallback::OnStreamEnd when a submitted
+      // buffer plays through to its own natural end (the END_OF_STREAM
+      // flag) - it does NOT synthesize that callback for a voice stopped
+      // explicitly like this, however close whenSeconds is to the buffer's
+      // actual end. Without firing PlaybackEnded here too, a source
+      // stopped early (e.g. the outgoing side of a crossfade, always
+      // stopped before its natural end) never completes on the JS side at
+      // all: TrackPlayer.handleEnded/handleCrossfadeCompleted never fire,
+      // so playback and the "now playing" display both stay stuck on the
+      // outgoing track forever. Harmless to also fire this for an
+      // ordinary pause/seek/track-switch stop - TrackPlayer's own
+      // staleness guard (this.source !== source) already ignores a
+      // PlaybackEnded for a source it already moved past.
+      if (PlaybackEnded) {
+        PlaybackEnded(sourceId);
+      }
     };
     if (delaySeconds > 0.001) {
       std::thread([doStop, delaySeconds] {

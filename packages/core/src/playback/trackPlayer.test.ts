@@ -101,13 +101,13 @@ describe('TrackPlayer', () => {
   });
 
   it('starts stopped with the decoded duration and zero position', () => {
-    expect(player.getState()).toEqual({ status: 'stopped', positionSeconds: 0, durationSeconds: 10 });
+    expect(player.getState()).toEqual({ status: 'stopped', positionSeconds: 0, durationSeconds: 10, pendingIncoming: null });
   });
 
   it('play() advances position with the engine clock', () => {
     player.play();
     engine.clock = 3;
-    expect(player.getState()).toEqual({ status: 'playing', positionSeconds: 3, durationSeconds: 10 });
+    expect(player.getState()).toEqual({ status: 'playing', positionSeconds: 3, durationSeconds: 10, pendingIncoming: null });
   });
 
   it('pause() freezes position and stops the underlying source', () => {
@@ -115,7 +115,7 @@ describe('TrackPlayer', () => {
     engine.clock = 4;
     player.pause();
     engine.clock = 10; // should have no further effect while paused
-    expect(player.getState()).toEqual({ status: 'paused', positionSeconds: 4, durationSeconds: 10 });
+    expect(player.getState()).toEqual({ status: 'paused', positionSeconds: 4, durationSeconds: 10, pendingIncoming: null });
     expect(engine.stoppedSourceIds).toEqual(['source-0']);
   });
 
@@ -143,20 +143,20 @@ describe('TrackPlayer', () => {
     player.play();
     player.pause();
     player.seek(6);
-    expect(player.getState()).toEqual({ status: 'paused', positionSeconds: 6, durationSeconds: 10 });
+    expect(player.getState()).toEqual({ status: 'paused', positionSeconds: 6, durationSeconds: 10, pendingIncoming: null });
   });
 
   it('stop() resets position to zero', () => {
     player.play();
     engine.clock = 5;
     player.stop();
-    expect(player.getState()).toEqual({ status: 'stopped', positionSeconds: 0, durationSeconds: 10 });
+    expect(player.getState()).toEqual({ status: 'stopped', positionSeconds: 0, durationSeconds: 10, pendingIncoming: null });
   });
 
   it('transitions to stopped when the source reports it ended naturally', () => {
     player.play();
     engine.fireEnded('source-0');
-    expect(player.getState()).toEqual({ status: 'stopped', positionSeconds: 10, durationSeconds: 10 });
+    expect(player.getState()).toEqual({ status: 'stopped', positionSeconds: 10, durationSeconds: 10, pendingIncoming: null });
   });
 
   it('ignores an ended callback from a source already superseded by seek/pause', () => {
@@ -216,7 +216,7 @@ describe('TrackPlayer', () => {
     player.seek(Number.NaN);
     player.seek(Number.POSITIVE_INFINITY);
     // Unaffected - both calls were no-ops.
-    expect(player.getState()).toEqual({ status: 'playing', positionSeconds: 3, durationSeconds: 10 });
+    expect(player.getState()).toEqual({ status: 'playing', positionSeconds: 3, durationSeconds: 10, pendingIncoming: null });
   });
 
   it('recovers instead of getting stuck if the engine rejects a start (e.g. throws on a bad offset)', async () => {
@@ -311,13 +311,44 @@ describe('TrackPlayer', () => {
     expect(engine.gainBySourceId.get(sourceId!)).toBe(1);
   });
 
+  it('setVolume() multiplies with setGain() rather than replacing it, and applies to the currently playing source immediately', () => {
+    player.setGain(0.5);
+    player.play();
+
+    player.setVolume(0.4);
+
+    const [sourceId] = engine.gainBySourceId.keys();
+    expect(engine.gainBySourceId.get(sourceId!)).toBeCloseTo(0.2, 6); // 0.5 * 0.4
+    expect(player.getVolume()).toBe(0.4);
+  });
+
+  it('setVolume() carries over to a source created later by seek/resume, same as setGain()', () => {
+    player.setVolume(0.5);
+    player.play();
+    player.seek(3);
+
+    const gains = [...engine.gainBySourceId.values()];
+    expect(gains.every((g) => g === 0.5)).toBe(true);
+    expect(gains.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('clamps setVolume() to [0,1]', () => {
+    player.play();
+
+    player.setVolume(1.5);
+    expect(player.getVolume()).toBe(1);
+
+    player.setVolume(-0.5);
+    expect(player.getVolume()).toBe(0);
+  });
+
   it('loadDecoded() makes an already-decoded buffer playable without a decodeFile() round trip', () => {
     const decodeCallsBefore = engine.decodeCallCount;
 
     player.loadDecoded({ sampleRate: 44100, numberOfChannels: 2, channelData: [], durationSeconds: 30 });
 
     expect(engine.decodeCallCount).toBe(decodeCallsBefore); // no new decode
-    expect(player.getState()).toEqual({ status: 'stopped', positionSeconds: 0, durationSeconds: 30 });
+    expect(player.getState()).toEqual({ status: 'stopped', positionSeconds: 0, durationSeconds: 30, pendingIncoming: null });
 
     player.play();
     expect(player.getState().status).toBe('playing');
@@ -329,7 +360,7 @@ describe('TrackPlayer', () => {
 
     player.loadDecoded({ sampleRate: 44100, numberOfChannels: 2, channelData: [], durationSeconds: 5 });
 
-    expect(player.getState()).toEqual({ status: 'stopped', positionSeconds: 0, durationSeconds: 5 });
+    expect(player.getState()).toEqual({ status: 'stopped', positionSeconds: 0, durationSeconds: 5, pendingIncoming: null });
   });
 
   it('loadDecoded() invalidates a still-in-flight async load(), like a newer load() would', () => {
@@ -348,23 +379,8 @@ describe('TrackPlayer', () => {
   });
 
   describe('crossfadeTo', () => {
-    // No ramp needed (tempos already matched) - the fade begins directly at rampStartSeconds.
     const simplePlan: TransitionPlan = {
-      rampStartSeconds: 5,
-      rampDurationSeconds: 0,
-      beatWaitSeconds: 0,
-      outgoingTargetRate: 1,
-      incomingRate: 1,
-      incomingStartSeconds: 1,
-      fadeDurationSeconds: 3,
-    };
-    // The outgoing track needs to speed up first - fade begins after the ramp plus a short beat-alignment wait.
-    const rampPlan: TransitionPlan = {
-      rampStartSeconds: 5,
-      rampDurationSeconds: 2,
-      beatWaitSeconds: 0.5,
-      outgoingTargetRate: 1.2,
-      incomingRate: 1,
+      fadeStartSeconds: 5,
       incomingStartSeconds: 1,
       fadeDurationSeconds: 3,
     };
@@ -375,60 +391,46 @@ describe('TrackPlayer', () => {
       expect(engine.scheduleStartCalls).toEqual([]);
     });
 
-    it('schedules both phases in one call - the ramp at rampWhen, the fade (gain curves + incoming start) at the later fadeWhen', () => {
+    it('starts the fade essentially immediately (at now()), no ramp/wait phase, and starts a new source for the incoming track at rate 1', () => {
       player.play(); // source-0, started at clock=0, offset=0
-      engine.clock = 3; // 3s into the track - rampStartSeconds (5) is still 2s away
+      engine.clock = 5;
       engine.scheduleStartCalls = []; // clear the initial play()'s own scheduleStart call - only care about what crossfadeTo schedules
 
-      const started = player.crossfadeTo(nextDecoded, rampPlan, 0.8);
+      const started = player.crossfadeTo(nextDecoded, simplePlan, 0.8);
 
       expect(started).toBe(true);
-      const rampWhen = 5; // startedAtEngineTime(0) + (rampStartSeconds(5) - startOffsetSeconds(0))
-      const fadeWhen = rampWhen + rampPlan.rampDurationSeconds + rampPlan.beatWaitSeconds; // 5 + 2 + 0.5 = 7.5
-
-      // The rate ramp is scheduled to happen at rampWhen, well before the fade.
-      expect(engine.rateRampsBySourceId.get('source-0')).toEqual([
-        { toValue: 1.2, atTimeSeconds: rampWhen, durationSeconds: 2 },
-      ]);
+      expect(engine.rateRampsBySourceId.get('source-0')).toBeUndefined(); // no rate change this round
 
       // The gain fade (equal-power, not a single linear rampGain - see
       // equalPowerGain's doc) and the incoming source's start are both
-      // scheduled for the later fadeWhen, not rampWhen.
+      // scheduled for now() - "little to no delay".
       const outgoingCurve = engine.gainCurvesBySourceId.get('source-0')?.[0];
-      expect(outgoingCurve?.atTimeSeconds).toBe(fadeWhen);
+      expect(outgoingCurve?.atTimeSeconds).toBe(5);
       expect(outgoingCurve?.durationSeconds).toBe(3);
-      expect(outgoingCurve?.values[0]).toBeCloseTo(1, 6); // cos(0) - starts at full volume
+      expect(outgoingCurve?.values[0]).toBeCloseTo(1, 6); // cos(0) * currentGain(1) - starts at full volume
       expect(outgoingCurve?.values[outgoingCurve.values.length - 1]).toBeCloseTo(0, 6); // cos(pi/2) - ends silent
-      expect(engine.stopWhenBySourceId.get('source-0')).toBe(fadeWhen + rampPlan.fadeDurationSeconds);
+      expect(engine.stopWhenBySourceId.get('source-0')).toBe(5 + simplePlan.fadeDurationSeconds);
 
-      expect(engine.scheduleStartCalls).toEqual([{ sourceId: 'source-1', whenSeconds: fadeWhen, offsetSeconds: 1 }]);
+      expect(engine.scheduleStartCalls).toEqual([{ sourceId: 'source-1', whenSeconds: 5, offsetSeconds: 1 }]);
       expect(engine.gainBySourceId.get('source-1')).toBe(0); // starts silent
+      expect(engine.setRateCallsBySourceId.get('source-1') ?? []).toEqual([]); // never set away from the default rate 1
       const incomingCurve = engine.gainCurvesBySourceId.get('source-1')?.[0];
-      expect(incomingCurve?.atTimeSeconds).toBe(fadeWhen);
+      expect(incomingCurve?.atTimeSeconds).toBe(5);
       expect(incomingCurve?.values[incomingCurve.values.length - 1]).toBeCloseTo(0.8, 6); // sin(pi/2) * nextGain(0.8)
     });
 
-    it('applies incomingRate as a constant (non-ramped) rate on the incoming source, and skips the outgoing rate ramp entirely when none is needed', () => {
+    it("scales the outgoing gain curve by the outgoing track's own current gain, not a bare 1.0 (regression: this used to jump to raw cos(0)=1.0 regardless of the track's actual gain, an audible volume jump right as the fade began)", () => {
       player.play();
-      engine.clock = 3;
-
-      player.crossfadeTo(nextDecoded, { ...simplePlan, incomingRate: 1.3 }, 1);
-
-      expect(engine.rateRampsBySourceId.get('source-0')).toBeUndefined(); // rampDurationSeconds=0 - no ramp scheduled at all
-      expect(engine.setRateCallsBySourceId.get('source-1')).toEqual([1.3]);
-    });
-
-    it("clamps the ramp/fade instant to now() if the plan's beat-snapped point is already in the past", () => {
-      player.play();
-      engine.clock = 9; // already past track position 5 (the plan's rampStartSeconds)
-      engine.scheduleStartCalls = []; // clear the initial play()'s own scheduleStart call
+      player.setGain(0.57);
+      engine.clock = 5;
 
       player.crossfadeTo(nextDecoded, simplePlan, 1);
 
-      expect(engine.scheduleStartCalls[0]?.whenSeconds).toBe(9); // clamped to now(), not the already-passed target
+      const outgoingCurve = engine.gainCurvesBySourceId.get('source-0')?.[0];
+      expect(outgoingCurve?.values[0]).toBeCloseTo(0.57, 6);
     });
 
-    it('keeps reporting the outgoing track until its scheduled stop actually fires, then swaps to the incoming track (applying its rate too) and fires onCrossfadeCompleted (not onEnded)', async () => {
+    it('keeps reporting the outgoing track until its scheduled stop actually fires, then swaps to the incoming track and fires onCrossfadeCompleted (not onEnded)', async () => {
       const ended: string[] = [];
       const crossfadeCompletions: number[] = [];
       const cfEngine = new FakeAudioEngine();
@@ -438,13 +440,18 @@ describe('TrackPlayer', () => {
       });
       await cfPlayer.load(fileRef);
       cfPlayer.play(); // source-0
-      cfEngine.clock = 3;
-      // incomingRate 1.5 here - the swap must pick this up so position tracking stays correct afterward.
-      cfPlayer.crossfadeTo(nextDecoded, { ...simplePlan, incomingRate: 1.5 }, 0.8); // schedules source-1, fadeWhen=5
+      cfEngine.clock = 5;
+      cfPlayer.crossfadeTo(nextDecoded, simplePlan, 0.8); // schedules source-1, fadeWhen=5
 
-      // Mid-transition: still reporting the outgoing track's own state.
+      // Mid-transition: still reporting the outgoing track's own state, but
+      // pendingIncoming exposes the incoming track's own live position too.
       cfEngine.clock = 6;
-      expect(cfPlayer.getState()).toEqual({ status: 'playing', positionSeconds: 6, durationSeconds: 10 });
+      expect(cfPlayer.getState()).toEqual({
+        status: 'playing',
+        positionSeconds: 6,
+        durationSeconds: 10,
+        pendingIncoming: { positionSeconds: 2, durationSeconds: 20, fadeDurationSeconds: 3 }, // incomingStartSeconds(1) + (now(6)-fadeWhen(5))*rate(1)
+      });
       expect(ended).toEqual([]);
       expect(crossfadeCompletions).toEqual([]);
 
@@ -453,12 +460,11 @@ describe('TrackPlayer', () => {
 
       expect(ended).toEqual([]); // not a natural end - must not be reported as one
       expect(crossfadeCompletions).toEqual([0]);
-      // positionSeconds = incomingStartSeconds(1) + (now(6) - fadeWhen(5)) * incomingRate(1.5) = 1 + 1*1.5 = 2.5
-      expect(cfPlayer.getState()).toEqual({ status: 'playing', positionSeconds: 2.5, durationSeconds: 20 });
+      // positionSeconds = incomingStartSeconds(1) + (now(6) - fadeWhen(5)) * rate(1) = 1 + 1 = 2
+      expect(cfPlayer.getState()).toEqual({ status: 'playing', positionSeconds: 2, durationSeconds: 20, pendingIncoming: null });
 
-      // And that rate keeps applying to position tracking afterward too.
       cfEngine.clock = 8;
-      expect(cfPlayer.getState().positionSeconds).toBeCloseTo(1 + (8 - 5) * 1.5, 6);
+      expect(cfPlayer.getState().positionSeconds).toBeCloseTo(1 + (8 - 5), 6);
     });
 
     it('cleans up (stops) the incoming source and re-throws, instead of leaving it dangling, if a scheduling call throws partway through', () => {
@@ -467,7 +473,7 @@ describe('TrackPlayer', () => {
       // as what happened next - see playlistPlayer.test.ts's matching
       // regression test for the retry-storm this fix actually prevents.
       player.play();
-      engine.clock = 3;
+      engine.clock = 5;
       engine.throwOnIncomingRampGainCurve = true;
 
       expect(() => player.crossfadeTo(nextDecoded, simplePlan, 1)).toThrow(/conflicts with an existing curve event/);
@@ -483,7 +489,7 @@ describe('TrackPlayer', () => {
 
     it('cancels the incoming source too if the transition is interrupted by an explicit stop() before it completes', () => {
       player.play();
-      engine.clock = 3;
+      engine.clock = 5;
       player.crossfadeTo(nextDecoded, simplePlan, 1);
 
       player.stop();
@@ -496,20 +502,20 @@ describe('TrackPlayer', () => {
       expect(player.getState().status).toBe('stopped');
     });
 
-    it('resets a fresh load() back to rate 1, not leaking a completed crossfade\'s rate into an unrelated track', async () => {
-      const cfEngine = new FakeAudioEngine();
-      const cfPlayer = new TrackPlayer(cfEngine);
-      await cfPlayer.load(fileRef);
-      cfPlayer.play();
-      cfEngine.clock = 3;
-      cfPlayer.crossfadeTo(nextDecoded, { ...simplePlan, incomingRate: 1.5 }, 1); // fadeWhen=5
-      cfEngine.fireEnded('source-0'); // completes the swap - currentRate is now 1.5
+    it('cancels a still-pending crossfade before scheduling a new one, rather than layering two on the same outgoing source (regression: rapid manual next/previous presses each schedule their own short crossfade)', () => {
+      player.play(); // source-0
+      engine.clock = 5;
+      player.crossfadeTo(nextDecoded, simplePlan, 1); // schedules source-1 as the pending incoming source
 
-      cfPlayer.loadDecoded({ sampleRate: 44100, numberOfChannels: 2, channelData: [], durationSeconds: 30 });
-      cfPlayer.play();
-      cfEngine.clock += 4;
+      const secondDecoded: DecodedAudio = { sampleRate: 44100, numberOfChannels: 2, channelData: [], durationSeconds: 15 };
+      player.crossfadeTo(secondDecoded, simplePlan, 1); // a second request before the first completed
 
-      expect(cfPlayer.getState().positionSeconds).toBe(4); // rate 1, not the stale 1.5
+      expect(engine.stoppedSourceIds).toContain('source-1'); // the first (now-stale) incoming source was cancelled
+      expect(player.getState().pendingIncoming?.durationSeconds).toBe(15); // the second request's track, not the first's
+
+      // Only the second incoming source's completion should resolve the transition.
+      engine.fireEnded('source-0');
+      expect(player.getState().durationSeconds).toBe(15);
     });
   });
 });

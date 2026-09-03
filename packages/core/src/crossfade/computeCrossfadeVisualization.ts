@@ -10,11 +10,16 @@ export interface TrackVisualization {
 }
 
 export interface CrossfadeVisualization {
-  /** The full visible timeline (seconds, relative to the fade start at t=0) - negative covers the ramp phase and pre-ramp context. */
+  /** The full visible timeline (seconds, relative to the fade start at t=0). */
   timelineStartSeconds: number;
-  /** The full visible timeline's end (seconds, relative to t=0) - past fadeDurationSeconds is post-fade context. */
   timelineEndSeconds: number;
-  /** Where the outgoing track's rate ramp begins/ends (both <= 0) - equal (a zero-width phase) when no ramp is needed. */
+  /**
+   * Always equal (a zero-width "ramp" phase) - kept only so
+   * CrossfadePreview's existing ramp-phase rendering (dashed box, "ramp,
+   * then fade" label) degrades to its already-correct "fade only" path
+   * with no changes there. No rate ramp exists this round - see
+   * computeTransitionPlan's doc.
+   */
   rampStartSeconds: number;
   rampEndSeconds: number;
   /** The audible gain crossfade spans [0, fadeDurationSeconds] within the timeline. */
@@ -24,7 +29,7 @@ export interface CrossfadeVisualization {
 }
 
 export interface CrossfadeVisualizationOptions {
-  /** How many seconds of the outgoing track's normal playback (before the ramp even begins) to include for context. */
+  /** How many seconds of the outgoing track's normal playback (before the fade) to include for context. */
   contextSecondsBefore?: number;
   /** How many seconds of the incoming track's normal (post-fade) playback to include for context. */
   contextSecondsAfter?: number;
@@ -37,71 +42,28 @@ const DEFAULT_SAMPLE_COUNT = 60;
 
 /**
  * Real time (relative to the fade start at t=0) at which the outgoing
- * track's *own* track-time position reaches targetTrackPosition, across
- * all three of its phases: constant rate 1 before the ramp, the linear
- * ramp itself (a quadratic position-vs-time relationship, since the rate
- * is changing), then held constant at outgoingTargetRate from the ramp's
- * end through the fade. Exported so callers with a live playback position
- * (e.g. a debug preview's progress line) can convert it into this same
- * timeline exactly, instead of a linear approximation that would be wrong
- * specifically while inside the ramp.
+ * track's *own* track-time position reaches targetTrackPosition. Both
+ * tracks play at a constant rate 1 throughout (no rate ramp this round -
+ * see computeTransitionPlan's doc), so this is just a linear offset from
+ * fadeStartSeconds. Exported so callers with a live playback position (e.g.
+ * a debug preview's progress line) can convert it into this same timeline.
  */
-export function realTimeForOutgoingPosition(plan: TransitionPlan, targetTrackPosition: number): number | null {
-  const rampVizStart = -(plan.rampDurationSeconds + plan.beatWaitSeconds);
-  const rampVizEnd = -plan.beatWaitSeconds;
-  const posAtRampStart = plan.rampStartSeconds;
-  const posAtRampEnd = plan.rampStartSeconds + (plan.rampDurationSeconds * (1 + plan.outgoingTargetRate)) / 2;
-
-  if (targetTrackPosition <= posAtRampStart) {
-    return rampVizStart + (targetTrackPosition - posAtRampStart); // constant rate 1
-  }
-
-  const rateChange = plan.outgoingTargetRate - 1;
-  const isRamping = plan.rampDurationSeconds > 0 && Math.abs(rateChange) > 1e-9;
-  if (isRamping && targetTrackPosition <= posAtRampEnd) {
-    const a = rateChange / (2 * plan.rampDurationSeconds);
-    const b = 1;
-    const c = posAtRampStart - targetTrackPosition;
-    const discriminant = b * b - 4 * a * c;
-    if (discriminant < 0) return null;
-    const sqrtDiscriminant = Math.sqrt(discriminant);
-    const t1 = (-b + sqrtDiscriminant) / (2 * a);
-    const t2 = (-b - sqrtDiscriminant) / (2 * a);
-    const candidates = [t1, t2].filter((t) => t >= -1e-9 && t <= plan.rampDurationSeconds + 1e-9);
-    if (candidates.length === 0) return null;
-    return rampVizStart + Math.min(...candidates);
-  }
-
-  // Past the ramp (or there was none) - held at outgoingTargetRate (1 if no ramp).
-  if (plan.outgoingTargetRate <= 0) return null;
-  return rampVizEnd + (targetTrackPosition - posAtRampEnd) / plan.outgoingTargetRate;
+export function realTimeForOutgoingPosition(plan: TransitionPlan, targetTrackPosition: number): number {
+  return targetTrackPosition - plan.fadeStartSeconds;
 }
 
-/**
- * Beat times across the full [timelineStart, timelineEnd] window.
- * Outgoing is silent/stopped past fadeDurationSeconds, so no beats are
- * produced there. Incoming plays at a constant rate (incomingRate) from
- * t=0 onward - silent/not started before that.
- */
-function beatTimesForOutgoing(
-  bpm: number,
-  plan: TransitionPlan,
-  timelineStartSeconds: number,
-): number[] {
+function beatTimesForOutgoing(bpm: number, plan: TransitionPlan, timelineStartSeconds: number): number[] {
   if (bpm <= 0) return [];
   const period = 60 / bpm;
   const times: number[] = [];
-
   for (let n = 0; ; n++) {
-    const trackPosition = plan.rampStartSeconds + n * period;
-    const t = realTimeForOutgoingPosition(plan, trackPosition);
-    if (t === null || t > plan.fadeDurationSeconds + 1e-9) break;
+    const t = n * period;
+    if (t > plan.fadeDurationSeconds + 1e-9) break;
     if (t >= timelineStartSeconds - 1e-9) times.push(t);
     if (n > 2000) break; // safety valve - should never be reached at any sane bpm/timeline size
   }
   for (let n = -1; ; n--) {
-    const trackPosition = plan.rampStartSeconds + n * period;
-    const t = trackPosition - plan.rampStartSeconds; // before the ramp is always rate 1
+    const t = n * period;
     if (t < timelineStartSeconds - 1e-9) break;
     times.unshift(t);
     if (n < -2000) break;
@@ -109,17 +71,12 @@ function beatTimesForOutgoing(
   return times;
 }
 
-function beatTimesForIncoming(
-  bpm: number,
-  plan: TransitionPlan,
-  timelineEndSeconds: number,
-): number[] {
+function beatTimesForIncoming(bpm: number, plan: TransitionPlan, timelineEndSeconds: number): number[] {
   if (bpm <= 0) return [];
   const period = 60 / bpm;
   const times: number[] = [];
   for (let n = 0; ; n++) {
-    const trackPosition = plan.incomingStartSeconds + n * period;
-    const t = (trackPosition - plan.incomingStartSeconds) / plan.incomingRate;
+    const t = n * period;
     if (t > timelineEndSeconds + 1e-9) break;
     times.push(t);
     if (n > 2000) break;
@@ -149,9 +106,9 @@ function sampleGainCurve(
  * drives actual playback scheduling, turned into something a debug view
  * can draw, so what's shown is provably the same math that will actually
  * run, not a separate approximation of it. Includes a few seconds of
- * normal playback before the ramp even begins and after the fade
- * completes, for context - without it, the transition alone just looks
- * like an arbitrary shape with no anchor for what's actually changing.
+ * normal playback before the fade begins and after it completes, for
+ * context - without it, the transition alone just looks like an arbitrary
+ * shape with no anchor for what's actually changing.
  */
 export function computeCrossfadeVisualization(
   plan: TransitionPlan,
@@ -162,16 +119,14 @@ export function computeCrossfadeVisualization(
   const contextBefore = options.contextSecondsBefore ?? DEFAULT_CONTEXT_SECONDS;
   const contextAfter = options.contextSecondsAfter ?? DEFAULT_CONTEXT_SECONDS;
   const sampleCount = options.sampleCount ?? DEFAULT_SAMPLE_COUNT;
-  const rampStartSeconds = -(plan.rampDurationSeconds + plan.beatWaitSeconds);
-  const rampEndSeconds = -plan.beatWaitSeconds;
-  const timelineStartSeconds = rampStartSeconds - contextBefore;
+  const timelineStartSeconds = -contextBefore;
   const timelineEndSeconds = plan.fadeDurationSeconds + contextAfter;
 
   return {
     timelineStartSeconds,
     timelineEndSeconds,
-    rampStartSeconds,
-    rampEndSeconds,
+    rampStartSeconds: 0,
+    rampEndSeconds: 0,
     fadeDurationSeconds: plan.fadeDurationSeconds,
     outgoing: {
       bpm: outgoingBpm,

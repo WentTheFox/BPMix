@@ -1,5 +1,4 @@
 import type { FileRef } from '../file-access/types';
-import type { WindowAnalysis } from '../library-store/types';
 
 /** Decoded PCM audio, platform-independent. */
 export interface DecodedAudio {
@@ -39,8 +38,6 @@ export interface SourceNode {
 
 /** Structurally identical to analysis/analyzeTrack's TrackAnalysis - duplicated here (rather than imported) so audio-engine/types doesn't depend on the analysis module. */
 export interface EngineTrackAnalysis {
-  startWindow: WindowAnalysis;
-  endWindow: WindowAnalysis;
   normalizationGain: number;
 }
 

@@ -1,12 +1,4 @@
-import type {
-  AnalysisResult,
-  FileRef,
-  GrantedRoot,
-  LoopMode,
-  PlaylistPlayerState,
-  PlaylistRecord,
-  TrackRecord,
-} from '@bpmix/core';
+import type { FileRef, GrantedRoot, LoopMode, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '@bpmix/core';
 import {
   computeCrossfadeVisualization,
   computeTransitionPlan,
@@ -14,17 +6,17 @@ import {
   PlaylistPlayer,
   realTimeForOutgoingPosition,
   scanRoot,
+  trackDisplayName,
 } from '@bpmix/core';
-import { CrossfadePreview, Icon } from '@bpmix/ui';
+import { CrossfadePreview, Icon, SeekBar, TrackRow, useDoublePressHandler, useTrackAnalysis, VolumeSlider } from '@bpmix/ui';
 import { mdiFastForward10, mdiPause, mdiPlay, mdiRewind10, mdiSkipNext, mdiSkipPrevious } from '@mdi/js';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { DimensionValue, GestureResponderEvent, LayoutChangeEvent } from 'react-native';
+import type { DimensionValue } from 'react-native';
 import { FlatList, Pressable, StyleSheet, Text, useColorScheme, View } from 'react-native';
 import { createAudioEngine } from './adapters/audioEngine';
 import { createFileAccess } from './adapters/fileAccess';
 import { createLibraryStore } from './adapters/libraryStore';
 
-const DOUBLE_PRESS_DELAY_MS = 300;
 const TRANSPORT_THROTTLE_MS = 300;
 // A real settings screen (Stage 8) would persist this - for now it's a
 // simple in-memory control (see the "Crossfade" stepper below) that starts
@@ -33,62 +25,9 @@ const DEFAULT_CROSSFADE_SECONDS = 8;
 const MIN_CROSSFADE_SECONDS = 1;
 const MAX_CROSSFADE_SECONDS = 20;
 
-/** Single press fires onSingle after a short delay; a second press within that window fires onDouble instead. */
-function useDoublePressHandler(onSingle: () => void, onDouble: () => void): () => void {
-  const pendingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-  return useCallback(() => {
-    if (pendingTimeout.current) {
-      clearTimeout(pendingTimeout.current);
-      pendingTimeout.current = null;
-      onDouble();
-      return;
-    }
-    pendingTimeout.current = setTimeout(() => {
-      pendingTimeout.current = null;
-      onSingle();
-    }, DOUBLE_PRESS_DELAY_MS);
-  }, [onSingle, onDouble]);
-}
-
 const fileAccess = createFileAccess();
 const libraryStore = createLibraryStore();
 const audioEngine = createAudioEngine(fileAccess);
-
-const ANALYSIS_RETRY_MS = 500;
-
-/**
- * Fetches a track's analysis, retrying on a short interval until it
- * resolves. JIT analysis (Stage 4) computes it asynchronously right after
- * a track is decoded - the very first fetch immediately after selecting a
- * track can easily land before that write actually completes, and a
- * one-shot fetch would then show nothing for that track's whole session,
- * since nothing else ever triggers a refetch once analysis does finish.
- */
-function useTrackAnalysis(fileId: string | null): AnalysisResult | null {
-  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
-  useEffect(() => {
-    setAnalysis(null);
-    if (!fileId) return;
-    let cancelled = false;
-    let retryTimeout: ReturnType<typeof setTimeout> | undefined;
-    const tryFetch = () => {
-      libraryStore.getAnalysis(fileId).then((result) => {
-        if (cancelled) return;
-        if (result) {
-          setAnalysis(result);
-        } else {
-          retryTimeout = setTimeout(tryFetch, ANALYSIS_RETRY_MS);
-        }
-      });
-    };
-    tryFetch();
-    return () => {
-      cancelled = true;
-      if (retryTimeout) clearTimeout(retryTimeout);
-    };
-  }, [fileId]);
-  return analysis;
-}
 
 function trackToFileRef(track: TrackRecord): FileRef {
   return {
@@ -100,16 +39,18 @@ function trackToFileRef(track: TrackRecord): FileRef {
   };
 }
 
-function trackDisplayName(track: TrackRecord): string {
-  return track.relativePath.split('/').pop() ?? track.relativePath;
-}
-
 // PlaylistPlayer resolves a fileId to a FileRef via this module-level map,
 // kept pointed at whichever playlist screen is currently open (there's only
 // ever one active player/screen in this app). setError is likewise bridged
 // in on mount so the player's async load/decode errors reach the UI.
 let activeTracksById = new Map<string, TrackRecord>();
 let reportError: (error: unknown) => void = () => {};
+// Bridged in on mount, same pattern as reportError - lets PlaylistPlayer push
+// an immediate re-render right when position changes outside a manual UI
+// action (a crossfade completing, or a natural end auto-advancing), instead
+// of the "now playing" display waiting on the next ~200ms poll tick to
+// notice (see PlaylistPlayer's onAdvance doc).
+let notifyAdvance: () => void = () => {};
 
 const playlistPlayer = new PlaylistPlayer(
   audioEngine,
@@ -121,10 +62,7 @@ const playlistPlayer = new PlaylistPlayer(
   {
     onError: (error) => reportError(error),
     resolveGain: async (fileId) => (await libraryStore.getAnalysis(fileId))?.normalizationGain ?? 1,
-    // Stage 7: the same analysis lookup and duration the debug preview below
-    // uses for computeTransitionPlan - PlaylistPlayer schedules the actual
-    // audio crossfade from it, so what's previewed and what's heard match.
-    resolveAnalysis: (fileId) => libraryStore.getAnalysis(fileId).then((result) => result ?? undefined),
+    onAdvance: () => notifyAdvance(),
     crossfadeSeconds: DEFAULT_CROSSFADE_SECONDS,
     // Just-in-time analysis (Stage 4): a track already needed a decode for
     // playback/preload, so analyzing it here is free - no separate eager
@@ -180,97 +118,6 @@ const darkColors = {
 };
 type Colors = typeof lightColors;
 
-const TrackRow = memo(function TrackRow({
-  track,
-  isCurrent,
-  isPlaying,
-  colors,
-  onPress,
-}: {
-  track: TrackRecord;
-  isCurrent: boolean;
-  isPlaying: boolean;
-  colors: Colors;
-  onPress: (track: TrackRecord) => void;
-}) {
-  return (
-    <Pressable style={styles.trackRow} onPress={() => onPress(track)}>
-      <View style={styles.trackRowContent}>
-        {isCurrent && isPlaying && <Icon path={mdiPlay} size={14} color="#3b82f6" />}
-        <Text style={[styles.trackName, { color: isCurrent ? '#3b82f6' : colors.text }]} numberOfLines={1}>
-          {trackDisplayName(track)}
-        </Text>
-      </View>
-    </Pressable>
-  );
-});
-
-/**
- * Tap-to-seek only, deliberately not drag-to-scrub: a drag would need to
- * call seek() continuously as the finger/mouse moves, which is exactly the
- * rapid-fire native-source-churn pattern that crashes react-native-audio-api
- * on Android. A tap fires exactly one seek() call, same as any other
- * transport button.
- */
-function SeekBar({
-  positionSeconds,
-  durationSeconds,
-  onSeekTo,
-}: {
-  positionSeconds: number;
-  durationSeconds: number;
-  onSeekTo: (positionSeconds: number) => void;
-}) {
-  // event.nativeEvent.locationX is unreliable on react-native-web (comes
-  // back undefined there, unlike native RN) - measure() + pageX works on
-  // both, so that's used instead of locationX everywhere.
-  // Typed loosely: RN's own ref type here (ReactNativeElement) isn't a
-  // public export, and this is a narrow, self-contained use of .measure().
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const trackRef = useRef<any>(null);
-  const widthRef = useRef(0);
-  const pageXRef = useRef(0);
-
-  const measureTrack = () => {
-    trackRef.current?.measure((_x: number, _y: number, width: number, _height: number, pageX: number) => {
-      widthRef.current = width;
-      pageXRef.current = pageX;
-    });
-  };
-
-  const handleLayout = (_event: LayoutChangeEvent) => {
-    measureTrack();
-  };
-
-  const handlePress = (event: GestureResponderEvent) => {
-    if (widthRef.current <= 0 || durationSeconds <= 0) return;
-    // Prefer locationX (element-relative, no measure() dependency) when
-    // it's actually a usable number - true on native RN. Falls back to
-    // pageX minus the measured element offset, since locationX comes back
-    // undefined on react-native-web.
-    const relativeX = Number.isFinite(event.nativeEvent.locationX)
-      ? event.nativeEvent.locationX
-      : event.nativeEvent.pageX - pageXRef.current;
-    if (!Number.isFinite(relativeX)) return;
-    const fraction = Math.max(0, Math.min(1, relativeX / widthRef.current));
-    onSeekTo(fraction * durationSeconds);
-  };
-
-  const fillFraction = durationSeconds > 0 ? Math.max(0, Math.min(1, positionSeconds / durationSeconds)) : 0;
-
-  return (
-    <Pressable
-      ref={trackRef}
-      style={styles.seekBarTrack}
-      onLayout={handleLayout}
-      onPress={handlePress}
-      hitSlop={{ top: 14, bottom: 14, left: 4, right: 4 }}
-    >
-      <View style={[styles.seekBarFill, { width: `${fillFraction * 100}%` }]} />
-    </Pressable>
-  );
-}
-
 function App() {
   const isDarkMode = useColorScheme() === 'dark';
   const colors = isDarkMode ? darkColors : lightColors;
@@ -299,6 +146,13 @@ function App() {
     reportError = (err) => setError(String(err));
     return () => {
       reportError = () => {};
+    };
+  }, []);
+
+  useEffect(() => {
+    notifyAdvance = () => setPlayerState(playlistPlayer.getState());
+    return () => {
+      notifyAdvance = () => {};
     };
   }, []);
 
@@ -439,22 +293,52 @@ function App() {
     setPlayerState(playlistPlayer.getState());
   }, [playerState.shuffleEnabled]);
 
+  const [volume, setVolumeState] = useState(() => playlistPlayer.getVolume());
+  useEffect(() => {
+    libraryStore.getPlaybackState().then((stored) => {
+      if (stored) {
+        playlistPlayer.setVolume(stored.volume);
+        setVolumeState(stored.volume);
+      }
+    });
+  }, []);
+  const handleVolumeChange = useCallback((value: number) => {
+    playlistPlayer.setVolume(value);
+    setVolumeState(value);
+    // Persisted so the next launch doesn't blast out at whatever volume
+    // happened to be in effect before it's set once - merges onto whatever
+    // playback state (loop/shuffle/etc.) is already stored, if any, rather
+    // than clobbering it back to defaults.
+    libraryStore.getPlaybackState().then((stored) => {
+      void libraryStore.putPlaybackState({
+        playlistId: stored?.playlistId ?? null,
+        currentTrackFileId: stored?.currentTrackFileId ?? null,
+        positionSeconds: stored?.positionSeconds ?? 0,
+        loopMode: stored?.loopMode ?? 'off',
+        shuffleEnabled: stored?.shuffleEnabled ?? false,
+        volume: value,
+      });
+    });
+  }, []);
+
   const nowPlayingTrack = playerState.currentFileId ? activeTracksById.get(playerState.currentFileId) : undefined;
 
   // Debug view (Stage 4 exit criterion): shows the currently playing
   // track's computed BPM/gain, proving analysis actually ran and produced
   // real numbers, not just that it didn't crash.
-  const currentAnalysis = useTrackAnalysis(playerState.currentFileId);
+  const currentAnalysis = useTrackAnalysis(libraryStore, playerState.currentFileId);
 
-  // Stage 7 debug view: preview of the crossfade into whatever's queued up
-  // next, computed from the same TransitionPlan/visualization data real
-  // playback scheduling will use - lets the alignment/fade math be checked
-  // by eye before (and regardless of) actual audio engine wiring.
+  // Debug view: preview of the crossfade into whatever's queued up next,
+  // computed from the same TransitionPlan/visualization data real playback
+  // scheduling will use - lets the fade timing be checked by eye before
+  // (and regardless of) actual audio engine wiring. No BPM/analysis lookup
+  // needed for this plan any more - see computeTransitionPlan's doc; the
+  // preview's bpm labels just read "BPM unknown" for now (live BPM display
+  // is a later round).
   const [nextFileId, setNextFileId] = useState<string | null>(null);
   useEffect(() => {
     setNextFileId(playlistPlayer.getNextFileId());
   }, [playerState.position, playerState.loopMode, playerState.shuffleEnabled, playerState.totalTracks]);
-  const nextAnalysis = useTrackAnalysis(nextFileId);
   const nextTrack = nextFileId ? activeTracksById.get(nextFileId) : undefined;
 
   // Live-adjustable crossfade duration (the "Crossfade" stepper below) -
@@ -470,56 +354,96 @@ function App() {
     );
   }, []);
 
+  // A crossfade already in flight (natural end-of-track OR a manual skip's
+  // short one - see TrackPlayerState.pendingIncoming's doc) switches the
+  // displayed name/position/duration/track-counter over to the incoming
+  // track immediately, rather than waiting for onCrossfadeCompleted - lines
+  // the display change up with what's already audible throughout the fade,
+  // instead of an abrupt seek-bar jump the instant the swap actually
+  // completes (the bar climbing toward the OUTGOING track's duration for
+  // the whole fade, then snapping to a small fraction of the usually much
+  // longer incoming track's duration).
+  const pendingIncoming = playerState.track.pendingIncoming;
+  // Explicit rather than inferred from currentFileId/nextFileId - see
+  // PlaylistPlayerState.pendingCrossfadeFileIds' doc for why those two
+  // don't reliably mean "outgoing"/"incoming" on their own (a manual skip
+  // advances position/currentFileId to the target immediately, unlike the
+  // natural end-of-track crossfade, which only does that once it completes).
+  const pendingCrossfadeFileIds = playerState.pendingCrossfadeFileIds;
+  const pendingOutgoingTrack = pendingCrossfadeFileIds ? activeTracksById.get(pendingCrossfadeFileIds.outgoing) : undefined;
+  const pendingIncomingTrack = pendingCrossfadeFileIds ? activeTracksById.get(pendingCrossfadeFileIds.incoming) : undefined;
+  // True only for a manual skip (crossfadeToPosition already advanced
+  // currentFileId to the incoming target); false for the natural
+  // end-of-track path (currentFileId is still the outgoing side throughout).
+  const isManualSkipPending = pendingCrossfadeFileIds && playerState.currentFileId === pendingCrossfadeFileIds.incoming;
+
   const transitionPlan = useMemo(() => {
-    if (!currentAnalysis || !nextAnalysis || playerState.track.durationSeconds <= 0) return null;
-    return computeTransitionPlan(
-      { endWindow: currentAnalysis.endWindow, durationSeconds: playerState.track.durationSeconds },
-      { startWindow: nextAnalysis.startWindow },
-      crossfadeSeconds,
-    );
-  }, [currentAnalysis, nextAnalysis, playerState.track.durationSeconds, crossfadeSeconds]);
+    if (pendingIncoming) {
+      // A crossfade is genuinely happening right now - reflect its real
+      // duration (a manual skip's fadeDurationSeconds is much shorter than
+      // the natural end-of-track crossfadeSeconds default below), not a
+      // static preview of a future one.
+      return { fadeStartSeconds: 0, fadeDurationSeconds: pendingIncoming.fadeDurationSeconds, incomingStartSeconds: 0 };
+    }
+    if (playerState.track.durationSeconds <= 0) return null;
+    return computeTransitionPlan(playerState.track.durationSeconds, crossfadeSeconds);
+  }, [pendingIncoming, playerState.track.durationSeconds, crossfadeSeconds]);
 
   const crossfadeVisualization = useMemo(() => {
-    if (!transitionPlan || !currentAnalysis || !nextAnalysis) return null;
-    return computeCrossfadeVisualization(transitionPlan, currentAnalysis.endWindow.bpm, nextAnalysis.startWindow.bpm);
-  }, [transitionPlan, currentAnalysis, nextAnalysis]);
+    if (!transitionPlan) return null;
+    return computeCrossfadeVisualization(transitionPlan, 0, 0);
+  }, [transitionPlan]);
 
-  // The preview's timeline is relative to the fade start (t=0) - converting
-  // live playback position into that same frame lets the preview draw a
-  // real-time progress line instead of just a static plan. Uses the same
-  // piecewise (flat/ramp/flat) math the visualization itself is built from,
-  // since a plain subtraction is only correct outside the ramp phase.
-  const crossfadeProgressSeconds = transitionPlan
-    ? realTimeForOutgoingPosition(transitionPlan, playerState.track.positionSeconds)
-    : null;
+  // The preview's timeline is relative to the fade start (t=0). While a
+  // crossfade is actually in flight, pendingIncoming.positionSeconds IS
+  // that elapsed time directly (incomingStartSeconds is always 0, rate is
+  // always 1 this round) - no need for realTimeForOutgoingPosition's
+  // fadeStartSeconds-relative math, which only applies to the *preview* of
+  // a future natural-end crossfade computed from the static default plan.
+  const crossfadeProgressSeconds = pendingIncoming
+    ? pendingIncoming.positionSeconds
+    : transitionPlan
+      ? realTimeForOutgoingPosition(transitionPlan, playerState.track.positionSeconds)
+      : null;
+
+  const displayTrack = pendingIncoming ? (pendingIncomingTrack ?? nowPlayingTrack) : nowPlayingTrack;
+  const displayPositionSeconds = pendingIncoming ? pendingIncoming.positionSeconds : playerState.track.positionSeconds;
+  const displayDurationSeconds = pendingIncoming ? pendingIncoming.durationSeconds : playerState.track.durationSeconds;
+  const displayTrackNumber =
+    pendingIncoming && !isManualSkipPending && playerState.totalTracks > 0
+      ? ((playerState.position >= playerState.totalTracks - 1 ? 0 : playerState.position + 1) % playerState.totalTracks) + 1
+      : playerState.position + 1;
 
   const nowPlayingBar = playerState.currentFileId && (
     <View style={styles.nowPlaying}>
       <Text style={[styles.nowPlayingName, { color: colors.text }]} numberOfLines={1}>
-        {nowPlayingTrack ? trackDisplayName(nowPlayingTrack) : playerState.currentFileId}
+        {displayTrack ? trackDisplayName(displayTrack) : playerState.currentFileId}
       </Text>
       <Text style={[styles.nowPlayingTime, { color: colors.subtleText }]}>
-        {formatSeconds(playerState.track.positionSeconds)} / {formatSeconds(playerState.track.durationSeconds)} (
-        {playerState.track.status}) · track {playerState.position + 1}/{playerState.totalTracks}
+        {formatSeconds(displayPositionSeconds)} / {formatSeconds(displayDurationSeconds)} (
+        {playerState.track.status}) · track {displayTrackNumber}/{playerState.totalTracks}
       </Text>
       {currentAnalysis && (
-        <Text style={[styles.nowPlayingTime, { color: colors.subtleText }]}>
-          Tempo: start {currentAnalysis.startWindow.bpm.toFixed(0)} BPM · end {currentAnalysis.endWindow.bpm.toFixed(0)} BPM
-          · gain {currentAnalysis.normalizationGain.toFixed(2)}x
-        </Text>
+        <Text style={[styles.nowPlayingTime, { color: colors.subtleText }]}>Gain: {currentAnalysis.normalizationGain.toFixed(2)}x</Text>
       )}
       {crossfadeVisualization && (
         <CrossfadePreview
-          outgoingName={nowPlayingTrack ? trackDisplayName(nowPlayingTrack) : 'Current track'}
-          incomingName={nextTrack ? trackDisplayName(nextTrack) : 'Next track'}
+          outgoingName={
+            (pendingOutgoingTrack ?? nowPlayingTrack) ? trackDisplayName((pendingOutgoingTrack ?? nowPlayingTrack)!) : 'Current track'
+          }
+          incomingName={(pendingIncomingTrack ?? nextTrack) ? trackDisplayName((pendingIncomingTrack ?? nextTrack)!) : 'Next track'}
           visualization={crossfadeVisualization}
           progressSeconds={crossfadeProgressSeconds}
         />
       )}
       <SeekBar
-        positionSeconds={playerState.track.positionSeconds}
-        durationSeconds={playerState.track.durationSeconds}
-        onSeekTo={seekTo}
+        positionSeconds={displayPositionSeconds}
+        durationSeconds={displayDurationSeconds}
+        // Disabled mid-crossfade: seekTo() still only affects the actual
+        // (outgoing) source, which no longer matches what the bar is
+        // showing (the incoming track's position/duration) - a tap here
+        // would compute a fraction against the wrong track's duration.
+        onSeekTo={pendingIncoming ? () => {} : seekTo}
       />
       <View style={styles.playerControlsRow}>
         <Pressable style={styles.controlButton} onPress={handlePreviousPress}>
@@ -565,6 +489,7 @@ function App() {
           <Text style={styles.transportButtonText}>+1s</Text>
         </Pressable>
       </View>
+      <VolumeSlider volume={volume} onChangeVolume={handleVolumeChange} />
     </View>
   );
 
@@ -589,7 +514,7 @@ function App() {
                 track={track}
                 isCurrent={playerState.currentFileId === fileId}
                 isPlaying={playerState.track.status === 'playing'}
-                colors={colors}
+                textColor={colors.text}
                 onPress={(t) => void playFromTrack(playlist, tracksById, t)}
               />
             );
@@ -705,17 +630,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 2,
   },
-  seekBarTrack: {
-    height: 10,
-    marginTop: 12,
-    borderRadius: 5,
-    backgroundColor: 'rgba(59, 130, 246, 0.25)',
-    overflow: 'hidden',
-  },
-  seekBarFill: {
-    height: '100%',
-    backgroundColor: '#3b82f6',
-  },
   transportRow: {
     flexDirection: 'row',
     gap: 8,
@@ -802,19 +716,6 @@ const styles = StyleSheet.create({
   trackCount: {
     fontSize: 12,
     opacity: 0.6,
-  },
-  trackRow: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-  },
-  trackRowContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  trackName: {
-    fontSize: 14,
-    flexShrink: 1,
   },
 });
 
