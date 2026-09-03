@@ -21,9 +21,26 @@ class FakeAudioEngine implements AudioEngine {
   durationSecondsByFileId: Record<string, number> = {};
   /** Simulates a real native scheduling conflict on the crossfade's gain curve call. */
   throwOnRampGainCurve = false;
+  /** fileIds whose decodeFile() call won't resolve until releaseDecode() is called for it - lets a test construct a real overlapping-decode window. */
+  private gatedFileIds = new Set<string>();
+  private decodeReleasers = new Map<string, () => void>();
+  decodeCallCountByFileId = new Map<string, number>();
+
+  gateDecode(fileId: string): void {
+    this.gatedFileIds.add(fileId);
+  }
+
+  releaseDecode(fileId: string): void {
+    this.decodeReleasers.get(fileId)?.();
+    this.decodeReleasers.delete(fileId);
+  }
 
   async decodeFile(ref: FileRef): Promise<DecodedAudio> {
     this.decodedFileIds.push(ref.id);
+    this.decodeCallCountByFileId.set(ref.id, (this.decodeCallCountByFileId.get(ref.id) ?? 0) + 1);
+    if (this.gatedFileIds.has(ref.id)) {
+      await new Promise<void>((resolve) => this.decodeReleasers.set(ref.id, resolve));
+    }
     return {
       sampleRate: 44100,
       numberOfChannels: 2,
@@ -670,5 +687,30 @@ describe('PlaylistPlayer manual next()/previous() crossfades instead of hard-cut
 
     engine.fireEnded('source-0'); // the crossfade actually completes
     expect(player.getState().pendingCrossfadeFileIds).toBeNull();
+  });
+
+  it("de-duplicates a manual skip's decode against one the preload scheduler already has in flight for the same fileId (regression: two concurrent decodeFile() calls for the same file threw a real on-device 'the file is in use' error on Windows, whose native decode opens the file itself)", async () => {
+    const engine = new FakeAudioEngine();
+    const player = new PlaylistPlayer(engine, (fileId) => makeFileRef(fileId));
+    await player.setPlaylist(TRACKS); // playing 'a'
+    await flush();
+
+    engine.gateDecode('b'); // 'b' won't finish decoding until released below
+    player.checkPreload(); // starts the preload scheduler's own decode of 'b'
+    await flush();
+    expect(engine.decodeCallCountByFileId.get('b')).toBe(1); // preload's decode is in flight, not yet resolved
+
+    const nextPromise = player.next(); // targets 'b' too, while the preload decode is still pending
+    await flush();
+
+    // Still only one decodeFile() call for 'b' - the manual skip shared the
+    // preload's already-in-flight decode instead of starting a second one.
+    expect(engine.decodeCallCountByFileId.get('b')).toBe(1);
+
+    engine.releaseDecode('b');
+    await nextPromise;
+    await flush();
+
+    expect(player.getState().currentFileId).toBe('b');
   });
 });

@@ -108,6 +108,8 @@ export class PlaylistPlayer {
   private crossfadeIsManualSkip = false;
   /** See PlaylistPlayerState.pendingCrossfadeFileIds' doc. Set right before every trackPlayer.crossfadeTo() call (both paths), cleared in handleCrossfadeCompleted. */
   private pendingCrossfadeFileIds: { outgoing: string; incoming: string } | null = null;
+  /** See decodeDeduped's doc. */
+  private decodingByFileId = new Map<string, Promise<DecodedAudio>>();
 
   constructor(
     engine: AudioEngine,
@@ -144,7 +146,7 @@ export class PlaylistPlayer {
       onCrossfadeCompleted: () => this.handleCrossfadeCompleted(),
     });
     this.preloadScheduler = new PreloadScheduler({
-      decode: (fileId) => this.decodeAndNotify(fileId),
+      decode: (fileId) => this.decodeDeduped(fileId),
       // Stage 6's "flag a playback error" - playback itself is unaffected,
       // playAt() just decodes cold (its existing fallback) when it gets
       // there, since an empty preload cache is a no-op, not a special case.
@@ -170,6 +172,34 @@ export class PlaylistPlayer {
       // onDecoded threw synchronously - it's fire-and-forget, never let it affect playback.
     }
     return decoded;
+  }
+
+  /**
+   * Same as decodeAndNotify, but de-duplicated across every caller
+   * (the preload scheduler, playAt()'s cache-miss fallback, and
+   * crossfadeToPosition()'s) - without this, the preload scheduler could
+   * already be mid-decode for a fileId (e.g. it's next up in the lookahead
+   * window) at the exact moment a manual skip or natural advance reaches
+   * that same fileId before the preload finishes; takePreloaded() finds
+   * nothing ready yet, and a second decodeFile() call for the identical
+   * file starts concurrently with the first. On Windows this native
+   * decode opens the file itself (not a shared handle), so two overlapping
+   * decodes of the same file threw a real on-device "the file is in use"
+   * error (regression: only became reachable once manual skips started
+   * decoding at all, via crossfadeToPosition - shuffle just made the
+   * timing more likely to land in that window). Every caller now shares
+   * whatever decode for that fileId is already in flight instead.
+   */
+  private decodeDeduped(fileId: string): Promise<DecodedAudio> {
+    const existing = this.decodingByFileId.get(fileId);
+    if (existing) return existing;
+    const promise = this.decodeAndNotify(fileId).finally(() => {
+      if (this.decodingByFileId.get(fileId) === promise) {
+        this.decodingByFileId.delete(fileId);
+      }
+    });
+    this.decodingByFileId.set(fileId, promise);
+    return promise;
   }
 
   /** Loads a new playlist and starts playing at the given track (default: the first). */
@@ -435,7 +465,7 @@ export class PlaylistPlayer {
     try {
       const preloaded = this.preloadScheduler.takePreloaded(fileId);
       const [decoded, gain] = await Promise.all([
-        preloaded ? Promise.resolve(preloaded) : this.decodeAndNotify(fileId),
+        preloaded ? Promise.resolve(preloaded) : this.decodeDeduped(fileId),
         this.resolveGainFor(fileId),
       ]);
       if (token !== this.playToken) return;
@@ -488,7 +518,7 @@ export class PlaylistPlayer {
       // and effectively instant since there's nothing left to await there.
       const preloaded = this.preloadScheduler.takePreloaded(fileId);
       const [decoded, gain] = await Promise.all([
-        preloaded ? Promise.resolve(preloaded) : this.decodeAndNotify(fileId),
+        preloaded ? Promise.resolve(preloaded) : this.decodeDeduped(fileId),
         this.resolveGainFor(fileId),
       ]);
       if (token !== this.playToken) return;
