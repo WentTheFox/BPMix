@@ -3,8 +3,8 @@ import type { LibraryStore } from '../library-store/types';
 import { readTags } from './readTags';
 import type { TrackMetadata } from './types';
 
-/** Bumped whenever readTags' behavior changes, so already-scanned files get re-read instead of keeping a stale result forever - same role as ANALYSIS_ALGORITHM_VERSION. */
-export const METADATA_PARSER_VERSION = 1;
+/** Bumped whenever readTags' behavior changes, so already-scanned files get re-read instead of keeping a stale result forever - same role as ANALYSIS_ALGORITHM_VERSION. (v2: also extracts cover art.) */
+export const METADATA_PARSER_VERSION = 2;
 
 /** True if a stored TrackMetadata can still be trusted for the given file - see TrackMetadata's field docs and isAnalysisFresh (the same pattern, for analysis results). */
 export function isMetadataFresh(
@@ -43,5 +43,8 @@ export async function ensureTrackMetadata(store: LibraryStore, fileAccess: FileA
     parserVersion: METADATA_PARSER_VERSION,
   };
   await store.putMetadata(result);
+  // Always written, even when null - clears stale art from a prior scan if
+  // the file changed and no longer has any (or never did).
+  await store.putCoverArt(ref.id, tags?.coverArtDataUri ?? null);
   return result;
 }

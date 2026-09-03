@@ -6,6 +6,7 @@ import { ensureTrackMetadata, isMetadataFresh, METADATA_PARSER_VERSION } from '.
 
 class FakeLibraryStore implements LibraryStore {
   metadata = new Map<string, TrackMetadata>();
+  coverArt = new Map<string, string>();
 
   async upsertTrack(): Promise<void> {}
   async upsertPlaylist(): Promise<void> {}
@@ -24,6 +25,16 @@ class FakeLibraryStore implements LibraryStore {
   }
   async putMetadata(result: TrackMetadata): Promise<void> {
     this.metadata.set(result.fileId, result);
+  }
+  async getCoverArt(fileId: string): Promise<string | null> {
+    return this.coverArt.get(fileId) ?? null;
+  }
+  async putCoverArt(fileId: string, dataUri: string | null): Promise<void> {
+    if (dataUri === null) {
+      this.coverArt.delete(fileId);
+    } else {
+      this.coverArt.set(fileId, dataUri);
+    }
   }
   async getPlaybackState(): Promise<PlaybackState | null> {
     return null;
@@ -58,16 +69,36 @@ function synchsafe(size: number): number[] {
   return [(size >> 21) & 0x7f, (size >> 14) & 0x7f, (size >> 7) & 0x7f, size & 0x7f];
 }
 
-/** Builds a minimal real ID3v2.3 tag (Latin-1 text frames) followed by some filler "audio" bytes. */
-function buildMp3WithId3v2(tags: { title?: string; artist?: string; album?: string }): ArrayBuffer {
+/** Builds a minimal real ID3v2.3 tag (Latin-1 text frames, plus an optional APIC picture frame) followed by some filler "audio" bytes. */
+function buildMp3WithId3v2(tags: {
+  title?: string;
+  artist?: string;
+  album?: string;
+  coverArt?: { mimeType: string; bytes: number[] };
+}): ArrayBuffer {
   const frames: number[] = [];
-  const addFrame = (id: string, text: string) => {
-    const textBytes = [0, ...Array.from(text).map((c) => c.charCodeAt(0))]; // encoding byte 0 = Latin-1
-    frames.push(...Array.from(id).map((c) => c.charCodeAt(0)), ...[(textBytes.length >> 24) & 0xff, (textBytes.length >> 16) & 0xff, (textBytes.length >> 8) & 0xff, textBytes.length & 0xff], 0, 0, ...textBytes);
+  const addFrame = (id: string, body: number[]) => {
+    frames.push(
+      ...Array.from(id).map((c) => c.charCodeAt(0)),
+      (body.length >> 24) & 0xff,
+      (body.length >> 16) & 0xff,
+      (body.length >> 8) & 0xff,
+      body.length & 0xff,
+      0,
+      0,
+      ...body,
+    );
   };
-  if (tags.title) addFrame('TIT2', tags.title);
-  if (tags.artist) addFrame('TPE1', tags.artist);
-  if (tags.album) addFrame('TALB', tags.album);
+  const addTextFrame = (id: string, text: string) => addFrame(id, [0, ...Array.from(text).map((c) => c.charCodeAt(0))]); // encoding byte 0 = Latin-1
+
+  if (tags.title) addTextFrame('TIT2', tags.title);
+  if (tags.artist) addTextFrame('TPE1', tags.artist);
+  if (tags.album) addTextFrame('TALB', tags.album);
+  if (tags.coverArt) {
+    const mimeBytes = [...Array.from(tags.coverArt.mimeType).map((c) => c.charCodeAt(0)), 0]; // null-terminated
+    const pictureType = 3; // "Cover (front)"
+    addFrame('APIC', [0 /* encoding */, ...mimeBytes, pictureType, 0 /* empty null-terminated description */, ...tags.coverArt.bytes]);
+  }
 
   const header = [0x49, 0x44, 0x33, 3, 0, 0, ...synchsafe(frames.length)];
   const filler = new Array(64).fill(0);
@@ -88,6 +119,33 @@ describe('ensureTrackMetadata', () => {
     expect(result.artists).toEqual(['The Artist']);
     expect(result.album).toBe('Great Album');
     expect(await store.getMetadata('a')).toEqual(result);
+  });
+
+  it('extracts embedded cover art as a data URI', async () => {
+    const store = new FakeLibraryStore();
+    const imageBytes = [0xff, 0xd8, 0xff, 0xe0, 0x00, 0x01, 0x02, 0x03]; // fake JPEG-ish bytes - content doesn't matter, just that they round-trip
+    const bytes = buildMp3WithId3v2({ title: 'Song', coverArt: { mimeType: 'image/jpeg', bytes: imageBytes } });
+    const fileAccess = new FakeFileAccess(new Map([['a', bytes]]));
+
+    await ensureTrackMetadata(store, fileAccess, ref);
+    const art = await store.getCoverArt('a');
+
+    expect(art).toMatch(/^data:image\/jpeg;base64,/);
+    const base64 = art!.split(',')[1]!;
+    expect(Buffer.from(base64, 'base64')).toEqual(Buffer.from(imageBytes));
+  });
+
+  it('clears previously stored art when a re-scanned file no longer has any', async () => {
+    const store = new FakeLibraryStore();
+    const withArt = buildMp3WithId3v2({ title: 'Song', coverArt: { mimeType: 'image/png', bytes: [1, 2, 3] } });
+    await ensureTrackMetadata(store, new FakeFileAccess(new Map([['a', withArt]])), ref);
+    expect(await store.getCoverArt('a')).not.toBeNull();
+
+    const withoutArt = buildMp3WithId3v2({ title: 'Song' });
+    const changedRef: FileRef = { ...ref, sizeBytes: 2000, lastModifiedMs: 42 };
+    await ensureTrackMetadata(store, new FakeFileAccess(new Map([['a', withoutArt]])), changedRef);
+
+    expect(await store.getCoverArt('a')).toBeNull();
   });
 
   it('splits a "/"-delimited multi-artist frame into individual names', async () => {

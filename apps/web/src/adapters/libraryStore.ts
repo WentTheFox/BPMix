@@ -1,12 +1,13 @@
 import type { AnalysisResult, LibraryStore, PlaybackState, PlaylistRecord, TrackMetadata, TrackRecord } from '@bpmix/core';
-import { idbGet, idbGetAll, idbPut, openDb } from './indexedDb';
+import { idbDelete, idbGet, idbGetAll, idbPut, openDb } from './indexedDb';
 
 const DB_NAME = 'bpmix-library';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const TRACKS_STORE = 'tracks';
 const PLAYLISTS_STORE = 'playlists';
 const ANALYSIS_STORE = 'analysis';
 const METADATA_STORE = 'metadata';
+const COVER_ART_STORE = 'coverArt';
 const PLAYBACK_STATE_STORE = 'playbackState';
 const PLAYBACK_STATE_KEY = 'current';
 
@@ -23,6 +24,10 @@ function getDb(): Promise<IDBDatabase> {
     }
     if (!db.objectStoreNames.contains(METADATA_STORE)) {
       db.createObjectStore(METADATA_STORE, { keyPath: 'fileId' });
+    }
+    if (!db.objectStoreNames.contains(COVER_ART_STORE)) {
+      // Keyed explicitly (not via keyPath) - the value is just the data URI string, not an object with a fileId field.
+      db.createObjectStore(COVER_ART_STORE);
     }
     if (!db.objectStoreNames.contains(PLAYBACK_STATE_STORE)) {
       db.createObjectStore(PLAYBACK_STATE_STORE);
@@ -76,6 +81,20 @@ export function createLibraryStore(): LibraryStore {
     async putMetadata(result: TrackMetadata): Promise<void> {
       const db = await getDb();
       await idbPut(db, METADATA_STORE, result);
+    },
+
+    async getCoverArt(fileId: string): Promise<string | null> {
+      const db = await getDb();
+      const result = await idbGet<string>(db, COVER_ART_STORE, fileId);
+      return result ?? null;
+    },
+    async putCoverArt(fileId: string, dataUri: string | null): Promise<void> {
+      const db = await getDb();
+      if (dataUri === null) {
+        await idbDelete(db, COVER_ART_STORE, fileId);
+      } else {
+        await idbPut(db, COVER_ART_STORE, dataUri, fileId);
+      }
     },
 
     async getPlaybackState(): Promise<PlaybackState | null> {

@@ -39,9 +39,10 @@ export function idbGetAll<T>(db: IDBDatabase, storeName: string): Promise<T[]> {
   return wrapRequest(tx.objectStore(storeName).getAll());
 }
 
-export function idbPut(db: IDBDatabase, storeName: string, value: unknown): Promise<void> {
+/** `key` is only needed for a store with no keyPath (its value isn't an object carrying its own key field). */
+export function idbPut(db: IDBDatabase, storeName: string, value: unknown, key?: IDBValidKey): Promise<void> {
   const tx = db.transaction(storeName, 'readwrite');
-  tx.objectStore(storeName).put(value);
+  tx.objectStore(storeName).put(value, key);
   return new Promise((resolve, reject) => {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);

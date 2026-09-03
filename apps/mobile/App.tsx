@@ -6,9 +6,9 @@
 
 import type { FileRef, GrantedRoot, LoopMode, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '@bpmix/core';
 import {
-  computeCrossfadeVisualization,
   computeTransitionPlan,
   ensureTrackAnalyzed,
+  equalPowerGain,
   formatTrackTitle,
   PlaylistPlayer,
   realTimeForOutgoingPosition,
@@ -16,11 +16,12 @@ import {
   scanRoot,
 } from '@bpmix/core';
 import {
-  CrossfadePreview,
+  CrossfadeArt,
   Icon,
   IconLabel,
   SeekBar,
   TrackRow,
+  useCoverArt,
   useDoublePressHandler,
   useTrackAnalysis,
   useTrackMetadata,
@@ -41,7 +42,7 @@ import {
   mdiSkipPrevious,
 } from '@mdi/js';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StatusBar, StyleSheet, Text, useColorScheme, View } from 'react-native';
+import { ActivityIndicator, FlatList, Image, Pressable, StatusBar, StyleSheet, Text, useColorScheme, View } from 'react-native';
 import {
   SafeAreaProvider,
   useSafeAreaInsets,
@@ -434,11 +435,6 @@ function AppContent() {
     return computeTransitionPlan(playerState.track.durationSeconds, DEFAULT_CROSSFADE_SECONDS);
   }, [pendingIncoming, playerState.track.durationSeconds]);
 
-  const crossfadeVisualization = useMemo(() => {
-    if (!transitionPlan) return null;
-    return computeCrossfadeVisualization(transitionPlan, 0, 0);
-  }, [transitionPlan]);
-
   // The preview's timeline is relative to the fade start (t=0). While a
   // crossfade is actually in flight, pendingIncoming.positionSeconds IS
   // that elapsed time directly (incomingStartSeconds is always 0, rate is
@@ -459,6 +455,23 @@ function AppContent() {
   const incomingTrack = pendingIncomingTrack ?? nextTrack;
   const outgoingTrackMetadata = useTrackMetadata(libraryStore, outgoingTrack?.fileId ?? null);
   const incomingTrackMetadata = useTrackMetadata(libraryStore, incomingTrack?.fileId ?? null);
+  const outgoingCoverArt = useCoverArt(libraryStore, outgoingTrack?.fileId ?? null, outgoingTrackMetadata !== null);
+  const incomingCoverArt = useCoverArt(libraryStore, incomingTrack?.fileId ?? null, incomingTrackMetadata !== null);
+  // Same equalPowerGain() call SourceNode.rampGainCurve uses for the real
+  // audio fade, sampled at the current progress instead of over a curve -
+  // this is what makes the art dissolve at exactly the rate the audio
+  // itself fades (see CrossfadeArt's doc).
+  const fadeDurationSeconds = transitionPlan?.fadeDurationSeconds ?? 0;
+  const crossfadeFraction =
+    crossfadeProgressSeconds == null
+      ? null
+      : fadeDurationSeconds > 0
+        ? crossfadeProgressSeconds / fadeDurationSeconds
+        : crossfadeProgressSeconds >= 0
+          ? 1
+          : 0;
+  const outgoingGain = crossfadeFraction == null ? 1 : equalPowerGain(crossfadeFraction, true, fadeDurationSeconds);
+  const incomingGain = crossfadeFraction == null ? 0 : equalPowerGain(crossfadeFraction, false, fadeDurationSeconds);
   const displayPositionSeconds = pendingIncoming ? pendingIncoming.positionSeconds : playerState.track.positionSeconds;
   const displayDurationSeconds = pendingIncoming ? pendingIncoming.durationSeconds : playerState.track.durationSeconds;
   const displayTrackNumber =
@@ -466,33 +479,46 @@ function AppContent() {
       ? ((playerState.position >= playerState.totalTracks - 1 ? 0 : playerState.position + 1) % playerState.totalTracks) + 1
       : playerState.position + 1;
 
+  const displayCoverArt = useCoverArt(libraryStore, displayTrack?.fileId ?? null, displayTrackMetadata !== null);
+
   const nowPlayingBar = playerState.currentFileId && (
     <View style={styles.nowPlaying}>
-      <Text style={[styles.nowPlayingName, { color: colors.text }]} numberOfLines={1}>
-        {displayTrack ? formatTrackTitle(displayTrackMetadata, displayTrack) : playerState.currentFileId}
-      </Text>
-      {isLoadingTrack ? (
-        <View style={styles.buttonRow}>
-          <ActivityIndicator size="small" color={colors.subtleText} style={styles.buttonSpinner} />
-          <Text style={[styles.nowPlayingTime, { color: colors.subtleText }]}>
-            Loading… · track {displayTrackNumber}/{playerState.totalTracks}
+      <View style={styles.nowPlayingHeader}>
+        {displayCoverArt ? (
+          <Image source={{ uri: displayCoverArt }} style={styles.nowPlayingArt} />
+        ) : (
+          <View style={[styles.nowPlayingArt, styles.nowPlayingArtPlaceholder]} />
+        )}
+        <View style={styles.nowPlayingHeaderText}>
+          <Text style={[styles.nowPlayingName, { color: colors.text }]} numberOfLines={1}>
+            {displayTrack ? formatTrackTitle(displayTrackMetadata, displayTrack) : playerState.currentFileId}
           </Text>
+          {isLoadingTrack ? (
+            <View style={styles.buttonRow}>
+              <ActivityIndicator size="small" color={colors.subtleText} style={styles.buttonSpinner} />
+              <Text style={[styles.nowPlayingTime, { color: colors.subtleText }]}>
+                Loading… · track {displayTrackNumber}/{playerState.totalTracks}
+              </Text>
+            </View>
+          ) : (
+            <Text style={[styles.nowPlayingTime, { color: colors.subtleText }]}>
+              {formatSeconds(displayPositionSeconds)} / {formatSeconds(displayDurationSeconds)} (
+              {playerState.track.status}) · track {displayTrackNumber}/{playerState.totalTracks}
+            </Text>
+          )}
+          {currentAnalysis && (
+            <Text style={[styles.nowPlayingTime, { color: colors.subtleText }]}>
+              Gain: {currentAnalysis.normalizationGain.toFixed(2)}x
+            </Text>
+          )}
         </View>
-      ) : (
-        <Text style={[styles.nowPlayingTime, { color: colors.subtleText }]}>
-          {formatSeconds(displayPositionSeconds)} / {formatSeconds(displayDurationSeconds)} (
-          {playerState.track.status}) · track {displayTrackNumber}/{playerState.totalTracks}
-        </Text>
-      )}
-      {currentAnalysis && (
-        <Text style={[styles.nowPlayingTime, { color: colors.subtleText }]}>Gain: {currentAnalysis.normalizationGain.toFixed(2)}x</Text>
-      )}
-      {crossfadeVisualization && (
-        <CrossfadePreview
-          outgoingName={outgoingTrack ? formatTrackTitle(outgoingTrackMetadata, outgoingTrack) : 'Current track'}
-          incomingName={incomingTrack ? formatTrackTitle(incomingTrackMetadata, incomingTrack) : 'Next track'}
-          visualization={crossfadeVisualization}
-          progressSeconds={crossfadeProgressSeconds}
+      </View>
+      {transitionPlan && (
+        <CrossfadeArt
+          outgoingArtUri={outgoingCoverArt}
+          incomingArtUri={incomingCoverArt}
+          outgoingGain={outgoingGain}
+          incomingGain={incomingGain}
         />
       )}
       <SeekBar
@@ -697,6 +723,23 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 8,
     backgroundColor: 'rgba(59, 130, 246, 0.1)',
+  },
+  nowPlayingHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  nowPlayingHeaderText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  nowPlayingArt: {
+    width: 48,
+    height: 48,
+    borderRadius: 6,
+  },
+  nowPlayingArtPlaceholder: {
+    backgroundColor: 'rgba(128,128,128,0.15)',
   },
   nowPlayingName: {
     fontSize: 15,

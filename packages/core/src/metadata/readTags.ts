@@ -8,12 +8,15 @@
 // installed here). This prebuilt bundle was specifically built without
 // those two readers (browserify -i), so it only needs the ArrayFileReader
 // path this module actually uses.
-import { Reader } from 'jsmediatags/dist/jsmediatags.min.js';
+import { Reader, type PictureType } from 'jsmediatags/dist/jsmediatags.min.js';
+import { encodeBase64 } from './base64';
 
 export interface ParsedTags {
   title: string | null;
   artists: string[];
   album: string | null;
+  /** Ready to hand straight to an <Image source={{uri}}/> - "data:<mimeType>;base64,...". */
+  coverArtDataUri: string | null;
 }
 
 /** Splits a multi-artist tag value into individual names: ID3v2.4 separates multiple TPE1 values with NUL, v2.3 conventionally uses "/". */
@@ -22,6 +25,20 @@ function splitArtists(raw: string): string[] {
     .split(/\0|\//)
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
+}
+
+/** ID3v2.3+/MP4/FLAC give a real MIME type; only ID3v2.2's 3-char image type ("JPG"/"PNG") doesn't. */
+function normalizeMimeType(format: string): string {
+  if (format.includes('/')) return format;
+  const upper = format.toUpperCase();
+  if (upper === 'JPG' || upper === 'JPEG') return 'image/jpeg';
+  if (upper === 'PNG') return 'image/png';
+  return 'image/jpeg'; // most embedded art is jpeg; a wrong guess here just fails to decode rather than crashing anything
+}
+
+function coverArtDataUri(picture: PictureType | undefined): string | null {
+  if (!picture || picture.data.length === 0) return null;
+  return `data:${normalizeMimeType(picture.format)};base64,${encodeBase64(new Uint8Array(picture.data))}`;
 }
 
 /**
@@ -43,14 +60,15 @@ export function readTags(fileBytes: ArrayBuffer): Promise<ParsedTags | null> {
   const byteArray = Array.from(new Uint8Array(fileBytes));
   return new Promise((resolve) => {
     new Reader(byteArray)
-      .setTagsToRead(['title', 'artist', 'album'])
+      .setTagsToRead(['title', 'artist', 'album', 'picture'])
       .read({
         onSuccess: (tag) => {
-          const { title, artist, album } = tag.tags;
+          const { title, artist, album, picture } = tag.tags;
           resolve({
             title: title?.trim() || null,
             artists: artist ? splitArtists(artist) : [],
             album: album?.trim() || null,
+            coverArtDataUri: coverArtDataUri(picture),
           });
         },
         // No supported tag found (or a malformed one) - that's "no metadata for this file", not a scan failure.

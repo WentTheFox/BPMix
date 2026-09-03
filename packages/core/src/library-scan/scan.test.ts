@@ -95,6 +95,10 @@ class FakeLibraryStore implements LibraryStore {
     return null;
   }
   async putMetadata(): Promise<void> {}
+  async getCoverArt(): Promise<string | null> {
+    return null;
+  }
+  async putCoverArt(): Promise<void> {}
   async getPlaybackState(): Promise<PlaybackState | null> {
     return this.playbackState;
   }

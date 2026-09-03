@@ -26,6 +26,24 @@ const native = NativeModules.BPMixLocalStorage as NativeLocalStorage;
 
 const STORAGE_FILE = 'library-store.json';
 
+/**
+ * FNV-1a hash of fileId, used only to build a safe cover-art filename -
+ * fileId itself is "<futureAccessListToken>|<relativePath>" on this
+ * platform (see fileAccess.windows.ts), which can contain path separators,
+ * a literal "|", and arbitrary filename characters, none of which are
+ * safe to hand straight to the native module's writeText/readText.
+ * Collisions are astronomically unlikely for any real library and would
+ * just misattribute one track's art to another, not corrupt anything.
+ */
+function coverArtFileName(fileId: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < fileId.length; i++) {
+    hash ^= fileId.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `cover-${(hash >>> 0).toString(16)}.txt`;
+}
+
 interface StoredData {
   tracks: TrackRecord[];
   playlists: PlaylistRecord[];
@@ -120,6 +138,20 @@ export function createLibraryStore(): LibraryStore {
       const data = await load();
       data.metadata[result.fileId] = result;
       await save(data);
+    },
+
+    // Deliberately its own small file per track rather than a field in
+    // StoredData: art is tens to hundreds of KB, and StoredData's save()
+    // rewrites the *entire* library-store.json on every mutation - folding
+    // art in there would make every unrelated write (e.g. a playback
+    // position update) drag the whole library's art along with it.
+    async getCoverArt(fileId: string): Promise<string | null> {
+      const text = await native.readText(coverArtFileName(fileId));
+      return text || null;
+    },
+
+    async putCoverArt(fileId: string, dataUri: string | null): Promise<void> {
+      await native.writeText(coverArtFileName(fileId), dataUri ?? '');
     },
 
     async getPlaybackState(): Promise<PlaybackState | null> {

@@ -98,6 +98,13 @@ const ready = (async () => {
   );
 
   await run(
+    `CREATE TABLE IF NOT EXISTS cover_art (
+      fileId TEXT PRIMARY KEY,
+      dataUri TEXT NOT NULL
+    )`,
+  );
+
+  await run(
     `CREATE TABLE IF NOT EXISTS playback_state (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       playlistId TEXT,
@@ -234,6 +241,26 @@ export function createLibraryStore(): LibraryStore {
           result.parserVersion,
         ],
       );
+    },
+
+    async getCoverArt(fileId: string): Promise<string | null> {
+      await ready;
+      const result = await run('SELECT dataUri FROM cover_art WHERE fileId = ?', [fileId]);
+      const rows = rowsToArray<{ dataUri: string }>(result);
+      return rows[0]?.dataUri ?? null;
+    },
+
+    async putCoverArt(fileId: string, dataUri: string | null): Promise<void> {
+      await ready;
+      if (dataUri === null) {
+        await run('DELETE FROM cover_art WHERE fileId = ?', [fileId]);
+      } else {
+        await run(
+          `INSERT INTO cover_art (fileId, dataUri) VALUES (?, ?)
+           ON CONFLICT(fileId) DO UPDATE SET dataUri=excluded.dataUri`,
+          [fileId, dataUri],
+        );
+      }
     },
 
     async getPlaybackState(): Promise<PlaybackState | null> {

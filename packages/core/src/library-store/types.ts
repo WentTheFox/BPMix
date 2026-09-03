@@ -59,6 +59,11 @@ export interface LibraryStore {
   getMetadata(fileId: string): Promise<TrackMetadata | null>;
   putMetadata(result: TrackMetadata): Promise<void>;
 
+  /** The cover art data URI extracted alongside a track's metadata (see ensureTrackMetadata) - null when the file has none, or hasn't been scanned yet (indistinguishable here; see useCoverArt for how the UI tells them apart). */
+  getCoverArt(fileId: string): Promise<string | null>;
+  /** `dataUri: null` clears any previously stored art (e.g. the file changed and no longer has any). */
+  putCoverArt(fileId: string, dataUri: string | null): Promise<void>;
+
   getPlaybackState(): Promise<PlaybackState | null>;
   putPlaybackState(state: PlaybackState): Promise<void>;
 }

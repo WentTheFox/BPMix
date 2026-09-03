@@ -1,10 +1,16 @@
 /** jsmediatags ships no types of its own and @types/jsmediatags's are effectively `any` - this covers only the surface readTags.ts actually uses. */
 declare module 'jsmediatags/dist/jsmediatags.min.js' {
+  export interface PictureType {
+    format: string;
+    data: number[];
+  }
+
   export interface TagType {
     tags: {
       title?: string;
       artist?: string;
       album?: string;
+      picture?: PictureType;
       [key: string]: unknown;
     };
   }
