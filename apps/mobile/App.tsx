@@ -15,7 +15,7 @@ import {
   trackDisplayName,
 } from '@bpmix/core';
 import { CrossfadePreview, Icon, SeekBar, TrackRow, useDoublePressHandler, useTrackAnalysis, VolumeSlider } from '@bpmix/ui';
-import { mdiPause, mdiPlay, mdiRepeat, mdiRepeatOnce, mdiShuffle, mdiSkipNext, mdiSkipPrevious } from '@mdi/js';
+import { mdiMusicNote, mdiPause, mdiPlay, mdiRepeat, mdiRepeatOnce, mdiShuffle, mdiSkipNext, mdiSkipPrevious } from '@mdi/js';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StatusBar, StyleSheet, Text, useColorScheme, View } from 'react-native';
 import {
@@ -537,7 +537,10 @@ function AppContent() {
   return (
     <View style={[styles.container, { paddingTop: insets.top, backgroundColor: colors.background }]}>
       {__DEV__ && SHOW_MEMORY_OVERLAY && <MemoryOverlay />}
-      <Text style={[styles.title, { color: colors.text }]}>BPMix</Text>
+      <View style={styles.titleRow}>
+        <Icon path={mdiMusicNote} size={28} color={colors.text} />
+        <Text style={[styles.title, { color: colors.text }]}>BPMix</Text>
+      </View>
       <Pressable style={[styles.button, isAddingFolder && styles.buttonDisabled]} onPress={addFolder} disabled={isAddingFolder}>
         {isAddingFolder ? (
           <View style={styles.buttonRow}>
@@ -591,10 +594,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 24,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 16,
+  },
   title: {
     fontSize: 32,
     fontWeight: '700',
-    marginBottom: 16,
   },
   button: {
     backgroundColor: '#3b82f6',
