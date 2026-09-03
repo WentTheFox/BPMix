@@ -1,4 +1,17 @@
-import { mdiMusicNote, mdiPause, mdiPlay, mdiRepeat, mdiRepeatOnce, mdiShuffle, mdiSkipNext, mdiSkipPrevious } from '@mdi/js';
+import {
+  mdiFolder,
+  mdiFolderPlus,
+  mdiMusicNote,
+  mdiPause,
+  mdiPlay,
+  mdiPlaylistMusic,
+  mdiRefresh,
+  mdiRepeat,
+  mdiRepeatOnce,
+  mdiShuffle,
+  mdiSkipNext,
+  mdiSkipPrevious,
+} from '@mdi/js';
 import React from 'react';
 import { Text } from 'react-native';
 
@@ -44,6 +57,10 @@ const CODEPOINTS: Record<string, number> = {
   [mdiRepeatOnce]: 0xe8ed,
   [mdiShuffle]: 0xe8b1,
   [mdiMusicNote]: 0xec4f,
+  [mdiFolder]: 0xe8b7,
+  [mdiFolderPlus]: 0xe8f4, // "NewFolder" - a folder with a plus-circle overlay
+  [mdiPlaylistMusic]: 0xe90b, // "MusicNoteList" - list lines with a music note
+  [mdiRefresh]: 0xe72c,
 };
 
 const FALLBACK_CODEPOINT = 0xe11b; // "StatusErrorFull" (a "?" in a circle) - visible placeholder for an unmapped icon, not a silent blank.
