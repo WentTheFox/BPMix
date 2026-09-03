@@ -1,4 +1,4 @@
-import type { AnalysisResult, LibraryStore, PlaybackState, PlaylistRecord, TrackRecord } from '@bpmix/core';
+import type { AnalysisResult, LibraryStore, PlaybackState, PlaylistRecord, TrackMetadata, TrackRecord } from '@bpmix/core';
 import SQLite, { type SQLError, type SQLResultSet, type SQLTransaction, type WebsqlDatabase } from 'react-native-sqlite-2';
 
 const db: WebsqlDatabase = SQLite.openDatabase('bpmix.db', '1.0', '', 1);
@@ -84,6 +84,18 @@ const ready = (async () => {
   if (playbackStateColumns.size > 0 && !playbackStateColumns.has('volume')) {
     await run('DROP TABLE playback_state');
   }
+
+  await run(
+    `CREATE TABLE IF NOT EXISTS metadata (
+      fileId TEXT PRIMARY KEY,
+      title TEXT,
+      artists TEXT NOT NULL,
+      album TEXT,
+      sizeBytes INTEGER NOT NULL,
+      lastModifiedMs INTEGER NOT NULL,
+      parserVersion INTEGER NOT NULL
+    )`,
+  );
 
   await run(
     `CREATE TABLE IF NOT EXISTS playback_state (
@@ -182,6 +194,44 @@ export function createLibraryStore(): LibraryStore {
           analysisResult.sizeBytes,
           analysisResult.lastModifiedMs,
           analysisResult.algorithmVersion,
+        ],
+      );
+    },
+
+    async getMetadata(fileId: string): Promise<TrackMetadata | null> {
+      await ready;
+      const result = await run('SELECT * FROM metadata WHERE fileId = ?', [fileId]);
+      const rows = rowsToArray<{
+        fileId: string;
+        title: string | null;
+        artists: string;
+        album: string | null;
+        sizeBytes: number;
+        lastModifiedMs: number;
+        parserVersion: number;
+      }>(result);
+      const row = rows[0];
+      if (!row) return null;
+      return { ...row, artists: JSON.parse(row.artists) as string[] };
+    },
+
+    async putMetadata(result: TrackMetadata): Promise<void> {
+      await ready;
+      await run(
+        `INSERT INTO metadata (
+           fileId, title, artists, album, sizeBytes, lastModifiedMs, parserVersion
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(fileId) DO UPDATE SET
+           title=excluded.title, artists=excluded.artists, album=excluded.album,
+           sizeBytes=excluded.sizeBytes, lastModifiedMs=excluded.lastModifiedMs, parserVersion=excluded.parserVersion`,
+        [
+          result.fileId,
+          result.title,
+          JSON.stringify(result.artists),
+          result.album,
+          result.sizeBytes,
+          result.lastModifiedMs,
+          result.parserVersion,
         ],
       );
     },

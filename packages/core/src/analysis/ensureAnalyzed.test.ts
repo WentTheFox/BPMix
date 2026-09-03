@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DecodedAudio } from '../audio-engine/types';
 import type { FileRef } from '../file-access/types';
 import type { AnalysisResult, LibraryStore, PlaybackState, PlaylistRecord, TrackRecord } from '../library-store/types';
+import type { TrackMetadata } from '../metadata/types';
 import { ANALYSIS_ALGORITHM_VERSION } from './analyzeTrack';
 import { ensureTrackAnalyzed } from './ensureAnalyzed';
 
@@ -22,6 +23,10 @@ class FakeLibraryStore implements LibraryStore {
   async putAnalysis(result: AnalysisResult): Promise<void> {
     this.analysis.set(result.fileId, result);
   }
+  async getMetadata(): Promise<TrackMetadata | null> {
+    return null;
+  }
+  async putMetadata(): Promise<void> {}
   async getPlaybackState(): Promise<PlaybackState | null> {
     return null;
   }

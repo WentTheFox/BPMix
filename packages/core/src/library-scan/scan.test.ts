@@ -7,6 +7,7 @@ import type {
   PlaylistRecord,
   TrackRecord,
 } from '../library-store/types';
+import type { TrackMetadata } from '../metadata/types';
 import { scanRoot } from './scan';
 
 /** In-memory FileAccess over a flat { relativePath: content } map, for testing the walker/scanner. */
@@ -90,6 +91,10 @@ class FakeLibraryStore implements LibraryStore {
   async putAnalysis(result: AnalysisResult): Promise<void> {
     this.analysis.set(result.fileId, result);
   }
+  async getMetadata(): Promise<TrackMetadata | null> {
+    return null;
+  }
+  async putMetadata(): Promise<void> {}
   async getPlaybackState(): Promise<PlaybackState | null> {
     return this.playbackState;
   }

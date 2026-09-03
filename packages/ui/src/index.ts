@@ -5,4 +5,5 @@ export * from './SeekBar';
 export * from './TrackRow';
 export * from './useDoublePressHandler';
 export * from './useTrackAnalysis';
+export * from './useTrackMetadata';
 export * from './VolumeSlider';

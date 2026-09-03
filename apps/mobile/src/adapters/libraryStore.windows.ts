@@ -3,6 +3,7 @@ import type {
   LibraryStore,
   PlaybackState,
   PlaylistRecord,
+  TrackMetadata,
   TrackRecord,
 } from '@bpmix/core';
 import { NativeModules } from 'react-native';
@@ -29,11 +30,12 @@ interface StoredData {
   tracks: TrackRecord[];
   playlists: PlaylistRecord[];
   analyses: Record<string, AnalysisResult>;
+  metadata: Record<string, TrackMetadata>;
   playbackState: PlaybackState | null;
 }
 
 function emptyData(): StoredData {
-  return { tracks: [], playlists: [], analyses: {}, playbackState: null };
+  return { tracks: [], playlists: [], analyses: {}, metadata: {}, playbackState: null };
 }
 
 export function createLibraryStore(): LibraryStore {
@@ -50,7 +52,9 @@ export function createLibraryStore(): LibraryStore {
           return emptyData();
         }
         try {
-          return JSON.parse(text) as StoredData;
+          const parsed = JSON.parse(text) as StoredData;
+          parsed.metadata ??= {}; // absent in files written before metadata scanning existed
+          return parsed;
         } catch {
           return emptyData();
         }
@@ -104,6 +108,17 @@ export function createLibraryStore(): LibraryStore {
     async putAnalysis(result: AnalysisResult): Promise<void> {
       const data = await load();
       data.analyses[result.fileId] = result;
+      await save(data);
+    },
+
+    async getMetadata(fileId: string): Promise<TrackMetadata | null> {
+      const data = await load();
+      return data.metadata[fileId] ?? null;
+    },
+
+    async putMetadata(result: TrackMetadata): Promise<void> {
+      const data = await load();
+      data.metadata[result.fileId] = result;
       await save(data);
     },
 

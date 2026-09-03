@@ -9,10 +9,11 @@ import {
   computeCrossfadeVisualization,
   computeTransitionPlan,
   ensureTrackAnalyzed,
+  formatTrackTitle,
   PlaylistPlayer,
   realTimeForOutgoingPosition,
+  scanLibraryMetadata,
   scanRoot,
-  trackDisplayName,
 } from '@bpmix/core';
 import {
   CrossfadePreview,
@@ -22,6 +23,7 @@ import {
   TrackRow,
   useDoublePressHandler,
   useTrackAnalysis,
+  useTrackMetadata,
   VolumeSlider,
 } from '@bpmix/ui';
 import {
@@ -223,6 +225,16 @@ function AppContent() {
       }),
     );
     setRootsWithLibrary(withLibrary);
+    // Fire-and-forget: fills in real titles/artists as it goes (each row's
+    // useTrackMetadata retry-polls the store), rather than blocking the
+    // library screen on reading every file's tag bytes up front. Cheap to
+    // call again on every refresh - already-fresh tracks are skipped
+    // without a re-read (see scanLibraryMetadata/isMetadataFresh).
+    void scanLibraryMetadata(
+      fileAccess,
+      libraryStore,
+      withLibrary.flatMap(({ tracksById }) => [...tracksById.values()]),
+    );
     return withLibrary;
   }, []);
 
@@ -442,6 +454,11 @@ function AppContent() {
   const isLoadingTrack = playerState.track.status === 'loading';
 
   const displayTrack = pendingIncoming ? (pendingIncomingTrack ?? nowPlayingTrack) : nowPlayingTrack;
+  const displayTrackMetadata = useTrackMetadata(libraryStore, displayTrack?.fileId ?? null);
+  const outgoingTrack = pendingOutgoingTrack ?? nowPlayingTrack;
+  const incomingTrack = pendingIncomingTrack ?? nextTrack;
+  const outgoingTrackMetadata = useTrackMetadata(libraryStore, outgoingTrack?.fileId ?? null);
+  const incomingTrackMetadata = useTrackMetadata(libraryStore, incomingTrack?.fileId ?? null);
   const displayPositionSeconds = pendingIncoming ? pendingIncoming.positionSeconds : playerState.track.positionSeconds;
   const displayDurationSeconds = pendingIncoming ? pendingIncoming.durationSeconds : playerState.track.durationSeconds;
   const displayTrackNumber =
@@ -452,7 +469,7 @@ function AppContent() {
   const nowPlayingBar = playerState.currentFileId && (
     <View style={styles.nowPlaying}>
       <Text style={[styles.nowPlayingName, { color: colors.text }]} numberOfLines={1}>
-        {displayTrack ? trackDisplayName(displayTrack) : playerState.currentFileId}
+        {displayTrack ? formatTrackTitle(displayTrackMetadata, displayTrack) : playerState.currentFileId}
       </Text>
       {isLoadingTrack ? (
         <View style={styles.buttonRow}>
@@ -472,10 +489,8 @@ function AppContent() {
       )}
       {crossfadeVisualization && (
         <CrossfadePreview
-          outgoingName={
-            (pendingOutgoingTrack ?? nowPlayingTrack) ? trackDisplayName((pendingOutgoingTrack ?? nowPlayingTrack)!) : 'Current track'
-          }
-          incomingName={(pendingIncomingTrack ?? nextTrack) ? trackDisplayName((pendingIncomingTrack ?? nextTrack)!) : 'Next track'}
+          outgoingName={outgoingTrack ? formatTrackTitle(outgoingTrackMetadata, outgoingTrack) : 'Current track'}
+          incomingName={incomingTrack ? formatTrackTitle(incomingTrackMetadata, incomingTrack) : 'Next track'}
           visualization={crossfadeVisualization}
           progressSeconds={crossfadeProgressSeconds}
         />
@@ -540,6 +555,7 @@ function AppContent() {
                 isPlaying={playerState.track.status === 'playing'}
                 textColor={colors.text}
                 onPress={(t) => void playFromTrack(playlist, tracksById, t)}
+                libraryStore={libraryStore}
               />
             );
           }}

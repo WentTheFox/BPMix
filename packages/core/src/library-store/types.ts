@@ -1,3 +1,5 @@
+import type { TrackMetadata } from '../metadata/types';
+
 export interface TrackRecord {
   /** Matches FileRef.id. */
   fileId: string;
@@ -53,6 +55,9 @@ export interface LibraryStore {
 
   getAnalysis(fileId: string): Promise<AnalysisResult | null>;
   putAnalysis(result: AnalysisResult): Promise<void>;
+
+  getMetadata(fileId: string): Promise<TrackMetadata | null>;
+  putMetadata(result: TrackMetadata): Promise<void>;
 
   getPlaybackState(): Promise<PlaybackState | null>;
   putPlaybackState(state: PlaybackState): Promise<void>;
