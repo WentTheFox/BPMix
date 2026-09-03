@@ -5,6 +5,16 @@ import type { FileRef } from '../file-access/types';
 
 /** How many points to sample the equal-power gain curve at for crossfadeTo's rampGainCurve calls - the engine interpolates between them, so this just needs to be smooth enough to not sound stepped. */
 const GAIN_CURVE_SAMPLE_COUNT = 32;
+/**
+ * Extra real seconds the outgoing source is left playing (already silent,
+ * per the gain curve) after its fade curve's own nominal duration, before
+ * its stop() is actually scheduled - a cushion against the physical cutoff
+ * landing a hair before the ramp automation has genuinely finished (native
+ * scheduling/thread timing isn't perfectly exact), which would otherwise be
+ * audible as an abrupt cutoff rather than the fade actually reaching
+ * silence on its own.
+ */
+const STOP_TAIL_SECONDS = 0.2;
 
 export type TrackPlayerStatus = 'idle' | 'loading' | 'playing' | 'paused' | 'stopped';
 
@@ -307,15 +317,15 @@ export class TrackPlayer {
       // also scaled by masterVolume, same as every other gain applied to a
       // source (setGain/startPlaybackFrom) - a fade shouldn't momentarily
       // ignore the user's volume slider.
-      const outgoingGainCurve = sampleEqualPowerGainCurve(GAIN_CURVE_SAMPLE_COUNT, true).map(
+      const outgoingGainCurve = sampleEqualPowerGainCurve(GAIN_CURVE_SAMPLE_COUNT, true, plan.fadeDurationSeconds).map(
         (v) => v * this.currentGain * this.masterVolume,
       );
-      const incomingGainCurve = sampleEqualPowerGainCurve(GAIN_CURVE_SAMPLE_COUNT, false).map(
+      const incomingGainCurve = sampleEqualPowerGainCurve(GAIN_CURVE_SAMPLE_COUNT, false, plan.fadeDurationSeconds).map(
         (v) => v * nextGain * this.masterVolume,
       );
 
       oldSource.rampGainCurve(outgoingGainCurve, fadeWhen, plan.fadeDurationSeconds);
-      oldSource.stop(fadeWhen + plan.fadeDurationSeconds);
+      oldSource.stop(fadeWhen + plan.fadeDurationSeconds + STOP_TAIL_SECONDS);
 
       incomingSource = this.engine.createSource(nextDecoded, () => this.handleEnded(incomingSource as SourceNode));
       incomingSource.setGain(0);

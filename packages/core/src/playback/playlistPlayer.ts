@@ -26,7 +26,7 @@ const CROSSFADE_LEAD_SECONDS = 1;
  * is tuned for blending two tracks' outros/intros together, not for a
  * "just get me to the next song" skip.
  */
-const MANUAL_SKIP_CROSSFADE_SECONDS = 0.75;
+const MANUAL_SKIP_CROSSFADE_SECONDS = 1;
 
 export interface PlaylistPlayerState {
   totalTracks: number;

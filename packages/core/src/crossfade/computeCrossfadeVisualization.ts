@@ -96,7 +96,7 @@ function sampleGainCurve(
   for (let i = 0; i <= sampleCount; i++) {
     const t = timelineStartSeconds + (span > 0 ? (i / sampleCount) * span : 0);
     const fraction = fadeDurationSeconds > 0 ? t / fadeDurationSeconds : t >= 0 ? 1 : 0;
-    curve.push(equalPowerGain(fraction, isOutgoing));
+    curve.push(equalPowerGain(fraction, isOutgoing, fadeDurationSeconds));
   }
   return curve;
 }

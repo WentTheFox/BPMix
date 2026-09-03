@@ -409,7 +409,10 @@ describe('TrackPlayer', () => {
       expect(outgoingCurve?.durationSeconds).toBe(3);
       expect(outgoingCurve?.values[0]).toBeCloseTo(1, 6); // cos(0) * currentGain(1) - starts at full volume
       expect(outgoingCurve?.values[outgoingCurve.values.length - 1]).toBeCloseTo(0, 6); // cos(pi/2) - ends silent
-      expect(engine.stopWhenBySourceId.get('source-0')).toBe(5 + simplePlan.fadeDurationSeconds);
+      // A small STOP_TAIL_SECONDS cushion past the curve's own nominal end -
+      // see its doc for why (a safety margin against the physical cutoff
+      // landing before the ramp automation has actually finished).
+      expect(engine.stopWhenBySourceId.get('source-0')).toBeCloseTo(5 + simplePlan.fadeDurationSeconds + 0.2, 6);
 
       expect(engine.scheduleStartCalls).toEqual([{ sourceId: 'source-1', whenSeconds: 5, offsetSeconds: 1 }]);
       expect(engine.gainBySourceId.get('source-1')).toBe(0); // starts silent
@@ -455,7 +458,7 @@ describe('TrackPlayer', () => {
       expect(ended).toEqual([]);
       expect(crossfadeCompletions).toEqual([]);
 
-      // The outgoing source's scheduled stop (at fadeWhen+fadeDuration=8) fires.
+      // The outgoing source's scheduled stop (at fadeWhen+fadeDuration+STOP_TAIL_SECONDS=8.2) fires.
       cfEngine.fireEnded('source-0');
 
       expect(ended).toEqual([]); // not a natural end - must not be reported as one
