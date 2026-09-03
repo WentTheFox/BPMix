@@ -14,8 +14,30 @@ import {
   scanRoot,
   trackDisplayName,
 } from '@bpmix/core';
-import { CrossfadePreview, Icon, SeekBar, TrackRow, useDoublePressHandler, useTrackAnalysis, VolumeSlider } from '@bpmix/ui';
-import { mdiMusicNote, mdiPause, mdiPlay, mdiRepeat, mdiRepeatOnce, mdiShuffle, mdiSkipNext, mdiSkipPrevious } from '@mdi/js';
+import {
+  CrossfadePreview,
+  Icon,
+  IconLabel,
+  SeekBar,
+  TrackRow,
+  useDoublePressHandler,
+  useTrackAnalysis,
+  VolumeSlider,
+} from '@bpmix/ui';
+import {
+  mdiFolder,
+  mdiFolderPlus,
+  mdiMusicNote,
+  mdiPause,
+  mdiPlay,
+  mdiPlaylistMusic,
+  mdiRefresh,
+  mdiRepeat,
+  mdiRepeatOnce,
+  mdiShuffle,
+  mdiSkipNext,
+  mdiSkipPrevious,
+} from '@mdi/js';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StatusBar, StyleSheet, Text, useColorScheme, View } from 'react-native';
 import {
@@ -537,10 +559,14 @@ function AppContent() {
   return (
     <View style={[styles.container, { paddingTop: insets.top, backgroundColor: colors.background }]}>
       {__DEV__ && SHOW_MEMORY_OVERLAY && <MemoryOverlay />}
-      <View style={styles.titleRow}>
-        <Icon path={mdiMusicNote} size={28} color={colors.text} />
-        <Text style={[styles.title, { color: colors.text }]}>BPMix</Text>
-      </View>
+      <IconLabel
+        path={mdiMusicNote}
+        text="BPMix"
+        color={colors.text}
+        iconSize={28}
+        textStyle={styles.title}
+        containerStyle={styles.titleRow}
+      />
       <Pressable style={[styles.button, isAddingFolder && styles.buttonDisabled]} onPress={addFolder} disabled={isAddingFolder}>
         {isAddingFolder ? (
           <View style={styles.buttonRow}>
@@ -548,7 +574,7 @@ function AppContent() {
             <Text style={styles.buttonText}>Scanning folder…</Text>
           </View>
         ) : (
-          <Text style={styles.buttonText}>Add Folder</Text>
+          <IconLabel path={mdiFolderPlus} text="Add Folder" color="white" iconSize={18} textStyle={styles.buttonText} />
         )}
       </Pressable>
       {error && <Text style={styles.error}>{error}</Text>}
@@ -561,9 +587,13 @@ function AppContent() {
         renderItem={({ item: { root, playlists, tracksById } }) => (
           <View style={styles.rootSection}>
             <View style={styles.rootHeader}>
-              <Text style={[styles.rootName, { color: colors.text }]}>{root.displayName}</Text>
+              <IconLabel path={mdiFolder} text={root.displayName} color={colors.text} iconSize={18} textStyle={styles.rootName} />
               <Pressable onPress={() => rescan(root.id)} disabled={busyRootId === root.id}>
-                <Text style={styles.rescanLink}>{busyRootId === root.id ? 'Scanning…' : 'Rescan'}</Text>
+                {busyRootId === root.id ? (
+                  <Text style={styles.rescanLink}>Scanning…</Text>
+                ) : (
+                  <IconLabel path={mdiRefresh} text="Rescan" color="#3b82f6" iconSize={16} textStyle={styles.rescanLink} />
+                )}
               </Pressable>
             </View>
             {playlists.length === 0 && (
@@ -575,7 +605,13 @@ function AppContent() {
                 style={styles.playlist}
                 onPress={() => setScreen({ kind: 'playlist', root, playlist, tracksById })}
               >
-                <Text style={[styles.playlistName, { color: colors.text }]}>{playlist.name}</Text>
+                <IconLabel
+                  path={mdiPlaylistMusic}
+                  text={playlist.name}
+                  color={colors.text}
+                  iconSize={16}
+                  textStyle={styles.playlistName}
+                />
                 <Text style={[styles.trackCount, { color: colors.subtleText }]}>
                   {playlist.trackFileIds.length} track(s)
                 </Text>
@@ -595,9 +631,6 @@ const styles = StyleSheet.create({
     paddingTop: 24,
   },
   titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
     marginBottom: 16,
   },
   title: {

@@ -1,5 +1,6 @@
 export * from './CrossfadePreview';
 export * from './Icon';
+export * from './IconLabel';
 export * from './SeekBar';
 export * from './TrackRow';
 export * from './useDoublePressHandler';
