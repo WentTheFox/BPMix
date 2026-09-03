@@ -1,4 +1,4 @@
-import { mdiPause, mdiPlay, mdiRepeat, mdiRepeatOnce, mdiShuffle, mdiSkipNext, mdiSkipPrevious } from '@mdi/js';
+import { mdiMusicNote, mdiPause, mdiPlay, mdiRepeat, mdiRepeatOnce, mdiShuffle, mdiSkipNext, mdiSkipPrevious } from '@mdi/js';
 import React from 'react';
 import { Text } from 'react-native';
 
@@ -28,8 +28,12 @@ export interface IconProps {
  * uses to its glyph by hand - add an entry here whenever a new icon is used
  * (verified per-glyph by rendering candidate codepoints with GDI+ and
  * inspecting the result, rather than trusting a codepoint list blind).
- * Falls back to a plain filled square for anything not yet mapped, rather
- * than rendering nothing.
+ * Falls back to a "?" glyph for anything not yet mapped, rather than
+ * rendering nothing - note that unlike most fonts, Segoe Fluent Icons is a
+ * PUA-only icon font with no ordinary-Unicode coverage at all (confirmed
+ * via GDI+: even a plain U+25A0 BLACK SQUARE renders as the font's own
+ * missing-glyph tofu box, not the intended square), so the fallback has to
+ * be one of this font's own PUA glyphs too, not an arbitrary character.
  */
 const CODEPOINTS: Record<string, number> = {
   [mdiPlay]: 0xe768,
@@ -39,13 +43,14 @@ const CODEPOINTS: Record<string, number> = {
   [mdiRepeat]: 0xe8ee,
   [mdiRepeatOnce]: 0xe8ed,
   [mdiShuffle]: 0xe8b1,
+  [mdiMusicNote]: 0xec4f,
 };
 
-const FALLBACK_GLYPH = '■'; // ■ - visible placeholder for an unmapped icon, not a silent blank.
+const FALLBACK_CODEPOINT = 0xe11b; // "StatusErrorFull" (a "?" in a circle) - visible placeholder for an unmapped icon, not a silent blank.
 
 export function Icon({ path, size = 24, color = '#000' }: IconProps) {
-  const codepoint = CODEPOINTS[path];
-  const glyph = codepoint !== undefined ? String.fromCodePoint(codepoint) : FALLBACK_GLYPH;
+  const codepoint = CODEPOINTS[path] ?? FALLBACK_CODEPOINT;
+  const glyph = String.fromCodePoint(codepoint);
   return (
     // RNW's Fabric text layout (WindowsTextLayoutManager.cpp) places the
     // baseline at 0.8*lineHeight from the top of the line box. This font's
