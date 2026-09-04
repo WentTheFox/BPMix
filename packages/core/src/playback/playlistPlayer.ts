@@ -204,12 +204,28 @@ export class PlaylistPlayer {
 
   /** Loads a new playlist and starts playing at the given track (default: the first). */
   async setPlaylist(trackFileIds: string[], startFileId?: string): Promise<void> {
+    await this.loadPlaylistAt(trackFileIds, startFileId, { autoplay: true });
+  }
+
+  /**
+   * Same as setPlaylist, but leaves the track loaded-and-paused instead of
+   * starting playback - for restoring a saved position on launch, where
+   * autoplaying audio before the UI has rendered any controls would be a
+   * surprise. Unlike setPlaylist, which browsers' autoplay policy silently
+   * no-ops on web until a real user gesture, native platforms have no such
+   * protection - audio would genuinely start playing.
+   */
+  async loadPlaylist(trackFileIds: string[], startFileId?: string): Promise<void> {
+    await this.loadPlaylistAt(trackFileIds, startFileId, { autoplay: false });
+  }
+
+  private async loadPlaylistAt(trackFileIds: string[], startFileId: string | undefined, options: { autoplay: boolean }): Promise<void> {
     this.trackFileIds = trackFileIds;
     this.order = this.shuffleEnabled ? fisherYatesShuffle(trackFileIds.map((_, i) => i)) : trackFileIds.map((_, i) => i);
     const startPosition = startFileId
       ? this.order.findIndex((trackIndex) => this.trackFileIds[trackIndex] === startFileId)
       : 0;
-    await this.playAt(startPosition === -1 ? 0 : startPosition);
+    await this.playAt(startPosition === -1 ? 0 : startPosition, options);
   }
 
   setLoopMode(mode: LoopMode): void {
@@ -498,7 +514,7 @@ export class PlaylistPlayer {
     }
   }
 
-  private async playAt(position: number): Promise<void> {
+  private async playAt(position: number, options: { autoplay: boolean } = { autoplay: true }): Promise<void> {
     const trackIndex = this.order[position];
     if (trackIndex === undefined) return;
     const fileId = this.trackFileIds[trackIndex];
@@ -524,7 +540,7 @@ export class PlaylistPlayer {
       if (token !== this.playToken) return;
       this.trackPlayer.setGain(gain);
       this.trackPlayer.loadDecoded(decoded);
-      this.trackPlayer.play();
+      if (options.autoplay) this.trackPlayer.play();
     } catch (error) {
       if (token === this.playToken) {
         this.onError?.(error);

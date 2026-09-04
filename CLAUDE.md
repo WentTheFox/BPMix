@@ -31,3 +31,7 @@ Notes for tasks that still have to be done/investigated are left here, grouped b
   * we can scan audio metadata asynchronously and update it as playback progresses, showing only the filename until this is done
   * tie metadata to file hash in case the song file changes on disk without a file name change
   * display live waveform of the current and next song
+
+## UI/UX improvements
+
+* move the "now playing" controls to a fixed bar at the bottom of the screen with play-pause-next-previous controls on the right and move everything else to a now playing screen accessible by clicking the album art+song+name+artist displayed on the left of the bar similar to the layout in the playlist

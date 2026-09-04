@@ -55,6 +55,14 @@ export function TrackList({
       }}
       initialNumToRender={initialNumToRender}
       windowSize={7}
+      // FlatList only re-renders already-mounted rows when `data` or
+      // `extraData` changes - currentFileId/isPlaying are closed over
+      // inside renderItem instead, so without this, a row already on
+      // screen wouldn't pick up "now playing"/highlight changes until
+      // something else happened to force FlatList to re-render (e.g.
+      // scrolling), which read as the highlight lagging a tap by however
+      // long that took to happen on its own.
+      extraData={[currentFileId, isPlaying]}
       getItemLayout={(_, index) => ({ length: TRACK_ROW_HEIGHT, offset: TRACK_ROW_HEIGHT * index, index })}
     />
   );

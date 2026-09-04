@@ -4,15 +4,7 @@
  * @format
  */
 
-import type {
-  FileRef,
-  GrantedRoot,
-  LoopMode,
-  PlaybackState,
-  PlaylistPlayerState,
-  PlaylistRecord,
-  TrackRecord,
-} from '@bpmix/core';
+import type { FileRef, GrantedRoot, LoopMode, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '@bpmix/core';
 import {
   computeTransitionPlan,
   ensureTrackAnalyzed,
@@ -32,6 +24,8 @@ import {
   TrackList,
   useCoverArt,
   useDoublePressHandler,
+  useFadeInOnChange,
+  usePlaybackPersistence,
   useTrackAnalysis,
   useTrackMetadata,
   VolumeSlider,
@@ -52,7 +46,18 @@ import {
   mdiSkipPrevious,
 } from '@mdi/js';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, Pressable, StatusBar, StyleSheet, Text, useColorScheme, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Animated,
+  FlatList,
+  Image,
+  Pressable,
+  StatusBar,
+  StyleSheet,
+  Text,
+  useColorScheme,
+  View,
+} from 'react-native';
 import {
   SafeAreaProvider,
   useSafeAreaInsets,
@@ -70,10 +75,6 @@ import { MemoryOverlay } from './src/debug/MemoryOverlay';
 const SHOW_MEMORY_OVERLAY = false;
 
 const TRANSPORT_THROTTLE_MS = 300;
-// How often to persist positionSeconds while a track is playing - frequent
-// enough that a crash/force-quit loses very little progress, infrequent
-// enough not to hammer SQLite on every ~200ms poll tick.
-const POSITION_PERSIST_INTERVAL_MS = 5000;
 // A real settings screen (Stage 8) would make this configurable - for now
 // it's fixed, per CLAUDE.md's TODO to drop the user-facing crossfade control.
 const DEFAULT_CROSSFADE_SECONDS = 8;
@@ -216,46 +217,12 @@ function AppContent() {
     return true;
   };
 
-  // Last known playback state, kept in sync with what's actually persisted -
-  // lets every call site merge its own change onto the rest without an
-  // async getPlaybackState() round trip first (and without a stale closure
-  // clobbering a concurrent change, since this is a ref, not state).
-  const playbackStateRef = useRef<PlaybackState>({
-    playlistId: null,
-    currentTrackFileId: null,
-    positionSeconds: 0,
-    loopMode: 'off',
-    shuffleEnabled: false,
-    volume: 1,
-  });
-  const persistPlaybackPatch = useCallback((patch: Partial<PlaybackState>) => {
-    playbackStateRef.current = { ...playbackStateRef.current, ...patch };
-    void libraryStore.putPlaybackState(playbackStateRef.current);
-  }, []);
-  const lastPositionPersistAtRef = useRef(0);
-
   useEffect(() => {
     reportError = (err) => setError(String(err));
     return () => {
       reportError = () => {};
     };
   }, []);
-
-  useEffect(() => {
-    notifyAdvance = () => {
-      const state = playlistPlayer.getState();
-      setPlayerState(state);
-      // Covers every advance not already handled at its own call site: a
-      // crossfade completing and a track ending naturally both change
-      // currentFileId without going through goNext/goPrevious.
-      if (state.currentFileId) {
-        persistPlaybackPatch({ currentTrackFileId: state.currentFileId, positionSeconds: state.track.positionSeconds });
-      }
-    };
-    return () => {
-      notifyAdvance = () => {};
-    };
-  }, [persistPlaybackPatch]);
 
   const refresh = useCallback(async () => {
     const roots = await fileAccess.listGrantedRoots();
@@ -280,55 +247,43 @@ function AppContent() {
     return withLibrary;
   }, []);
 
+  const { isRestoring, persistPlaybackPatch, persistPositionIfDue } = usePlaybackPersistence({
+    libraryStore,
+    playlistPlayer,
+    refresh,
+    setPlayerState,
+    setActiveTracksById: (tracksById) => {
+      activeTracksById = tracksById;
+    },
+    onRestoreScreen: (root, playlist, tracksById) => setScreen({ kind: 'playlist', root, playlist, tracksById }),
+    onError: (err) => setError(String(err)),
+  });
+
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const withLibrary = await refresh();
-      const stored = await libraryStore.getPlaybackState();
-      if (cancelled || !stored) return;
-      playbackStateRef.current = stored;
-      if (!stored.playlistId || !stored.currentTrackFileId) return;
-      for (const { root, playlists, tracksById } of withLibrary) {
-        const playlist = playlists.find((p) => p.id === stored.playlistId);
-        if (!playlist || !playlist.trackFileIds.includes(stored.currentTrackFileId)) continue;
-        activeTracksById = tracksById;
-        playlistPlayer.setShuffle(stored.shuffleEnabled);
-        playlistPlayer.setLoopMode(stored.loopMode);
-        // setPlaylist() decodes and calls play() internally, but pause()
-        // immediately after puts the UI in the expected "loaded, not
-        // playing" state on a fresh launch instead of surprising the user
-        // with audio starting on its own.
-        await playlistPlayer.setPlaylist(playlist.trackFileIds, stored.currentTrackFileId);
-        if (cancelled) return;
-        playlistPlayer.pause();
-        if (stored.positionSeconds > 0) playlistPlayer.seek(stored.positionSeconds);
-        setPlayerState(playlistPlayer.getState());
-        setScreen({ kind: 'playlist', root, playlist, tracksById });
-        break;
+    notifyAdvance = () => {
+      const state = playlistPlayer.getState();
+      setPlayerState(state);
+      // Covers every advance not already handled at its own call site: a
+      // crossfade completing and a track ending naturally both change
+      // currentFileId without going through goNext/goPrevious.
+      if (state.currentFileId) {
+        persistPlaybackPatch({ currentTrackFileId: state.currentFileId, positionSeconds: state.track.positionSeconds });
       }
-    })().catch((err) => setError(String(err)));
-    return () => {
-      cancelled = true;
     };
-  }, [refresh]);
+    return () => {
+      notifyAdvance = () => {};
+    };
+  }, [persistPlaybackPatch]);
 
   useEffect(() => {
     const interval = setInterval(() => {
       const state = playlistPlayer.getState();
       setPlayerState(state);
       playlistPlayer.checkPreload(); // Stage 6 lookahead - reuses this poll instead of a second timer
-      const now = Date.now();
-      if (
-        state.currentFileId &&
-        (state.track.status === 'playing' || state.track.status === 'paused') &&
-        now - lastPositionPersistAtRef.current >= POSITION_PERSIST_INTERVAL_MS
-      ) {
-        lastPositionPersistAtRef.current = now;
-        persistPlaybackPatch({ positionSeconds: state.track.positionSeconds });
-      }
+      persistPositionIfDue(state);
     }, 200);
     return () => clearInterval(interval);
-  }, [persistPlaybackPatch]);
+  }, [persistPositionIfDue]);
 
   const addFolder = useCallback(async () => {
     setError(null);
@@ -374,7 +329,14 @@ function AppContent() {
       if (isSameTrack) {
         playlistPlayer.play();
       } else {
-        await playlistPlayer.setPlaylist(playlist.trackFileIds, track.fileId);
+        // setPlaylist() sets the new position/loading status synchronously
+        // before its first await (decoding the file) - grabbing state right
+        // after calling it, rather than only once the whole decode resolves,
+        // is what makes the row highlight and "now playing" bar appear the
+        // instant you tap instead of waiting out the full decode.
+        const setPlaylistPromise = playlistPlayer.setPlaylist(playlist.trackFileIds, track.fileId);
+        setPlayerState(playlistPlayer.getState());
+        await setPlaylistPromise;
       }
       setPlayerState(playlistPlayer.getState());
       persistPlaybackPatch({
@@ -577,9 +539,16 @@ function AppContent() {
 
   const displayCoverArt = useCoverArt(libraryStore, displayTrack?.fileId ?? null, isMetadataCurrent(displayTrackMetadata));
 
+  // Fades the now-playing block in on every track change, keyed on identity
+  // (fileId) rather than on what triggered the change - the same fade plays
+  // whether it arrived via a manual skip, a natural end-of-track advance, or
+  // picking a different track in the list outright.
+  const nowPlayingOpacity = useFadeInOnChange(displayTrack?.fileId ?? null);
+  const upNextOpacity = useFadeInOnChange(incomingTrack?.fileId ?? null);
+
   const nowPlayingBar = playerState.currentFileId && (
     <View style={styles.nowPlaying}>
-      <View style={styles.nowPlayingHeader}>
+      <Animated.View style={[styles.nowPlayingHeader, { opacity: nowPlayingOpacity }]}>
         {displayCoverArt ? (
           <Image source={{ uri: displayCoverArt }} style={styles.nowPlayingArt} />
         ) : (
@@ -608,7 +577,19 @@ function AppContent() {
             </Text>
           )}
         </View>
-      </View>
+      </Animated.View>
+      {/* Text only, deliberately no art thumbnail here - CrossfadeArt below
+          already shows the incoming track's actual art (blended with the
+          outgoing one, always rendered as a preview once duration is known,
+          not just mid-crossfade), so a second copy of the same art would be
+          redundant. */}
+      {incomingTrack && (
+        <Animated.View style={[styles.upNext, { opacity: upNextOpacity }]}>
+          <Text style={[styles.upNextText, { color: colors.subtleText }]} numberOfLines={1}>
+            Up next: {formatTrackTitle(incomingTrackMetadata, incomingTrack)}
+          </Text>
+        </Animated.View>
+      )}
       {transitionPlan && (
         <CrossfadeArt
           outgoingArtUri={outgoingCoverArt}
@@ -652,6 +633,27 @@ function AppContent() {
       <VolumeSlider volume={volume} onChangeVolume={handleVolumeChange} />
     </View>
   );
+
+  // Covers the library scan + playback-state restore's own async window -
+  // without this, the library screen would render first (empty, then
+  // populated) and only jump to a restored playlist screen a beat later,
+  // which reads as a flash/flicker rather than landing directly on the
+  // right screen.
+  if (isRestoring) {
+    return (
+      <View style={[styles.container, styles.restoringContainer, { paddingTop: insets.top, backgroundColor: colors.background }]}>
+        <IconLabel
+          path={mdiMusicNote}
+          text="BPMix"
+          color={colors.text}
+          iconSize={28}
+          textStyle={styles.title}
+          containerStyle={styles.titleRow}
+        />
+        <ActivityIndicator color={colors.text} />
+      </View>
+    );
+  }
 
   if (screen.kind === 'playlist') {
     const { playlist, tracksById } = screen;
@@ -757,6 +759,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 24,
   },
+  restoringContainer: {
+    justifyContent: 'center',
+    gap: 16,
+  },
   titleRow: {
     marginBottom: 16,
   },
@@ -825,6 +831,12 @@ const styles = StyleSheet.create({
   },
   nowPlayingArtPlaceholder: {
     backgroundColor: 'rgba(128,128,128,0.15)',
+  },
+  upNext: {
+    marginTop: 8,
+  },
+  upNextText: {
+    fontSize: 12,
   },
   nowPlayingName: {
     fontSize: 15,

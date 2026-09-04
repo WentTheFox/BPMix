@@ -7,6 +7,8 @@ export * from './TrackList';
 export * from './TrackRow';
 export * from './useCoverArt';
 export * from './useDoublePressHandler';
+export * from './useFadeInOnChange';
+export * from './usePlaybackPersistence';
 export * from './useTrackAnalysis';
 export * from './useTrackMetadata';
 export * from './VolumeSlider';
