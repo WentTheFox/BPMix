@@ -107,9 +107,16 @@ export async function ensureTrackMetadata(
     lastModifiedMs: ref.lastModifiedMs,
     parserVersion: METADATA_PARSER_VERSION,
   };
-  await store.putMetadata(result);
-  // Always written, even when null - clears stale art from a prior scan if
-  // the file changed and no longer has any (or never did).
+  // Cover art first, metadata second - deliberately in this order. Once
+  // metadata.parserVersion reads as current, isMetadataCurrent() is the
+  // signal useCoverArt gates its own fetch on, and that hook permanently
+  // caches whatever it finds (including a genuine "no art") with no
+  // retry - see its doc. Writing metadata first would leave a window
+  // where a poll could observe "current metadata, art not written yet"
+  // and cache a false negative forever. Always written, even when null -
+  // clears stale art from a prior scan if the file changed and no longer
+  // has any (or never did).
   await store.putCoverArt(ref.id, await resolveCoverArt(tags?.coverArt ?? null, resizer));
+  await store.putMetadata(result);
   return result;
 }

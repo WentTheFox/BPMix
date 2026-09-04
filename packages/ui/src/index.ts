@@ -1,6 +1,7 @@
 export * from './CrossfadeArt';
 export * from './Icon';
 export * from './IconLabel';
+export * from './LoadingBar';
 export * from './SeekBar';
 export * from './Skeleton';
 export * from './TrackList';

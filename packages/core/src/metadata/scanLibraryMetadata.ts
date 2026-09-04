@@ -17,6 +17,17 @@ export interface ScanLibraryMetadataOptions {
   onProgress?: (info: ScanMetadataProgress) => void;
   /** Downscales oversized embedded cover art before storing it - see ensureTrackMetadata. */
   resizer?: CoverArtResizer;
+  /**
+   * Called before each track is scanned - return fileIds (e.g. the
+   * currently-playing and up-next tracks) that should jump the queue if
+   * they haven't been scanned yet this pass. Evaluated fresh before every
+   * step (not just once up front), so a track that becomes "current"
+   * partway through an already-running scan still gets bumped up instead
+   * of waiting for the scan to reach it in its original list position -
+   * important on a large library, where a stale-parser-version rescan can
+   * take a while to reach whatever the user actually has on screen.
+   */
+  getPriorityFileIds?: () => string[];
 }
 
 function trackToFileRef(track: TrackRecord): FileRef {
@@ -46,20 +57,32 @@ export async function scanLibraryMetadata(
   tracks: TrackRecord[],
   options: ScanLibraryMetadataOptions = {},
 ): Promise<void> {
-  for (let index = 0; index < tracks.length; index++) {
-    const track = tracks[index]!;
+  const remaining = [...tracks];
+  const total = remaining.length;
+  for (let index = 0; index < total; index++) {
+    // Default to the next track in original order - only reach for a
+    // priority one if one's actually still pending, so this stays a no-op
+    // (and no extra scan cost) for callers that don't pass the option.
+    let nextIndex = 0;
+    const priorityFileIds = options.getPriorityFileIds?.();
+    if (priorityFileIds && priorityFileIds.length > 0) {
+      const prioritizedIndex = remaining.findIndex((t) => priorityFileIds.includes(t.fileId));
+      if (prioritizedIndex !== -1) nextIndex = prioritizedIndex;
+    }
+    const track = remaining.splice(nextIndex, 1)[0]!;
+
     const existing = await store.getMetadata(track.fileId);
     if (isMetadataFresh(existing, track)) {
-      options.onProgress?.({ track, index, total: tracks.length, skipped: true });
+      options.onProgress?.({ track, index, total, skipped: true });
       await yieldToEventLoop();
       continue;
     }
 
     try {
       await ensureTrackMetadata(store, fileAccess, trackToFileRef(track), options.resizer);
-      options.onProgress?.({ track, index, total: tracks.length, skipped: false });
+      options.onProgress?.({ track, index, total, skipped: false });
     } catch (error) {
-      options.onProgress?.({ track, index, total: tracks.length, skipped: false, error });
+      options.onProgress?.({ track, index, total, skipped: false, error });
     }
     await yieldToEventLoop();
   }

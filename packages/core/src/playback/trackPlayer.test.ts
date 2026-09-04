@@ -129,6 +129,28 @@ describe('TrackPlayer', () => {
     expect(player.getState().positionSeconds).toBe(6); // 4 + (7 - 5)
   });
 
+  it('pause() fades the outgoing source out and schedules its stop, rather than cutting it immediately', () => {
+    player.play(); // source-0
+    engine.clock = 4;
+    player.pause();
+
+    expect(engine.gainRampsBySourceId.get('source-0')).toEqual([{ toValue: 0, atTimeSeconds: 4, durationSeconds: 0.5 }]);
+    // Scheduled in the future (fade duration + the stop-tail cushion), not an immediate cutoff.
+    expect(engine.stopWhenBySourceId.get('source-0')).toBeCloseTo(4.7, 6);
+  });
+
+  it('play() after pause() fades the resumed source back in, but a fresh (non-resume) play() does not', () => {
+    player.play(); // source-0 - a fresh start, no fade-in
+    expect(engine.gainRampsBySourceId.get('source-0')).toBeUndefined();
+
+    engine.clock = 4;
+    player.pause();
+    engine.clock = 5;
+    player.play(); // source-1 - resuming from pause, fades in
+
+    expect(engine.gainRampsBySourceId.get('source-1')).toEqual([{ toValue: 1, atTimeSeconds: 5, durationSeconds: 0.5 }]);
+  });
+
   it('seek() while playing restarts playback from the new offset', () => {
     player.play();
     engine.clock = 2;
@@ -296,7 +318,7 @@ describe('TrackPlayer', () => {
 
   it('setGain() carries over to a source created later by seek/resume', () => {
     player.setGain(0.5);
-    player.play();
+    player.play(); // a fresh start (not a resume-from-pause), so no fade-in
     player.seek(3); // tears down the current source and creates a new one
 
     const gains = [...engine.gainBySourceId.values()];
@@ -305,7 +327,7 @@ describe('TrackPlayer', () => {
   });
 
   it('defaults to gain 1 (no change) when never set', () => {
-    player.play();
+    player.play(); // a fresh start (not a resume-from-pause), so no fade-in
     const [sourceId] = engine.gainBySourceId.keys();
 
     expect(engine.gainBySourceId.get(sourceId!)).toBe(1);
@@ -324,7 +346,7 @@ describe('TrackPlayer', () => {
 
   it('setVolume() carries over to a source created later by seek/resume, same as setGain()', () => {
     player.setVolume(0.5);
-    player.play();
+    player.play(); // a fresh start (not a resume-from-pause), so no fade-in
     player.seek(3);
 
     const gains = [...engine.gainBySourceId.values()];

@@ -20,13 +20,13 @@ import {
   CrossfadeArt,
   Icon,
   IconLabel,
+  LoadingBar,
   SeekBar,
   TrackList,
   useCoverArt,
   useDoublePressHandler,
   useFadeInOnChange,
   usePlaybackPersistence,
-  useTrackAnalysis,
   useTrackMetadata,
   VolumeSlider,
 } from '@bpmix/ui';
@@ -50,7 +50,6 @@ import {
   ActivityIndicator,
   Animated,
   FlatList,
-  Image,
   Pressable,
   StatusBar,
   StyleSheet,
@@ -243,6 +242,15 @@ function AppContent() {
     // without a re-read (see scanLibraryMetadata/isMetadataFresh).
     void scanLibraryMetadata(fileAccess, libraryStore, withLibrary.flatMap(({ tracksById }) => [...tracksById.values()]), {
       resizer: coverArtResizer,
+      // Bumps whatever's actually on screen (now playing + up next) ahead
+      // of the rest of the library, evaluated fresh on every step - so a
+      // large stale-parser-version rescan reaches the tracks the user is
+      // looking at long before it would in plain list order.
+      getPriorityFileIds: () => {
+        const state = playlistPlayer.getState();
+        const nextFileId = playlistPlayer.getNextFileId();
+        return [state.currentFileId, nextFileId].filter((id): id is string => id != null);
+      },
     });
     return withLibrary;
   }, []);
@@ -440,11 +448,6 @@ function AppContent() {
 
   const nowPlayingTrack = playerState.currentFileId ? activeTracksById.get(playerState.currentFileId) : undefined;
 
-  // Debug view (Stage 4 exit criterion): shows the currently playing
-  // track's computed BPM/gain, proving analysis actually ran and produced
-  // real numbers, not just that it didn't crash.
-  const currentAnalysis = useTrackAnalysis(libraryStore, playerState.currentFileId);
-
   // Debug view: preview of the crossfade into whatever's queued up next,
   // computed from the same TransitionPlan/visualization data real playback
   // scheduling will use - lets the fade timing be checked by eye before
@@ -476,10 +479,6 @@ function AppContent() {
   const pendingCrossfadeFileIds = playerState.pendingCrossfadeFileIds;
   const pendingOutgoingTrack = pendingCrossfadeFileIds ? activeTracksById.get(pendingCrossfadeFileIds.outgoing) : undefined;
   const pendingIncomingTrack = pendingCrossfadeFileIds ? activeTracksById.get(pendingCrossfadeFileIds.incoming) : undefined;
-  // True only for a manual skip (crossfadeToPosition already advanced
-  // currentFileId to the incoming target); false for the natural
-  // end-of-track path (currentFileId is still the outgoing side throughout).
-  const isManualSkipPending = pendingCrossfadeFileIds && playerState.currentFileId === pendingCrossfadeFileIds.incoming;
 
   const transitionPlan = useMemo(() => {
     if (pendingIncoming) {
@@ -528,16 +527,23 @@ function AppContent() {
         : crossfadeProgressSeconds >= 0
           ? 1
           : 0;
-  const outgoingGain = crossfadeFraction == null ? 1 : equalPowerGain(crossfadeFraction, true, fadeDurationSeconds);
+  // Feeds CrossfadeArt's spin *speed* (not opacity) - see its doc for why.
+  // A crossfade only ever runs while actually playing, so pendingIncoming
+  // already implies isPlaying - this only matters for the paused case,
+  // where the record shouldn't keep spinning: crossfadeFraction isn't
+  // actually null then (it's some out-of-range value from
+  // realTimeForOutgoingPosition, which equalPowerGain clamps close to 1/0
+  // on its own), so the "not playing" override has to apply after that
+  // computation, not just to its null-fallback branch.
+  const isPlaying = pendingIncoming ? true : playerState.track.status === 'playing';
+  const outgoingGain = isPlaying
+    ? crossfadeFraction == null
+      ? 1
+      : equalPowerGain(crossfadeFraction, true, fadeDurationSeconds)
+    : 0;
   const incomingGain = crossfadeFraction == null ? 0 : equalPowerGain(crossfadeFraction, false, fadeDurationSeconds);
   const displayPositionSeconds = pendingIncoming ? pendingIncoming.positionSeconds : playerState.track.positionSeconds;
   const displayDurationSeconds = pendingIncoming ? pendingIncoming.durationSeconds : playerState.track.durationSeconds;
-  const displayTrackNumber =
-    pendingIncoming && !isManualSkipPending && playerState.totalTracks > 0
-      ? ((playerState.position >= playerState.totalTracks - 1 ? 0 : playerState.position + 1) % playerState.totalTracks) + 1
-      : playerState.position + 1;
-
-  const displayCoverArt = useCoverArt(libraryStore, displayTrack?.fileId ?? null, isMetadataCurrent(displayTrackMetadata));
 
   // Fades the now-playing block in on every track change, keyed on identity
   // (fileId) rather than on what triggered the change - the same fade plays
@@ -548,34 +554,16 @@ function AppContent() {
 
   const nowPlayingBar = playerState.currentFileId && (
     <View style={styles.nowPlaying}>
+      {/* No art thumbnail here - CrossfadeArt below already shows the
+          current track's art at full size (its outgoing side, always
+          rendered once duration is known, opaque whenever nothing's
+          actually crossfading), so a second small copy next to the title
+          would just be the same image twice. */}
       <Animated.View style={[styles.nowPlayingHeader, { opacity: nowPlayingOpacity }]}>
-        {displayCoverArt ? (
-          <Image source={{ uri: displayCoverArt }} style={styles.nowPlayingArt} />
-        ) : (
-          <View style={[styles.nowPlayingArt, styles.nowPlayingArtPlaceholder]} />
-        )}
         <View style={styles.nowPlayingHeaderText}>
           <Text style={[styles.nowPlayingName, { color: colors.text }]} numberOfLines={1}>
             {displayTrack ? formatTrackTitle(displayTrackMetadata, displayTrack) : playerState.currentFileId}
           </Text>
-          {isLoadingTrack ? (
-            <View style={styles.buttonRow}>
-              <ActivityIndicator size="small" color={colors.subtleText} style={styles.buttonSpinner} />
-              <Text style={[styles.nowPlayingTime, { color: colors.subtleText }]}>
-                Loading… · track {displayTrackNumber}/{playerState.totalTracks}
-              </Text>
-            </View>
-          ) : (
-            <Text style={[styles.nowPlayingTime, { color: colors.subtleText }]}>
-              {formatSeconds(displayPositionSeconds)} / {formatSeconds(displayDurationSeconds)} (
-              {playerState.track.status}) · track {displayTrackNumber}/{playerState.totalTracks}
-            </Text>
-          )}
-          {currentAnalysis && (
-            <Text style={[styles.nowPlayingTime, { color: colors.subtleText }]}>
-              Gain: {currentAnalysis.normalizationGain.toFixed(2)}x
-            </Text>
-          )}
         </View>
       </Animated.View>
       {/* Text only, deliberately no art thumbnail here - CrossfadeArt below
@@ -592,21 +580,30 @@ function AppContent() {
       )}
       {transitionPlan && (
         <CrossfadeArt
-          outgoingArtUri={outgoingCoverArt}
-          incomingArtUri={incomingCoverArt}
-          outgoingGain={outgoingGain}
-          incomingGain={incomingGain}
+          currentTrackKey={outgoingTrack?.fileId ?? null}
+          currentArtUri={outgoingCoverArt}
+          currentGain={outgoingGain}
+          nextArtUri={incomingCoverArt}
+          nextGain={incomingGain}
         />
       )}
-      <SeekBar
-        positionSeconds={displayPositionSeconds}
-        durationSeconds={displayDurationSeconds}
-        // Disabled mid-crossfade: seekTo() still only affects the actual
-        // (outgoing) source, which no longer matches what the bar is
-        // showing (the incoming track's position/duration) - a tap here
-        // would compute a fraction against the wrong track's duration.
-        onSeekTo={pendingIncoming ? () => {} : seekTo}
-      />
+      {isLoadingTrack ? (
+        <LoadingBar />
+      ) : (
+        <SeekBar
+          positionSeconds={displayPositionSeconds}
+          durationSeconds={displayDurationSeconds}
+          // Disabled mid-crossfade: seekTo() still only affects the actual
+          // (outgoing) source, which no longer matches what the bar is
+          // showing (the incoming track's position/duration) - a tap here
+          // would compute a fraction against the wrong track's duration.
+          onSeekTo={pendingIncoming ? () => {} : seekTo}
+        />
+      )}
+      <View style={styles.seekTimesRow}>
+        <Text style={[styles.seekTimeText, { color: colors.subtleText }]}>{formatSeconds(displayPositionSeconds)}</Text>
+        <Text style={[styles.seekTimeText, { color: colors.subtleText }]}>{formatSeconds(displayDurationSeconds)}</Text>
+      </View>
       <View style={styles.playerControlsRow}>
         <Pressable
           style={[styles.transportIconButton, playerState.loopMode !== 'off' && styles.transportIconButtonActive]}
@@ -824,14 +821,6 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-  nowPlayingArt: {
-    width: 48,
-    height: 48,
-    borderRadius: 6,
-  },
-  nowPlayingArtPlaceholder: {
-    backgroundColor: 'rgba(128,128,128,0.15)',
-  },
   upNext: {
     marginTop: 8,
   },
@@ -842,9 +831,13 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
   },
-  nowPlayingTime: {
+  seekTimesRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  seekTimeText: {
     fontSize: 12,
-    marginTop: 2,
   },
   // The primary play/pause/seek/skip row, styled like a real player's
   // transport bar: big circular icon buttons, evenly spaced, with

@@ -15,6 +15,8 @@ const GAIN_CURVE_SAMPLE_COUNT = 32;
  * silence on its own.
  */
 const STOP_TAIL_SECONDS = 0.2;
+/** Cap for the fade-out on pause() and fade-in on play()/resume - avoids an audible pop/click from an instant gain cut or jump, while staying quick enough that it doesn't read as a real crossfade. */
+const PAUSE_RESUME_FADE_SECONDS = 0.5;
 
 export type TrackPlayerStatus = 'idle' | 'loading' | 'playing' | 'paused' | 'stopped';
 
@@ -158,7 +160,12 @@ export class TrackPlayer {
     if (this.status === 'playing') {
       return;
     }
-    this.startPlaybackFrom(this.startOffsetSeconds);
+    // Only a genuine resume-from-pause fades in - a fresh track start
+    // (status 'stopped'/'idle', e.g. tapping a track in the list, or
+    // PlaylistPlayer.playAt loading the next one) should still begin at
+    // full volume immediately rather than easing in.
+    const isResume = this.status === 'paused';
+    this.startPlaybackFrom(this.startOffsetSeconds, isResume ? PAUSE_RESUME_FADE_SECONDS : 0);
   }
 
   pause(): void {
@@ -166,9 +173,29 @@ export class TrackPlayer {
       return;
     }
     const position = this.getPositionSeconds();
-    this.stopCurrentSource();
+    // Cancel any in-flight crossfade first (same as stopCurrentSource), then
+    // fade this.source out and schedule its stop rather than cutting it
+    // immediately - an instant gain cut on pause is an audible pop/click.
+    // this.source is nulled before scheduling the fade/stop (not after),
+    // same reasoning as stopCurrentSource's doc: some native engines can
+    // invoke a source's onEnded synchronously from within stop(), and
+    // handleEnded's staleness guard needs this.source to already be gone.
+    this.cancelPendingCrossfade();
+    const source = this.source;
+    this.source = null;
     this.startOffsetSeconds = position;
     this.status = 'paused';
+    if (source) {
+      const when = this.engine.now();
+      try {
+        source.rampGain({ toValue: 0, atTimeSeconds: when, durationSeconds: PAUSE_RESUME_FADE_SECONDS });
+        source.stop(when + PAUSE_RESUME_FADE_SECONDS + STOP_TAIL_SECONDS);
+      } catch {
+        // A scheduling conflict or bad engine state - fall back to an
+        // immediate stop rather than leaving the source playing forever.
+        source.stop();
+      }
+    }
   }
 
   seek(positionSeconds: number): void {
@@ -384,7 +411,14 @@ export class TrackPlayer {
     return Math.max(0, pending.startOffsetSeconds + (this.engine.now() - pending.startedAtEngineTime) * pending.rate);
   }
 
-  private startPlaybackFrom(offsetSeconds: number): void {
+  /**
+   * fadeInSeconds > 0 (see PAUSE_RESUME_FADE_SECONDS) starts the source
+   * silent and ramps it up to its real gain instead of jumping straight
+   * there - used for a resume (via play()) so it doesn't pop back in at
+   * full volume; a fresh seek while already playing passes 0 (no fade,
+   * matches the instantaneous scrub the UI shows).
+   */
+  private startPlaybackFrom(offsetSeconds: number, fadeInSeconds = 0): void {
     if (!this.decoded) {
       return;
     }
@@ -409,7 +443,13 @@ export class TrackPlayer {
     // needs this.source to already equal the new source, so it processes a
     // genuine immediate end correctly instead of silently dropping it.
     this.source = source;
-    source.setGain(this.currentGain * this.masterVolume);
+    const targetGain = this.currentGain * this.masterVolume;
+    if (fadeInSeconds > 0) {
+      source.setGain(0);
+      source.rampGain({ toValue: targetGain, atTimeSeconds: when, durationSeconds: fadeInSeconds });
+    } else {
+      source.setGain(targetGain);
+    }
     source.setRate(this.currentRate);
     this.startedAtEngineTime = when;
     this.startOffsetSeconds = offsetSeconds;

@@ -34,4 +34,19 @@ Notes for tasks that still have to be done/investigated are left here, grouped b
 
 ## UI/UX improvements
 
+* when pressing shuffle the current song is placed at the top of the playlist and other songs should appear below it in the shuffled order, this order must persist across reloads, until shuffle is toggled off (restore original playlist order preserving current track position) or if looping, when the last song ends the playlist should be reshuffled under the last song before switching to the next track
 * move the "now playing" controls to a fixed bar at the bottom of the screen with play-pause-next-previous controls on the right and move everything else to a now playing screen accessible by clicking the album art+song+name+artist displayed on the left of the bar similar to the layout in the playlist
+* Move song progress indicator (time elapsed/remianing next to the playing bar
+* hide currently playing track number and normalized gain
+* add a loading style progress bar and use that while a song is loading so we don't need to reserve space for the loading indicator circle icon
+* the CrossfadeArt vinyl discs (`packages/ui/src/CrossfadeArt.tsx`) spin at a constant slow rate regardless of gain - tying spin *speed* to the actual gain ramp (not just opacity) would sell the "record fading in/out" effect better
+* a tonearm/needle graphic resting on whichever disc is currently audible (and lifting/moving across during a crossfade) would round out the vinyl look, we cou also display the "previous" thack's art
+* record scratch effect on the curentl playing song when pausing or resuming playback
+
+## new features
+
+* Lyrics displayed during playback
+* Support for embedded track id3 lyrics/syncedlyrics
+* Support browsing for a dedicated lyrics folder with .lrc files + auto-assigning to tracks with manual override possibility, one lrc file may be assigned to multiple tracks (e.g. different qualities/files for the same song)
+* add an lrc syncing UI for songs with nt synced plaintext lyrics, or a resyn option that reconstructs the plain lyrics from the lrc file (tap to advance sync, swipe up to go bac to previous entry/start on first entry, swipe left to remove a line, swipe right to insert a break) with onscreen controls and instructions, as well as step 5-10seconds buttons forwards/backwards
+* advanced: sound recognition-based automatic pre-syncing with manual review (requires large R&D effort, needs eternal library maybe)
