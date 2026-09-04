@@ -39,11 +39,8 @@ Notes for tasks that still have to be done/investigated are left here, grouped b
 * move the "now playing" controls to a fixed bar at the bottom of the screen with play-pause-next-previous controls on the right and move everything else to a now playing screen accessible by clicking the album art+song+name+artist displayed on the left of the bar similar to the layout in the playlist
 * Move song progress indicator (time elapsed/remianing next to the playing bar
 * hide currently playing track number and normalized gain
-* add a loading style progress bar and use that while a song is loading so we don't need to reserve space for the loading indicator circle icon
-* the CrossfadeArt vinyl discs (`packages/ui/src/CrossfadeArt.tsx`) spin at a constant slow rate regardless of gain - tying spin *speed* to the actual gain ramp (not just opacity) would sell the "record fading in/out" effect better
-* a tonearm/needle graphic resting on whichever disc is currently audible (and lifting/moving across during a crossfade) would round out the vinyl look, we cou also display the "previous" thack's art
+* display the "previous" track's art somewhere alongside the current/next discs in CrossfadeArt
 * record simulation: freehand finger spinning for record scratching + similar effect on the currently playing song when pausing or resuming playback (increase size of current record for easier manipulation)
-* per-record gain / volume indicators bard (green/yellow/red with bouncy bar) on far left and right side indicating automatic normalized gain and showing fade out with visual knobs moving
 
 ## new features
 
