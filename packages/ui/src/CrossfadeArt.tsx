@@ -160,25 +160,19 @@ const VU_BAND_YELLOW_FRACTION = 0.17;
 const VU_DIM_OVERLAY_COLOR = 'rgba(8,9,12,0.84)';
 const VU_KNOB_HEIGHT = 10;
 /**
- * Duration/easing for the knob's and bands' motion. Previously a spring -
- * tuned snappy (low friction, high tension) so it wouldn't average away
- * the fast-changing band data - but a spring's characteristic overshoot
- * read as an unwanted little bounce at the end of every move (confirmed
- * on-device, "I think that's unnecessary"). A plain eased tween has no
- * such overshoot while still arriving quickly.
- *
- * The knob and the bands use different easing, though, not the same
- * constant: the knob only actually retargets on a discrete state change
- * (pause/resume, a crossfade starting/ending), so an ease-in-out reads as
- * a deliberate, settled move. The bands retarget continuously - a new
- * target every ~60ms poll tick - and restarting an ease-in-out's slow
- * start/end from a still-in-flight animation every tick reads as
- * stuttery/janky (confirmed on-device); a linear tween has no start/end
- * hitch to restart into, so it reads as smooth continuous motion instead.
+ * The knob and the bands both move via a plain Animated.Value.setValue()
+ * now, not an Animated.timing() transition - previously each retarget (the
+ * bands' every ~60ms poll tick, 16 of them at once across both meters) ran
+ * its own scheduled native-driver animation, a lot of concurrently
+ * in-flight transitions at once. That lined up with a real on-device
+ * Hermes/RuntimeScheduler_Modern native crash (a SIGSEGV deep in
+ * libhermesvm during scheduled-task execution) - not confirmed as the
+ * cause, but a plausible enough contributor that removing the concurrent
+ * animation load here is worth doing regardless of whether it was. The
+ * fill still reads as continuous since the poll itself is frequent enough
+ * (60ms) that the eye doesn't need interpolation between ticks to smooth
+ * it out.
  */
-const VU_MOVE_MS = 120;
-const VU_KNOB_MOVE_EASING = Easing.inOut(Easing.ease);
-const VU_BAND_MOVE_EASING = Easing.linear;
 
 /**
  * Maps a band's magnitude (0-1, from bandsFromByteFrequencyData) to a
@@ -394,9 +388,11 @@ function VuKnobTrack({ gain, size }: { gain: number; size: number }) {
   const knobTarget = Math.max(0, Math.min(1, gain));
   const knobLevel = useRef(new Animated.Value(knobTarget)).current;
   useEffect(() => {
-    Animated.timing(knobLevel, { toValue: knobTarget, duration: VU_MOVE_MS, easing: VU_KNOB_MOVE_EASING, useNativeDriver: true }).start();
-    // Only the computed target should retrigger this.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Straight value set, no animation - see the polling effect's doc for
+    // why (a suspected contributor to a real on-device Hermes/RuntimeScheduler
+    // native crash, via the sheer number of concurrently-scheduled Animated
+    // transitions this and the band columns were producing).
+    knobLevel.setValue(knobTarget);
   }, [knobTarget, knobLevel]);
   // knobLevel=0 knob center sits at the very bottom, 1 at the very top.
   const translateY = knobLevel.interpolate({ inputRange: [0, 1], outputRange: [size - VU_KNOB_HEIGHT / 2, -VU_KNOB_HEIGHT / 2] });
@@ -536,10 +532,18 @@ export function CrossfadeArt({
         const currentLevel = currentBandLevels[i];
         const nextLevel = nextBandLevels[i];
         if (!currentLevel || !nextLevel) continue;
-        const outgoingTarget = audioLevelToFraction(result?.outgoing[i] ?? 0);
-        const incomingTarget = audioLevelToFraction(result?.incoming[i] ?? 0);
-        Animated.timing(currentLevel, { toValue: outgoingTarget, duration: VU_MOVE_MS, easing: VU_BAND_MOVE_EASING, useNativeDriver: true }).start();
-        Animated.timing(nextLevel, { toValue: incomingTarget, duration: VU_MOVE_MS, easing: VU_BAND_MOVE_EASING, useNativeDriver: true }).start();
+        // Straight value set, no animation - an Animated.timing() per band
+        // per tick (16 of them, every 60ms) meant a very large number of
+        // concurrently-scheduled native-driver transitions in flight at
+        // once, which lined up with a real on-device Hermes/
+        // RuntimeScheduler_Modern native crash (a SIGSEGV deep in libhermesvm
+        // during scheduled-task execution) - not confirmed as the cause,
+        // but a plausible enough contributor that removing the concurrent
+        // animation load here is worth doing regardless. The segments
+        // already look continuous because the poll itself is frequent
+        // enough (60ms) for the eye not to need interpolation between ticks.
+        currentLevel.setValue(audioLevelToFraction(result?.outgoing[i] ?? 0));
+        nextLevel.setValue(audioLevelToFraction(result?.incoming[i] ?? 0));
       }
     }, VU_POLL_MS);
     return () => clearInterval(interval);
