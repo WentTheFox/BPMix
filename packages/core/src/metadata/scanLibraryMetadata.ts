@@ -1,6 +1,7 @@
 import type { FileAccess, FileRef } from '../file-access/types';
 import type { LibraryStore, TrackRecord } from '../library-store/types';
 import { yieldToEventLoop } from '../analysis/yieldToEventLoop';
+import type { CoverArtResizer } from './coverArtResizer';
 import { ensureTrackMetadata, isMetadataFresh } from './ensureMetadata';
 
 export interface ScanMetadataProgress {
@@ -14,6 +15,8 @@ export interface ScanMetadataProgress {
 export interface ScanLibraryMetadataOptions {
   /** Called after each track's metadata read attempt (skipped, succeeded, or failed) - lets callers refresh the library screen as titles come in. */
   onProgress?: (info: ScanMetadataProgress) => void;
+  /** Downscales oversized embedded cover art before storing it - see ensureTrackMetadata. */
+  resizer?: CoverArtResizer;
 }
 
 function trackToFileRef(track: TrackRecord): FileRef {
@@ -53,7 +56,7 @@ export async function scanLibraryMetadata(
     }
 
     try {
-      await ensureTrackMetadata(store, fileAccess, trackToFileRef(track));
+      await ensureTrackMetadata(store, fileAccess, trackToFileRef(track), options.resizer);
       options.onProgress?.({ track, index, total: tracks.length, skipped: false });
     } catch (error) {
       options.onProgress?.({ track, index, total: tracks.length, skipped: false, error });

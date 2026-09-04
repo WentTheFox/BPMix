@@ -1,4 +1,5 @@
 import {
+  mdiArrowLeft,
   mdiFolder,
   mdiFolderPlus,
   mdiMusicNote,
@@ -61,6 +62,7 @@ const CODEPOINTS: Record<string, number> = {
   [mdiFolderPlus]: 0xe8f4, // "NewFolder" - a folder with a plus-circle overlay
   [mdiPlaylistMusic]: 0xe90b, // "MusicNoteList" - list lines with a music note
   [mdiRefresh]: 0xe72c,
+  [mdiArrowLeft]: 0xe72b, // "Back"
 };
 
 const FALLBACK_CODEPOINT = 0xe11b; // "StatusErrorFull" (a "?" in a circle) - visible placeholder for an unmapped icon, not a silent blank.

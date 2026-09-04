@@ -14,6 +14,7 @@
 HWND BPMix_MainWindowHwnd = nullptr;
 
 #include "AudioEngineModule.h"
+#include "CoverArtResizerModule.h"
 #include "FileAccessModule.h"
 #include "LocalStorageModule.h"
 

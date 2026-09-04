@@ -4,6 +4,7 @@ import {
   ensureTrackAnalyzed,
   equalPowerGain,
   formatTrackTitle,
+  isMetadataCurrent,
   PlaylistPlayer,
   realTimeForOutgoingPosition,
   scanLibraryMetadata,
@@ -14,7 +15,7 @@ import {
   Icon,
   IconLabel,
   SeekBar,
-  TrackRow,
+  TrackList,
   useCoverArt,
   useDoublePressHandler,
   useTrackAnalysis,
@@ -22,6 +23,7 @@ import {
   VolumeSlider,
 } from '@bpmix/ui';
 import {
+  mdiArrowLeft,
   mdiFastForward10,
   mdiFolder,
   mdiFolderPlus,
@@ -38,6 +40,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DimensionValue } from 'react-native';
 import { FlatList, Image, Pressable, StyleSheet, Text, useColorScheme, View } from 'react-native';
 import { createAudioEngine } from './adapters/audioEngine';
+import { createCoverArtResizer } from './adapters/coverArtResizer';
 import { createFileAccess } from './adapters/fileAccess';
 import { createLibraryStore } from './adapters/libraryStore';
 
@@ -51,6 +54,7 @@ const MAX_CROSSFADE_SECONDS = 20;
 
 const fileAccess = createFileAccess();
 const libraryStore = createLibraryStore();
+const coverArtResizer = createCoverArtResizer();
 const audioEngine = createAudioEngine(fileAccess);
 
 function trackToFileRef(track: TrackRecord): FileRef {
@@ -197,11 +201,9 @@ function App() {
     // library screen on reading every file's tag bytes up front. Cheap to
     // call again on every refresh - already-fresh tracks are skipped
     // without a re-read (see scanLibraryMetadata/isMetadataFresh).
-    void scanLibraryMetadata(
-      fileAccess,
-      libraryStore,
-      withLibrary.flatMap(({ tracksById }) => [...tracksById.values()]),
-    );
+    void scanLibraryMetadata(fileAccess, libraryStore, withLibrary.flatMap(({ tracksById }) => [...tracksById.values()]), {
+      resizer: coverArtResizer,
+    });
     return withLibrary;
   }, []);
 
@@ -441,8 +443,8 @@ function App() {
   const incomingTrack = pendingIncomingTrack ?? nextTrack;
   const outgoingTrackMetadata = useTrackMetadata(libraryStore, outgoingTrack?.fileId ?? null);
   const incomingTrackMetadata = useTrackMetadata(libraryStore, incomingTrack?.fileId ?? null);
-  const outgoingCoverArt = useCoverArt(libraryStore, outgoingTrack?.fileId ?? null, outgoingTrackMetadata !== null);
-  const incomingCoverArt = useCoverArt(libraryStore, incomingTrack?.fileId ?? null, incomingTrackMetadata !== null);
+  const outgoingCoverArt = useCoverArt(libraryStore, outgoingTrack?.fileId ?? null, isMetadataCurrent(outgoingTrackMetadata));
+  const incomingCoverArt = useCoverArt(libraryStore, incomingTrack?.fileId ?? null, isMetadataCurrent(incomingTrackMetadata));
   // Same equalPowerGain() call SourceNode.rampGainCurve uses for the real
   // audio fade, sampled at the current progress instead of over a curve -
   // this is what makes the art dissolve at exactly the rate the audio
@@ -465,7 +467,7 @@ function App() {
       ? ((playerState.position >= playerState.totalTracks - 1 ? 0 : playerState.position + 1) % playerState.totalTracks) + 1
       : playerState.position + 1;
 
-  const displayCoverArt = useCoverArt(libraryStore, displayTrack?.fileId ?? null, displayTrackMetadata !== null);
+  const displayCoverArt = useCoverArt(libraryStore, displayTrack?.fileId ?? null, isMetadataCurrent(displayTrackMetadata));
 
   const nowPlayingBar = playerState.currentFileId && (
     <View style={styles.nowPlaying}>
@@ -560,30 +562,19 @@ function App() {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <Pressable onPress={() => setScreen({ kind: 'library' })} style={styles.backRow}>
-          <Text style={[styles.backLink, { color: colors.text }]}>← {playlist.name}</Text>
+          <IconLabel path={mdiArrowLeft} text={playlist.name} color={colors.text} iconSize={18} textStyle={styles.backLink} />
         </Pressable>
         {error && <Text style={styles.error}>{error}</Text>}
         {nowPlayingBar}
-        <FlatList
-          style={styles.list}
-          data={playlist.trackFileIds}
-          keyExtractor={(fileId, index) => `${fileId}-${index}`}
-          renderItem={({ item: fileId }) => {
-            const track = tracksById.get(fileId);
-            if (!track) return null;
-            return (
-              <TrackRow
-                track={track}
-                isCurrent={playerState.currentFileId === fileId}
-                isPlaying={playerState.track.status === 'playing'}
-                textColor={colors.text}
-                onPress={(t) => void playFromTrack(playlist, tracksById, t)}
-                libraryStore={libraryStore}
-              />
-            );
-          }}
+        <TrackList
+          trackFileIds={playlist.trackFileIds}
+          tracksById={tracksById}
+          currentFileId={playerState.currentFileId}
+          isPlaying={playerState.track.status === 'playing'}
+          textColor={colors.text}
+          onPressTrack={(t) => void playFromTrack(playlist, tracksById, t)}
+          libraryStore={libraryStore}
           initialNumToRender={30}
-          windowSize={7}
         />
       </View>
     );

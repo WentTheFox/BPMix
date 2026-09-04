@@ -12,6 +12,7 @@
     "test:windows": "jest --config jest.config.windows.js"
   },
   "dependencies": {
+    "@bam.tech/react-native-image-resizer": "^3.0.11",
     "@bpmix/core": "workspace:*",
     "@bpmix/ui": "workspace:*",
     "@mdi/js": "^7.4.47",
@@ -36,16 +37,16 @@
     "@react-native/jest-preset": "0.85.0",
     "@react-native/metro-config": "0.85.0",
     "@react-native/typescript-config": "0.85.0",
-    "react-native-windows": "0.85.0-preview.1",
+    "@rnx-kit/jest-preset": "^0.3.1",
     "@types/jest": "^29.5.13",
     "@types/react": "^19.2.0",
     "@types/react-test-renderer": "^19.1.0",
     "eslint": "^8.19.0",
     "jest": "^29.6.3",
     "prettier": "2.8.8",
+    "react-native-windows": "0.85.0-preview.1",
     "react-test-renderer": "19.2.3",
-    "typescript": "^5.9.0",
-    "@rnx-kit/jest-preset": "^0.3.1"
+    "typescript": "^5.9.0"
   },
   "engines": {
     "node": ">= 22.11.0"

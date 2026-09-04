@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { FileAccess, FileRef, GrantedRoot, DirectoryEntry } from '../file-access/types';
 import type { AnalysisResult, LibraryStore, PlaybackState, PlaylistRecord, TrackRecord } from '../library-store/types';
 import type { TrackMetadata } from './types';
-import { ensureTrackMetadata, isMetadataFresh, METADATA_PARSER_VERSION } from './ensureMetadata';
+import type { CoverArtResizer } from './coverArtResizer';
+import { COVER_ART_MAX_DIMENSION_PX, ensureTrackMetadata, isMetadataFresh, METADATA_PARSER_VERSION } from './ensureMetadata';
 
 class FakeLibraryStore implements LibraryStore {
   metadata = new Map<string, TrackMetadata>();
@@ -77,17 +78,13 @@ function buildMp3WithId3v2(tags: {
   coverArt?: { mimeType: string; bytes: number[] };
 }): ArrayBuffer {
   const frames: number[] = [];
+  // Appends element-by-element rather than frames.push(...body) - a large
+  // embedded image's body array (hundreds of thousands of elements, in the
+  // size-cutoff tests below) blows the call stack when spread into push().
   const addFrame = (id: string, body: number[]) => {
-    frames.push(
-      ...Array.from(id).map((c) => c.charCodeAt(0)),
-      (body.length >> 24) & 0xff,
-      (body.length >> 16) & 0xff,
-      (body.length >> 8) & 0xff,
-      body.length & 0xff,
-      0,
-      0,
-      ...body,
-    );
+    for (const c of Array.from(id)) frames.push(c.charCodeAt(0));
+    frames.push((body.length >> 24) & 0xff, (body.length >> 16) & 0xff, (body.length >> 8) & 0xff, body.length & 0xff, 0, 0);
+    for (const b of body) frames.push(b);
   };
   const addTextFrame = (id: string, text: string) => addFrame(id, [0, ...Array.from(text).map((c) => c.charCodeAt(0))]); // encoding byte 0 = Latin-1
 
@@ -133,6 +130,64 @@ describe('ensureTrackMetadata', () => {
     expect(art).toMatch(/^data:image\/jpeg;base64,/);
     const base64 = art!.split(',')[1]!;
     expect(Buffer.from(base64, 'base64')).toEqual(Buffer.from(imageBytes));
+  });
+
+  it('drops art over the size cutoff when no resizer is given', async () => {
+    const store = new FakeLibraryStore();
+    const bigImage = Array.from({ length: 600_000 }, (_, i) => i % 256);
+    const bytes = buildMp3WithId3v2({ title: 'Song', coverArt: { mimeType: 'image/jpeg', bytes: bigImage } });
+    const fileAccess = new FakeFileAccess(new Map([['a', bytes]]));
+
+    await ensureTrackMetadata(store, fileAccess, ref);
+
+    expect(await store.getCoverArt('a')).toBeNull();
+  });
+
+  it('asks the resizer to shrink art over the size cutoff, and stores the result', async () => {
+    const store = new FakeLibraryStore();
+    const bigImage = Array.from({ length: 600_000 }, (_, i) => i % 256);
+    const bytes = buildMp3WithId3v2({ title: 'Song', coverArt: { mimeType: 'image/jpeg', bytes: bigImage } });
+    const fileAccess = new FakeFileAccess(new Map([['a', bytes]]));
+    const resizedBytes = new Uint8Array([9, 9, 9]);
+    let calledWith: { mimeType: string; length: number; maxDimensionPx: number } | null = null;
+    const resizer: CoverArtResizer = {
+      async resize(data, mimeType, maxDimensionPx) {
+        calledWith = { mimeType, length: data.length, maxDimensionPx };
+        return { mimeType: 'image/jpeg', bytes: resizedBytes };
+      },
+    };
+
+    await ensureTrackMetadata(store, fileAccess, ref, resizer);
+    const art = await store.getCoverArt('a');
+
+    expect(calledWith).toEqual({ mimeType: 'image/jpeg', length: 600_000, maxDimensionPx: COVER_ART_MAX_DIMENSION_PX });
+    expect(art).toMatch(/^data:image\/jpeg;base64,/);
+    expect(Buffer.from(art!.split(',')[1]!, 'base64')).toEqual(Buffer.from(resizedBytes));
+  });
+
+  it('still drops art if the resizer declines (returns null) and the original is over the cutoff', async () => {
+    const store = new FakeLibraryStore();
+    const bigImage = Array.from({ length: 600_000 }, (_, i) => i % 256);
+    const bytes = buildMp3WithId3v2({ title: 'Song', coverArt: { mimeType: 'image/jpeg', bytes: bigImage } });
+    const fileAccess = new FakeFileAccess(new Map([['a', bytes]]));
+    const resizer: CoverArtResizer = { async resize() { return null; } };
+
+    await ensureTrackMetadata(store, fileAccess, ref, resizer);
+
+    expect(await store.getCoverArt('a')).toBeNull();
+  });
+
+  it('does not call the resizer for art already under the size cutoff', async () => {
+    const store = new FakeLibraryStore();
+    const bytes = buildMp3WithId3v2({ title: 'Song', coverArt: { mimeType: 'image/jpeg', bytes: [1, 2, 3] } });
+    const fileAccess = new FakeFileAccess(new Map([['a', bytes]]));
+    let called = false;
+    const resizer: CoverArtResizer = { async resize() { called = true; return null; } };
+
+    await ensureTrackMetadata(store, fileAccess, ref, resizer);
+
+    expect(called).toBe(false);
+    expect(await store.getCoverArt('a')).toMatch(/^data:image\/jpeg;base64,/);
   });
 
   it('clears previously stored art when a re-scanned file no longer has any', async () => {
