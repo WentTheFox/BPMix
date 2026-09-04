@@ -1,33 +1,23 @@
-const BASE64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+import { toByteArray } from 'base64-js';
 
 /**
- * Self-contained base64 decoder, since react-native-scoped-storage's readFile
- * only returns strings (utf8/base64/ascii) and we can't assume Hermes has a
- * global atob available across the RN versions this app might run on.
+ * react-native-scoped-storage's readFile only returns strings (utf8/base64/
+ * ascii) - there's no way to read a content:// SAF file as raw bytes
+ * directly, so decoding a base64 string back to bytes here is unavoidable
+ * for every file read (most importantly, the whole audio file on every
+ * track decode). This used to be a hand-rolled decoder that rebuilt its
+ * lookup table on every call and ran a regex pass over the entire string
+ * before the main loop - for a multi-MB audio file (multi-million-character
+ * base64 string), that was a genuine multi-second stall on the JS thread,
+ * confirmed on-device as the dominant cause of a severe freeze right at
+ * track-switch time. base64-js (already vendored transitively by
+ * react-native itself, for Blob/WebSocket) builds its lookup table once at
+ * module load and has no such per-call overhead.
  */
 export function base64ToArrayBuffer(base64: string): ArrayBuffer {
-  const lookup = new Uint8Array(256);
-  for (let i = 0; i < BASE64_CHARS.length; i++) {
-    lookup[BASE64_CHARS.charCodeAt(i)] = i;
-  }
-
-  const clean = base64.replace(/[^A-Za-z0-9+/]/g, '');
-  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
-  const byteLength = Math.floor((clean.length * 3) / 4) - padding;
-  const bytes = new Uint8Array(byteLength);
-
-  let byteIndex = 0;
-  for (let i = 0; i < clean.length; i += 4) {
-    const c0 = lookup[clean.charCodeAt(i)] ?? 0;
-    const c1 = lookup[clean.charCodeAt(i + 1)] ?? 0;
-    const c2 = lookup[clean.charCodeAt(i + 2)] ?? 0;
-    const c3 = lookup[clean.charCodeAt(i + 3)] ?? 0;
-    const triple = (c0 << 18) | (c1 << 12) | (c2 << 6) | c3;
-
-    if (byteIndex < byteLength) bytes[byteIndex++] = (triple >> 16) & 0xff;
-    if (byteIndex < byteLength) bytes[byteIndex++] = (triple >> 8) & 0xff;
-    if (byteIndex < byteLength) bytes[byteIndex++] = triple & 0xff;
-  }
-
-  return bytes.buffer;
+  const bytes = toByteArray(base64);
+  // Always a plain (non-shared, exactly byteLength-sized) ArrayBuffer in
+  // practice - toByteArray allocates a fresh Uint8Array itself - but its
+  // .d.ts types .buffer as the more general ArrayBufferLike.
+  return bytes.buffer as ArrayBuffer;
 }

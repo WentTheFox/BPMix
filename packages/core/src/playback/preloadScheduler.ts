@@ -40,6 +40,21 @@ const DEEP_SLOT_RETRY_COOLDOWN_MS = 5000;
  * ahead) aren't as urgent, so they're just attempted eagerly as soon as
  * they enter the lookahead window and retried on a fixed cooldown on
  * failure, no threshold sequence needed.
+ *
+ * At most one decode() call is ever in flight at a time (tickNearest/
+ * tickDeep both bail if `loadingFileIds` is non-empty for a *different*
+ * fileId) - every lookahead slot going eager at once (the previous
+ * behavior) meant every track change fired 2-3 concurrent decodes, each
+ * one real, substantial work (a multi-MB base64 file read + decode + a
+ * SQLite analysis read/write): confirmed on-device as compounding
+ * contention that made each individual decode take multiple seconds
+ * longer than it does alone, and stalled a plain indexed SQLite read
+ * (react-native-sqlite-2 serializes all transactions through one queue)
+ * for over 2 seconds. Serializing them keeps each one fast and leaves the
+ * rest of the app's DB/JS-thread work uncontended, at the cost of the
+ * lookahead window filling in slightly slower than fully-parallel would -
+ * an easy trade since none of this is on the critical path once the
+ * nearest slot itself is actually ready.
  */
 export class PreloadScheduler {
   private readonly decode: (fileId: string) => Promise<DecodedAudio>;
@@ -124,6 +139,10 @@ export class PreloadScheduler {
 
     if (this.ready.has(fileId) || this.loadingFileIds.has(fileId)) return;
     if (this.nearestGaveUpFor === fileId) return;
+    // See the class doc's concurrency note - only one scheduler-initiated
+    // decode runs at a time; a different slot's decode already in flight
+    // means this one just waits for the next tick.
+    if (this.loadingFileIds.size > 0) return;
 
     if (!this.nearestAttempted) {
       this.nearestAttempted = true;
@@ -156,6 +175,8 @@ export class PreloadScheduler {
 
   private tickDeep(fileId: string): void {
     if (this.ready.has(fileId) || this.loadingFileIds.has(fileId)) return;
+    // See the class doc's concurrency note.
+    if (this.loadingFileIds.size > 0) return;
     const nextAttemptAtMs = this.deepNextAttemptAtMs.get(fileId) ?? 0;
     if (Date.now() < nextAttemptAtMs) return;
 

@@ -127,16 +127,20 @@ describe('PreloadScheduler', () => {
     expect(decoder.calls).toEqual(['a', 'b']);
   });
 
-  it('eagerly attempts deeper (non-nearest) slots regardless of remaining time', () => {
+  it('eagerly attempts deeper (non-nearest) slots regardless of remaining time, but only once the nearest slot is settled', async () => {
     const decoder = new ControllableDecoder();
     const scheduler = new PreloadScheduler({ decode: decoder.decode });
 
     // Plenty of time left on the current track - the nearest slot ('a') is
     // attempted eagerly too now (see tickNearest's doc), same as the deep
-    // slot ('b') always was; this test is really about 'b' not needing to
-    // wait for 'a' to be handled first.
+    // slot ('b') always was. Only one decode runs at a time though (see the
+    // class doc's concurrency note), so 'b' doesn't start until 'a' settles.
     scheduler.tick({ remainingSeconds: 200, upcomingFileIds: ['a', 'b'] });
+    expect(decoder.calls).toEqual(['a']);
 
+    decoder.resolveNext();
+    await flush();
+    scheduler.tick({ remainingSeconds: 200, upcomingFileIds: ['a', 'b'] });
     expect(decoder.calls).toEqual(['a', 'b']);
   });
 
@@ -146,8 +150,12 @@ describe('PreloadScheduler', () => {
     const scheduler = new PreloadScheduler({ decode: decoder.decode });
 
     scheduler.tick({ remainingSeconds: 200, upcomingFileIds: ['a', 'b'] });
-    expect(decoder.calls).toEqual(['a', 'b']);
+    expect(decoder.calls).toEqual(['a']);
     decoder.resolveNext(); // 'a' (nearest) succeeds - not the focus of this test
+    await vi.advanceTimersByTimeAsync(0);
+
+    scheduler.tick({ remainingSeconds: 200, upcomingFileIds: ['a', 'b'] });
+    expect(decoder.calls).toEqual(['a', 'b']);
     decoder.rejectNext(); // 'b' (deep) fails
     await vi.advanceTimersByTimeAsync(0);
 
@@ -165,14 +173,16 @@ describe('PreloadScheduler', () => {
 
     scheduler.tick({ remainingSeconds: 200, upcomingFileIds: ['a', 'b'] });
     decoder.resolveNext(); // 'a' (nearest)
-    decoder.resolveNext(); // 'b' (deep)
-    await Promise.resolve();
+    await flush();
+    scheduler.tick({ remainingSeconds: 200, upcomingFileIds: ['a', 'b'] });
+    decoder.resolveNext(); // 'b' (deep), now that 'a' has settled
+    await flush();
     expect(scheduler.takePreloaded('b')).toBeDefined();
 
     // Re-preload 'b', then it falls out of the window (e.g. user skipped past it).
     scheduler.tick({ remainingSeconds: 200, upcomingFileIds: ['a', 'b'] });
     decoder.resolveNext();
-    await Promise.resolve();
+    await flush();
 
     scheduler.tick({ remainingSeconds: 200, upcomingFileIds: ['a', 'c'] });
     expect(scheduler.takePreloaded('b')).toBeUndefined();

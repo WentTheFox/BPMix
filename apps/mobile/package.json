@@ -16,6 +16,7 @@
     "@bpmix/core": "workspace:*",
     "@bpmix/ui": "workspace:*",
     "@mdi/js": "^7.4.47",
+    "base64-js": "^1.5.1",
     "react": "19.2.3",
     "react-native": "0.85.0",
     "react-native-audio-api": "^0.13.3",

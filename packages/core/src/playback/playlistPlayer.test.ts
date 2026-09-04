@@ -351,10 +351,14 @@ describe('PlaylistPlayer lookahead preload (Stage 6)', () => {
     await flush();
     expect(engine.decodedFileIds).toEqual(['a']);
 
-    player.checkPreload();
-    await flush();
+    // depth 2: both 'b' and 'c' eventually get preloaded ahead of 'a'
+    // finishing - one checkPreload()+flush per slot now, though, since only
+    // one decode runs at a time (see PreloadScheduler's concurrency note).
+    for (let i = 0; i < 3; i++) {
+      player.checkPreload();
+      await flush();
+    }
 
-    // depth 2: both 'b' and 'c' get preloaded ahead of 'a' finishing.
     expect(engine.decodedFileIds).toEqual(['a', 'b', 'c']);
   });
 
@@ -363,8 +367,10 @@ describe('PlaylistPlayer lookahead preload (Stage 6)', () => {
     const player = new PlaylistPlayer(engine, (fileId) => makeFileRef(fileId));
     await player.setPlaylist(TRACKS);
     await flush();
-    player.checkPreload();
-    await flush();
+    for (let i = 0; i < 3; i++) {
+      player.checkPreload();
+      await flush();
+    }
     expect(engine.decodedFileIds).toEqual(['a', 'b', 'c']);
 
     await player.next(); // -> 'b', already preloaded
@@ -421,8 +427,10 @@ describe('PlaylistPlayer just-in-time analysis hook (Stage 4 revision)', () => {
 
     await player.setPlaylist(TRACKS);
     await flush();
-    player.checkPreload();
-    await flush();
+    for (let i = 0; i < 3; i++) {
+      player.checkPreload();
+      await flush();
+    }
 
     const decodedIds = onDecoded.mock.calls.map((call) => (call[0] as { id: string }).id);
     expect(decodedIds.sort()).toEqual(['a', 'b', 'c']);
