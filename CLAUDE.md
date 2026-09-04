@@ -31,6 +31,7 @@ Notes for tasks that still have to be done/investigated are left here, grouped b
   * we can scan audio metadata asynchronously and update it as playback progresses, showing only the filename until this is done
   * tie metadata to file hash in case the song file changes on disk without a file name change
   * display live waveform of the current and next song
+  * the background metadata scan (both apps' `refresh()` in App.tsx) is deferred via `InteractionManager.runAfterInteractions` - that API is deprecated on the RN version we're on ("Please refactor long tasks into smaller ones, and use 'requestIdleCallback' instead"), so migrate it to `requestIdleCallback` before RN actually removes `InteractionManager`. Not a drop-in swap: `runAfterInteractions` just waits for the interaction queue to drain and runs the callback once, while `requestIdleCallback` fires (possibly repeatedly) whenever there's idle time in a frame and hands you a deadline to chunk work against - `scanLibraryMetadata` already yields cooperatively between tracks (`yieldToEventLoop`), so it's a reasonable fit for real idle-chunked scheduling, not just a like-for-like call swap.
 
 ## UI/UX improvements
 
