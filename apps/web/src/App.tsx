@@ -22,6 +22,7 @@ import {
   useDoublePressHandler,
   useFadeInOnChange,
   usePlaybackPersistence,
+  useTrackAnalysis,
   useTrackMetadata,
   VolumeSlider,
 } from '@bpmix/ui';
@@ -498,6 +499,10 @@ function App() {
   const incomingTrackMetadata = useTrackMetadata(libraryStore, incomingTrack?.fileId ?? null);
   const outgoingCoverArt = useCoverArt(libraryStore, outgoingTrack?.fileId ?? null, isMetadataCurrent(outgoingTrackMetadata));
   const incomingCoverArt = useCoverArt(libraryStore, incomingTrack?.fileId ?? null, isMetadataCurrent(incomingTrackMetadata));
+  // Feeds CrossfadeArt's VU meters - same normalizationGain the player
+  // itself applies via resolveGain above, just re-fetched here for display.
+  const outgoingAnalysis = useTrackAnalysis(libraryStore, outgoingTrack?.fileId ?? null);
+  const incomingAnalysis = useTrackAnalysis(libraryStore, incomingTrack?.fileId ?? null);
   // Same equalPowerGain() call SourceNode.rampGainCurve uses for the real
   // audio fade, sampled at the current progress instead of over a curve -
   // this is what makes the art dissolve at exactly the rate the audio
@@ -603,9 +608,11 @@ function App() {
         currentTrackKey={outgoingTrack?.fileId ?? null}
         currentArtUri={outgoingCoverArt}
         currentGain={outgoingGain}
+        currentNormalizedGain={outgoingAnalysis?.normalizationGain}
         nextTrackKey={incomingTrack?.fileId ?? null}
         nextArtUri={incomingCoverArt}
         nextGain={incomingGain}
+        nextNormalizedGain={incomingAnalysis?.normalizationGain}
       />
       {playerState.track.status === 'loading' ? (
         <LoadingBar />
