@@ -42,6 +42,15 @@ const TONEARM_DOWN_DEG = -46;
 /** Rotation with the needle lifted clear of the disc - still angled toward it (reads as "parked over this slot, paused") rather than swung all the way back to resting flat. Small - there's very little clearance between the disc's top edge and the title/"up next" text sitting just above it, so the lifted position can't rise far before it'd overlap that text. */
 const TONEARM_UP_DEG = 3;
 const TONEARM_ARM_LENGTH_FRACTION = 0.34;
+/** LED-style VU meter flanking each disc, showing its actual crossfade gain as a bar of lit segments (bottom-up) - green through most of the range, yellow then red near the top, so a track fading out visibly drops from green down through red as it goes quiet. */
+const VU_METER_WIDTH = 10;
+const VU_METER_GAP = 8;
+const VU_SEGMENT_COUNT = 12;
+const VU_SEGMENT_GAP = 2;
+/** Segment opacity when unlit - never fully invisible, so the meter's full scale reads even at gain 0. */
+const VU_UNLIT_OPACITY = 0.16;
+/** Spring constants for the "bouncy" needle-following motion - tuned to overshoot a little rather than move plainly like everything else driven straight off gain (the disc spin, the crossfade curve itself), since a VU meter's whole character is that physical bounce. */
+const VU_SPRING_CONFIG = { friction: 5, tension: 80 };
 /** Spin rate is rounded to this granularity before restarting the loop animation - restarting on every ~200ms poll tick's tiny gain fluctuation would look jittery; only a genuinely audible speed change (mostly during an actual crossfade) should visibly re-time it. */
 const RATE_BUCKET = 0.2;
 /** How many full turns to schedule per animation leg - just needs to be long enough that a rate-bucket change (or a lap completing) is very unlikely to still be running the same leg by the time the next one's scheduled; each leg's actual duration still scales with the current rate. */
@@ -189,6 +198,42 @@ function Tonearm({ down, size }: { down: boolean; size: number }) {
   );
 }
 
+/** Green for most of the scale, yellow near the top, red at the very top - a classic LED VU meter's colors, applied by segment position rather than by the current level (the *count* of lit segments is what shows the level). */
+function vuSegmentColor(index: number, count: number): string {
+  const t = (index + 1) / count;
+  if (t > 0.92) return '#ef4444';
+  if (t > 0.75) return '#f59e0b';
+  return '#22c55e';
+}
+
+function VuMeter({ gain, size, side }: { gain: number; size: number; side: 'left' | 'right' }) {
+  const level = useRef(new Animated.Value(gain)).current;
+  useEffect(() => {
+    Animated.spring(level, { toValue: Math.max(0, Math.min(1, gain)), useNativeDriver: true, ...VU_SPRING_CONFIG }).start();
+  }, [gain, level]);
+  const segmentHeight = (size - VU_SEGMENT_GAP * (VU_SEGMENT_COUNT - 1)) / VU_SEGMENT_COUNT;
+  return (
+    <View style={[styles.vuMeter, { width: VU_METER_WIDTH, height: size }, side === 'left' ? { left: 0 } : { right: 0 }]} pointerEvents="none">
+      {/* Rendered top-to-bottom (index count-1 down to 0) so segment 0 - the bottom, first to light up - ends up at the bottom of the column. */}
+      {Array.from({ length: VU_SEGMENT_COUNT }, (_, fromTop) => {
+        const index = VU_SEGMENT_COUNT - 1 - fromTop;
+        const t0 = index / VU_SEGMENT_COUNT;
+        const t1 = (index + 1) / VU_SEGMENT_COUNT;
+        const opacity = level.interpolate({ inputRange: [t0, t1], outputRange: [VU_UNLIT_OPACITY, 1], extrapolate: 'clamp' });
+        return (
+          <Animated.View
+            key={index}
+            style={[
+              styles.vuSegment,
+              { height: segmentHeight, marginBottom: fromTop === VU_SEGMENT_COUNT - 1 ? 0 : VU_SEGMENT_GAP, backgroundColor: vuSegmentColor(index, VU_SEGMENT_COUNT), opacity },
+            ]}
+          />
+        );
+      })}
+    </View>
+  );
+}
+
 interface DiscSnapshot {
   key: string;
   artUri: string | null;
@@ -210,7 +255,10 @@ interface DisplayedState {
  * speeds up as a crossfade brings it in - both driven by the same
  * equal-power gain curve powering the real audio fade (see App.tsx's
  * outgoingGain/incomingGain, sampled from the same equalPowerGain() call
- * SourceNode.rampGainCurve uses for real playback).
+ * SourceNode.rampGainCurve uses for real playback). The same two gain
+ * values also drive a small LED-style VU meter flanking each disc (see
+ * VuMeter) - same idea, different rendering: a bar of lit segments instead
+ * of a spin rate.
  *
  * What's actually on screen (`displayed`) only changes via one of two
  * animated transitions, never a silent prop-driven pop:
@@ -334,21 +382,24 @@ export function CrossfadeArt({ currentTrackKey, currentArtUri, currentGain, next
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nextTrackKey, transitioning]);
 
-  const containerStyle = { width: size * 2 + GAP, height: size };
+  const discsOffset = VU_METER_WIDTH + VU_METER_GAP;
+  const containerStyle = { width: discsOffset * 2 + size * 2 + GAP, height: size };
   const boxStyle = { width: size, height: size };
 
   return (
     <View style={[styles.row, containerStyle]}>
-      <View style={[styles.slot, boxStyle, { left: 0 }]}>
+      <VuMeter gain={currentGain} size={size} side="left" />
+      <View style={[styles.slot, boxStyle, { left: discsOffset }]}>
         {!transitioning && <VinylDisc artUri={displayed.currentArt} rate={currentGain} size={size} />}
         {outgoing && <VinylDisc artUri={outgoing.artUri} rate={1} size={size} opacity={outgoingOpacity} />}
         {incoming && <VinylDisc artUri={incoming.artUri} rate={currentGain} size={size} opacity={incomingOpacity} />}
         <Tonearm down={currentGain > 0} size={size} />
       </View>
-      <View style={[styles.slot, boxStyle, { left: size + GAP }]}>
+      <View style={[styles.slot, boxStyle, { left: discsOffset + size + GAP }]}>
         <VinylDisc artUri={displayed.nextArt} rate={nextGain} size={size} opacity={nextOpacity} translateX={slideX} />
         <Tonearm down={nextGain > 0} size={size} />
       </View>
+      <VuMeter gain={nextGain} size={size} side="right" />
     </View>
   );
 }
@@ -419,5 +470,14 @@ const styles = StyleSheet.create({
     height: 5,
     borderRadius: 2.5,
     backgroundColor: '#111827',
+  },
+  vuMeter: {
+    position: 'absolute',
+    top: 0,
+    flexDirection: 'column',
+  },
+  vuSegment: {
+    width: '100%',
+    borderRadius: 1.5,
   },
 });
