@@ -51,6 +51,7 @@ import {
   ActivityIndicator,
   Animated,
   FlatList,
+  InteractionManager,
   Pressable,
   StatusBar,
   StyleSheet,
@@ -241,17 +242,24 @@ function AppContent() {
     // library screen on reading every file's tag bytes up front. Cheap to
     // call again on every refresh - already-fresh tracks are skipped
     // without a re-read (see scanLibraryMetadata/isMetadataFresh).
-    void scanLibraryMetadata(fileAccess, libraryStore, withLibrary.flatMap(({ tracksById }) => [...tracksById.values()]), {
-      resizer: coverArtResizer,
-      // Bumps whatever's actually on screen (now playing + up next) ahead
-      // of the rest of the library, evaluated fresh on every step - so a
-      // large stale-parser-version rescan reaches the tracks the user is
-      // looking at long before it would in plain list order.
-      getPriorityFileIds: () => {
-        const state = playlistPlayer.getState();
-        const nextFileId = playlistPlayer.getNextFileId();
-        return [state.currentFileId, nextFileId].filter((id): id is string => id != null);
-      },
+    // Deferred to runAfterInteractions - reading/parsing tag bytes is real
+    // synchronous JS work (there's no worker-thread equivalent available
+    // here; RN's JS environment is single-threaded), so starting it only
+    // once whatever brought the user to this screen has finished
+    // animating keeps it from competing with that for the JS thread.
+    InteractionManager.runAfterInteractions(() => {
+      void scanLibraryMetadata(fileAccess, libraryStore, withLibrary.flatMap(({ tracksById }) => [...tracksById.values()]), {
+        resizer: coverArtResizer,
+        // Bumps whatever's actually on screen (now playing + up next) ahead
+        // of the rest of the library, evaluated fresh on every step - so a
+        // large stale-parser-version rescan reaches the tracks the user is
+        // looking at long before it would in plain list order.
+        getPriorityFileIds: () => {
+          const state = playlistPlayer.getState();
+          const nextFileId = playlistPlayer.getNextFileId();
+          return [state.currentFileId, nextFileId].filter((id): id is string => id != null);
+        },
+      });
     });
     return withLibrary;
   }, []);
