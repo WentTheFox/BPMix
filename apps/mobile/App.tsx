@@ -17,6 +17,7 @@ import {
   scanRoot,
 } from '@bpmix/core';
 import {
+  CROSSFADE_ART_TRANSITION_MS,
   CrossfadeArt,
   Icon,
   IconLabel,
@@ -506,8 +507,6 @@ function AppContent() {
 
   const isLoadingTrack = playerState.track.status === 'loading';
 
-  const displayTrack = pendingIncoming ? (pendingIncomingTrack ?? nowPlayingTrack) : nowPlayingTrack;
-  const displayTrackMetadata = useTrackMetadata(libraryStore, displayTrack?.fileId ?? null);
   const outgoingTrack = pendingOutgoingTrack ?? nowPlayingTrack;
   const incomingTrack = pendingIncomingTrack ?? nextTrack;
   const outgoingTrackMetadata = useTrackMetadata(libraryStore, outgoingTrack?.fileId ?? null);
@@ -545,12 +544,44 @@ function AppContent() {
   const displayPositionSeconds = pendingIncoming ? pendingIncoming.positionSeconds : playerState.track.positionSeconds;
   const displayDurationSeconds = pendingIncoming ? pendingIncoming.durationSeconds : playerState.track.durationSeconds;
 
-  // Fades the now-playing block in on every track change, keyed on identity
-  // (fileId) rather than on what triggered the change - the same fade plays
-  // whether it arrived via a manual skip, a natural end-of-track advance, or
-  // picking a different track in the list outright.
-  const nowPlayingOpacity = useFadeInOnChange(displayTrack?.fileId ?? null);
-  const upNextOpacity = useFadeInOnChange(incomingTrack?.fileId ?? null);
+  // Title/"up next" text only actually changes CROSSFADE_ART_TRANSITION_MS
+  // after outgoingTrack/incomingTrack do, not the instant playback state
+  // changes (which is also when metadata/art prefetching starts) - lines
+  // the text swap up with the same beat as CrossfadeArt's own disc
+  // swap/fade below instead of each updating at its own independent
+  // moment. A plain timer (matching CrossfadeArt's own constant) rather
+  // than hooking into that component's internal animation completion -
+  // far more robust than threading a callback through Animated's
+  // completion handling, which can report "interrupted" under rapid track
+  // changes and leave a callback-based sync stuck.
+  const [settledCurrentKey, setSettledCurrentKey] = useState<string | null>(outgoingTrack?.fileId ?? null);
+  const [settledNextKey, setSettledNextKey] = useState<string | null>(incomingTrack?.fileId ?? null);
+  useEffect(() => {
+    const key = outgoingTrack?.fileId ?? null;
+    if (key === settledCurrentKey) return;
+    const timeout = setTimeout(() => setSettledCurrentKey(key), CROSSFADE_ART_TRANSITION_MS);
+    return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [outgoingTrack?.fileId]);
+  useEffect(() => {
+    const key = incomingTrack?.fileId ?? null;
+    if (key === settledNextKey) return;
+    const timeout = setTimeout(() => setSettledNextKey(key), CROSSFADE_ART_TRANSITION_MS);
+    return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incomingTrack?.fileId]);
+  const settledCurrentTrack = settledCurrentKey ? activeTracksById.get(settledCurrentKey) : undefined;
+  const settledCurrentMetadata = useTrackMetadata(libraryStore, settledCurrentKey);
+  const settledNextTrack = settledNextKey ? activeTracksById.get(settledNextKey) : undefined;
+  const settledNextMetadata = useTrackMetadata(libraryStore, settledNextKey);
+
+  // Fades the now-playing block in on every settled track change, keyed on
+  // identity (fileId) rather than on what triggered the change - the same
+  // fade plays whether it arrived via a manual skip, a natural
+  // end-of-track advance, or picking a different track in the list
+  // outright.
+  const nowPlayingOpacity = useFadeInOnChange(settledCurrentKey);
+  const upNextOpacity = useFadeInOnChange(settledNextKey);
 
   const nowPlayingBar = playerState.currentFileId && (
     <View style={styles.nowPlaying}>
@@ -562,7 +593,7 @@ function AppContent() {
       <Animated.View style={[styles.nowPlayingHeader, { opacity: nowPlayingOpacity }]}>
         <View style={styles.nowPlayingHeaderText}>
           <Text style={[styles.nowPlayingName, { color: colors.text }]} numberOfLines={1}>
-            {displayTrack ? formatTrackTitle(displayTrackMetadata, displayTrack) : playerState.currentFileId}
+            {settledCurrentTrack ? formatTrackTitle(settledCurrentMetadata, settledCurrentTrack) : playerState.currentFileId}
           </Text>
         </View>
       </Animated.View>
@@ -571,22 +602,26 @@ function AppContent() {
           outgoing one, always rendered as a preview once duration is known,
           not just mid-crossfade), so a second copy of the same art would be
           redundant. */}
-      {incomingTrack && (
+      {settledNextTrack && (
         <Animated.View style={[styles.upNext, { opacity: upNextOpacity }]}>
           <Text style={[styles.upNextText, { color: colors.subtleText }]} numberOfLines={1}>
-            Up next: {formatTrackTitle(incomingTrackMetadata, incomingTrack)}
+            Up next: {formatTrackTitle(settledNextMetadata, settledNextTrack)}
           </Text>
         </Animated.View>
       )}
-      {transitionPlan && (
-        <CrossfadeArt
-          currentTrackKey={outgoingTrack?.fileId ?? null}
-          currentArtUri={outgoingCoverArt}
-          currentGain={outgoingGain}
-          nextArtUri={incomingCoverArt}
-          nextGain={incomingGain}
-        />
-      )}
+      {/* Always mounted (not gated on transitionPlan, which goes null
+          during every track's brief loading phase before duration is
+          known) - CrossfadeArt owns persistent state across track changes
+          for its swap/fade animation, and unmounting it mid-transition
+          would cut it short. */}
+      <CrossfadeArt
+        currentTrackKey={outgoingTrack?.fileId ?? null}
+        currentArtUri={outgoingCoverArt}
+        currentGain={outgoingGain}
+        nextTrackKey={incomingTrack?.fileId ?? null}
+        nextArtUri={incomingCoverArt}
+        nextGain={incomingGain}
+      />
       {isLoadingTrack ? (
         <LoadingBar />
       ) : (

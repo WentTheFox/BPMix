@@ -41,7 +41,8 @@ Notes for tasks that still have to be done/investigated are left here, grouped b
 * add a loading style progress bar and use that while a song is loading so we don't need to reserve space for the loading indicator circle icon
 * the CrossfadeArt vinyl discs (`packages/ui/src/CrossfadeArt.tsx`) spin at a constant slow rate regardless of gain - tying spin *speed* to the actual gain ramp (not just opacity) would sell the "record fading in/out" effect better
 * a tonearm/needle graphic resting on whichever disc is currently audible (and lifting/moving across during a crossfade) would round out the vinyl look, we cou also display the "previous" thack's art
-* record scratch effect on the curentl playing song when pausing or resuming playback
+* record simulation: freehand finger spinning for record scratching + similar effect on the currently playing song when pausing or resuming playback (increase size of current record for easier manipulation)
+* per-record gain / volume indicators bard (green/yellow/red with bouncy bar) on far left and right side indicating automatic normalized gain and showing fade out with visual knobs moving
 
 ## new features
 
