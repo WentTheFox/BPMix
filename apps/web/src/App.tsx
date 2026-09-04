@@ -39,9 +39,10 @@ import {
   mdiSkipNext,
   mdiSkipPrevious,
 } from '@mdi/js';
+import type { CSSProperties } from 'react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DimensionValue } from 'react-native';
-import { Animated, FlatList, InteractionManager, Linking, Pressable, StyleSheet, Text, useColorScheme, View } from 'react-native';
+import { Animated, FlatList, InteractionManager, Pressable, StyleSheet, Text, useColorScheme, View } from 'react-native';
 import { createAudioEngine } from './adapters/audioEngine';
 import { createCoverArtResizer } from './adapters/coverArtResizer';
 import { createCompositeFileAccess } from './adapters/fileAccess.composite';
@@ -60,6 +61,9 @@ const MAX_CROSSFADE_SECONDS = 20;
 // work regardless, but "Add Folder" itself needs this to pick local folders.
 const SUPPORTS_DIRECTORY_PICKER = typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function';
 const SELF_HOSTING_DOCS_URL = 'https://github.com/WentTheFox/BPMix/blob/main/apps/server/README.md';
+// A real DOM <a>, not an RN Text/Pressable - react-native-web's StyleSheet
+// objects aren't meant for raw DOM elements, so this is a plain CSS object.
+const webLinkStyle: CSSProperties = { color: 'inherit', textDecoration: 'underline', fontWeight: 600 };
 
 const fileAccess = createCompositeFileAccess();
 const libraryStore = createLibraryStore();
@@ -747,9 +751,9 @@ function App() {
         <Text style={styles.warning}>
           This browser can't pick local folders. Use the self-hosted Docker server instead to browse a mounted music
           library -{' '}
-          <Text style={styles.warningLink} onPress={() => Linking.openURL(SELF_HOSTING_DOCS_URL)}>
+          <a href={SELF_HOSTING_DOCS_URL} target="_blank" rel="noopener noreferrer" style={webLinkStyle}>
             see the setup guide
-          </Text>
+          </a>
           .
         </Text>
       )}
@@ -845,10 +849,6 @@ const styles = StyleSheet.create({
     marginTop: 12,
     maxWidth: 480,
     textAlign: 'center',
-  },
-  warningLink: {
-    textDecorationLine: 'underline',
-    fontWeight: '600',
   },
   backRow: {
     width: '100%',
