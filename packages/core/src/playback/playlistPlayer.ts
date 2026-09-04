@@ -159,6 +159,13 @@ export class PlaylistPlayer {
   private async decodeAndNotify(fileId: string): Promise<DecodedAudio> {
     const ref = await this.resolveTrack(fileId);
     const decoded = await this.engine.decodeFile(ref);
+    // See AudioEngine.prepareBuffer's doc - does createSource()'s otherwise-
+    // lazy native-buffer setup now. For the preload scheduler (this decode
+    // finishing well ahead of when the track is actually needed), that
+    // moves a real synchronous stall off the track-switch/crossfade moment;
+    // for a cache-miss cold decode it's no worse (createSource would do the
+    // identical work moments later regardless).
+    this.engine.prepareBuffer?.(decoded);
     try {
       // Fire-and-forget (never awaited here - decoded is returned to the
       // caller, e.g. for playback, immediately below regardless), but an
@@ -250,9 +257,9 @@ export class PlaylistPlayer {
     return this.trackPlayer.getVolume();
   }
 
-  /** See TrackPlayer.getLevels' doc. */
-  getLevels(): { outgoing: number; incoming: number } {
-    return this.trackPlayer.getLevels();
+  /** See TrackPlayer.getFrequencyBands' doc. */
+  getFrequencyBands(bandCount: number): { outgoing: number[]; incoming: number[] } {
+    return this.trackPlayer.getFrequencyBands(bandCount);
   }
 
   /** Re-shuffles (or restores original order) without interrupting the currently playing track. */

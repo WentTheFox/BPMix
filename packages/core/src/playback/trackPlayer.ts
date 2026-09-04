@@ -254,15 +254,16 @@ export class TrackPlayer {
   }
 
   /**
-   * Real-time loudness of whatever's actually got a live SourceNode right
-   * now - the current (outgoing) track, and the incoming one mid-crossfade,
-   * if any. 0 for a slot with no live source, or on an engine that doesn't
-   * implement SourceNode.getLevel (see its doc).
+   * Real-time per-band loudness of whatever's actually got a live
+   * SourceNode right now - the current (outgoing) track, and the incoming
+   * one mid-crossfade, if any. bandCount zeros for a slot with no live
+   * source, or on an engine that doesn't implement
+   * SourceNode.getFrequencyBands (see its doc).
    */
-  getLevels(): { outgoing: number; incoming: number } {
+  getFrequencyBands(bandCount: number): { outgoing: number[]; incoming: number[] } {
     return {
-      outgoing: this.source?.getLevel?.() ?? 0,
-      incoming: this.pendingCrossfade?.source.getLevel?.() ?? 0,
+      outgoing: this.source?.getFrequencyBands?.(bandCount) ?? new Array(bandCount).fill(0),
+      incoming: this.pendingCrossfade?.source.getFrequencyBands?.(bandCount) ?? new Array(bandCount).fill(0),
     };
   }
 

@@ -30,6 +30,7 @@ import {
   usePlaybackPersistence,
   useTrackMetadata,
   VolumeSlider,
+  VU_METER_BAND_COUNT,
 } from '@bpmix/ui';
 import {
   mdiArrowLeft,
@@ -305,9 +306,9 @@ function AppContent() {
   // Separate, faster poll for CrossfadeArt's VU meters - 200ms (the state
   // poll above) reads as visibly steppy for something meant to bounce with
   // the music in real time; position/preload-checking don't need this rate.
-  const [levels, setLevels] = useState({ outgoing: 0, incoming: 0 });
+  const [bands, setBands] = useState<{ outgoing: number[]; incoming: number[] }>({ outgoing: [], incoming: [] });
   useEffect(() => {
-    const interval = setInterval(() => setLevels(playlistPlayer.getLevels()), 80);
+    const interval = setInterval(() => setBands(playlistPlayer.getFrequencyBands(VU_METER_BAND_COUNT)), 60);
     return () => clearInterval(interval);
   }, []);
 
@@ -642,12 +643,12 @@ function AppContent() {
         currentTrackKey={outgoingTrack?.fileId ?? null}
         currentArtUri={outgoingCoverArt}
         currentGain={outgoingGain}
-        currentAudioLevel={levels.outgoing}
+        currentAudioBands={bands.outgoing}
         currentProgress={outgoingProgress}
         nextTrackKey={incomingTrack?.fileId ?? null}
         nextArtUri={incomingCoverArt}
         nextGain={incomingGain}
-        nextAudioLevel={levels.incoming}
+        nextAudioBands={bands.incoming}
         nextProgress={incomingProgress}
       />
       {isLoadingTrack ? (

@@ -1,4 +1,4 @@
-import type { AudioEngine, DecodedAudio, FileAccess, FileRef, RampSpec, SourceNode } from '@bpmix/core';
+import { bandsFromByteFrequencyData, type AudioEngine, type DecodedAudio, type FileAccess, type FileRef, type RampSpec, type SourceNode } from '@bpmix/core';
 
 function decodedAudioToBuffer(context: BaseAudioContext, decoded: DecodedAudio): AudioBuffer {
   const frameCount = decoded.channelData[0]?.length ?? 0;
@@ -60,17 +60,41 @@ export function createAudioEngine(fileAccess: FileAccess): AudioEngine {
       return audioBufferToDecoded(buffer);
     },
 
+    prepareBuffer(audio: DecodedAudio): void {
+      // getOrCreateBuffer already caches per-DecodedAudio (see its own
+      // doc) - calling it here just does that caching's real work (the
+      // synchronous per-channel copyToChannel) now instead of leaving it
+      // for whenever createSource() first needs this audio.
+      getOrCreateBuffer(context, audio);
+    },
+
     createSource(audio: DecodedAudio, onEnded?: () => void): SourceNode {
       const buffer = getOrCreateBuffer(context, audio);
       const bufferSource = context.createBufferSource();
       bufferSource.buffer = buffer;
-      // Tapped BEFORE gainNode - see SourceNode.getLevel's doc, this needs
-      // to read the music's own dynamics, not whatever fade/volume gain is
-      // currently applied. A pass-through node (nothing else connects to
-      // it), so its presence doesn't change what's actually heard.
+      // Tapped BEFORE gainNode - see SourceNode.getFrequencyBands' doc,
+      // this needs to read the music's own dynamics, not whatever fade/
+      // volume gain is currently applied. A pass-through node (nothing
+      // else connects to it), so its presence doesn't change what's
+      // actually heard.
       const analyser = context.createAnalyser();
       analyser.fftSize = 1024;
-      const levelBuffer = new Float32Array(analyser.fftSize);
+      // Default 0.8 is a heavy exponential moving average baked into the
+      // native node itself, on top of which the UI's own spring animation
+      // adds further smoothing - the combination read as barely moving at
+      // all (confirmed on-device). We already want the *display* to be
+      // smooth (that's what the spring is for) - the underlying data
+      // should be raw/reactive instead of pre-damped twice over.
+      analyser.smoothingTimeConstant = 0;
+      // Default range (-100 to -30 dBFS) leaves normally-mastered music
+      // sitting right at/above maxDecibels almost the whole time - the
+      // per-band values all clip near 255 and barely move (confirmed
+      // on-device). Raising maxDecibels means it takes louder content to
+      // reach the top of the byte range, giving typical program material
+      // real headroom to show its actual variation instead of pinning.
+      analyser.minDecibels = -80;
+      analyser.maxDecibels = -10;
+      const frequencyBuffer = new Uint8Array(analyser.frequencyBinCount);
       const gainNode = context.createGain();
       bufferSource.connect(analyser);
       analyser.connect(gainNode);
@@ -133,14 +157,9 @@ export function createAudioEngine(fileAccess: FileAccess): AudioEngine {
             disconnectNodes();
           }
         },
-        getLevel() {
-          analyser.getFloatTimeDomainData(levelBuffer);
-          let sumSquares = 0;
-          for (let i = 0; i < levelBuffer.length; i++) {
-            const sample = levelBuffer[i] ?? 0;
-            sumSquares += sample * sample;
-          }
-          return Math.sqrt(sumSquares / levelBuffer.length);
+        getFrequencyBands(bandCount) {
+          analyser.getByteFrequencyData(frequencyBuffer);
+          return bandsFromByteFrequencyData(frequencyBuffer, bandCount);
         },
       };
 
