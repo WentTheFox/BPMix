@@ -16,7 +16,16 @@ function isPlaylistFile(name: string): boolean {
 /**
  * Recursively walks a granted root via repeated single-level listDirectory
  * calls, since that's the operation every platform's FileAccess adapter can
- * implement directly against its native directory APIs.
+ * implement directly against its native directory APIs. Sibling
+ * subdirectories are recursed into concurrently rather than one at a time -
+ * each listDirectory call is a full HTTP round-trip for the self-hosted
+ * server adapter (fileAccess.server.ts), so a library with hundreds of
+ * artist folders was previously hundreds of round-trips back to back; the
+ * browser's File System Access API adapter benefits too, just less
+ * dramatically since those calls don't cross the network. Result order is
+ * no longer meaningful (it used to be depth-first-in-listing-order), but
+ * nothing downstream (scanRoot builds a Map keyed by relativePath) relies
+ * on it.
  */
 export async function walkDirectory(fileAccess: FileAccess, rootId: string): Promise<WalkResult> {
   const files: FileRef[] = [];
@@ -24,6 +33,7 @@ export async function walkDirectory(fileAccess: FileAccess, rootId: string): Pro
 
   async function recurse(relativePath?: string): Promise<void> {
     const entries = await fileAccess.listDirectory(rootId, relativePath);
+    const subdirectories: string[] = [];
     for (const entry of entries) {
       if (entry.type === 'file' && entry.file) {
         files.push(entry.file);
@@ -31,9 +41,10 @@ export async function walkDirectory(fileAccess: FileAccess, rootId: string): Pro
           playlistFiles.push(entry.file);
         }
       } else if (entry.type === 'directory') {
-        await recurse(entry.relativePath);
+        subdirectories.push(entry.relativePath);
       }
     }
+    await Promise.all(subdirectories.map((dir) => recurse(dir)));
   }
 
   await recurse();
