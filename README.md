@@ -21,8 +21,16 @@ self-hostable server, all sharing one playback engine.
 - **Reads real ID3 metadata** (title, artist(s), album, cover art) from
   audio files, scanned asynchronously in the background so the library
   is usable immediately and fills in as tags are read.
-- **Shuffle, loop, and playlist persistence** — `.m3u8` playlists, folder
-  scanning, and gapless-ish playback via a shared `PlaylistPlayer`.
+- **Playlist-first, not a folder browser**: BPMix is built around
+  `.m3u8`/`.m3u` playlists, not "browse and play any audio file in a
+  folder" like a traditional music player. Scanning a folder only picks
+  up files that some playlist in it actually references — a stray
+  `.mp3` sitting in the folder with no playlist entry pointing at it
+  won't show up in the library at all. This is deliberate: playlists are
+  what you curate, and BPMix has no view for "everything in this folder"
+  outside of that.
+- **Shuffle, loop, and playlist persistence** via a shared
+  `PlaylistPlayer`.
 - **Runs the same UI on Android and web** via React Native + React Native
   Web, sharing components/business logic in `packages/ui`/`packages/core`
   rather than duplicating it per platform.
