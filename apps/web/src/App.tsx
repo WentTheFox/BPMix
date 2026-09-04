@@ -1,4 +1,12 @@
-import type { FileRef, GrantedRoot, LoopMode, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '@bpmix/core';
+import type {
+  FileRef,
+  GrantedRoot,
+  LoopMode,
+  PlaybackState,
+  PlaylistPlayerState,
+  PlaylistRecord,
+  TrackRecord,
+} from '@bpmix/core';
 import {
   computeTransitionPlan,
   ensureTrackAnalyzed,
@@ -45,6 +53,10 @@ import { createFileAccess } from './adapters/fileAccess';
 import { createLibraryStore } from './adapters/libraryStore';
 
 const TRANSPORT_THROTTLE_MS = 300;
+// How often to persist positionSeconds while a track is playing - frequent
+// enough that a crash/tab-close loses very little progress, infrequent
+// enough not to hammer IndexedDB on every ~200ms poll tick.
+const POSITION_PERSIST_INTERVAL_MS = 5000;
 // A real settings screen (Stage 8) would persist this - for now it's a
 // simple in-memory control (see the "Crossfade" stepper below) that starts
 // here and can be adjusted live.
@@ -170,6 +182,24 @@ function App() {
     return true;
   };
 
+  // Last known playback state, kept in sync with what's actually persisted -
+  // lets every call site merge its own change onto the rest without an
+  // async getPlaybackState() round trip first (and without a stale closure
+  // clobbering a concurrent change, since this is a ref, not state).
+  const playbackStateRef = useRef<PlaybackState>({
+    playlistId: null,
+    currentTrackFileId: null,
+    positionSeconds: 0,
+    loopMode: 'off',
+    shuffleEnabled: false,
+    volume: 1,
+  });
+  const persistPlaybackPatch = useCallback((patch: Partial<PlaybackState>) => {
+    playbackStateRef.current = { ...playbackStateRef.current, ...patch };
+    void libraryStore.putPlaybackState(playbackStateRef.current);
+  }, []);
+  const lastPositionPersistAtRef = useRef(0);
+
   useEffect(() => {
     reportError = (err) => setError(String(err));
     return () => {
@@ -178,11 +208,20 @@ function App() {
   }, []);
 
   useEffect(() => {
-    notifyAdvance = () => setPlayerState(playlistPlayer.getState());
+    notifyAdvance = () => {
+      const state = playlistPlayer.getState();
+      setPlayerState(state);
+      // Covers every advance not already handled at its own call site: a
+      // crossfade completing and a track ending naturally both change
+      // currentFileId without going through goNext/goPrevious.
+      if (state.currentFileId) {
+        persistPlaybackPatch({ currentTrackFileId: state.currentFileId, positionSeconds: state.track.positionSeconds });
+      }
+    };
     return () => {
       notifyAdvance = () => {};
     };
-  }, []);
+  }, [persistPlaybackPatch]);
 
   const refresh = useCallback(async () => {
     const roots = await fileAccess.listGrantedRoots();
@@ -208,16 +247,56 @@ function App() {
   }, []);
 
   useEffect(() => {
-    refresh().catch((err) => setError(String(err)));
+    let cancelled = false;
+    (async () => {
+      const withLibrary = await refresh();
+      const stored = await libraryStore.getPlaybackState();
+      if (cancelled || !stored) return;
+      playbackStateRef.current = stored;
+      if (!stored.playlistId || !stored.currentTrackFileId) return;
+      for (const { root, playlists, tracksById } of withLibrary) {
+        const playlist = playlists.find((p) => p.id === stored.playlistId);
+        if (!playlist || !playlist.trackFileIds.includes(stored.currentTrackFileId)) continue;
+        activeTracksById = tracksById;
+        playlistPlayer.setShuffle(stored.shuffleEnabled);
+        playlistPlayer.setLoopMode(stored.loopMode);
+        // setPlaylist() decodes and calls play() internally - harmless here
+        // since the browser's autoplay policy leaves the AudioContext
+        // suspended (no audible sound) until a real user gesture resumes
+        // it, but this still loads the right track/position instead of
+        // leaving the player empty. pause() immediately after puts the UI
+        // in the expected "loaded, not playing" state on a fresh launch.
+        await playlistPlayer.setPlaylist(playlist.trackFileIds, stored.currentTrackFileId);
+        if (cancelled) return;
+        playlistPlayer.pause();
+        if (stored.positionSeconds > 0) playlistPlayer.seek(stored.positionSeconds);
+        setPlayerState(playlistPlayer.getState());
+        setScreen({ kind: 'playlist', root, playlist, tracksById });
+        break;
+      }
+    })().catch((err) => setError(String(err)));
+    return () => {
+      cancelled = true;
+    };
   }, [refresh]);
 
   useEffect(() => {
     const interval = setInterval(() => {
-      setPlayerState(playlistPlayer.getState());
+      const state = playlistPlayer.getState();
+      setPlayerState(state);
       playlistPlayer.checkPreload(); // Stage 6 lookahead - reuses this poll instead of a second timer
+      const now = Date.now();
+      if (
+        state.currentFileId &&
+        (state.track.status === 'playing' || state.track.status === 'paused') &&
+        now - lastPositionPersistAtRef.current >= POSITION_PERSIST_INTERVAL_MS
+      ) {
+        lastPositionPersistAtRef.current = now;
+        persistPlaybackPatch({ positionSeconds: state.track.positionSeconds });
+      }
     }, 200);
     return () => clearInterval(interval);
-  }, []);
+  }, [persistPlaybackPatch]);
 
   const addFolder = useCallback(async () => {
     setError(null);
@@ -259,52 +338,74 @@ function App() {
       // setPlaylist() (a full reload/redecode) on every repeat tap was both
       // wasteful and, under rapid repeated taps, one of the ways we
       // triggered the native crash the playToken guard now defends against.
-      if (playlistPlayer.getState().currentFileId === track.fileId) {
+      const isSameTrack = playlistPlayer.getState().currentFileId === track.fileId;
+      if (isSameTrack) {
         playlistPlayer.play();
       } else {
         await playlistPlayer.setPlaylist(playlist.trackFileIds, track.fileId);
       }
       setPlayerState(playlistPlayer.getState());
+      persistPlaybackPatch({
+        playlistId: playlist.id,
+        currentTrackFileId: track.fileId,
+        ...(isSameTrack ? {} : { positionSeconds: 0 }),
+      });
     },
-    [],
+    [persistPlaybackPatch],
   );
 
   const togglePause = useCallback(() => {
     if (!transportActionAllowed()) return;
     if (playerState.track.status === 'playing') {
       playlistPlayer.pause();
+      // Captures the exact stop point immediately rather than waiting on the
+      // next throttled poll-tick persist, which no longer fires once paused.
+      persistPlaybackPatch({ positionSeconds: playlistPlayer.getState().track.positionSeconds });
     } else {
       playlistPlayer.play();
     }
     setPlayerState(playlistPlayer.getState());
-  }, [playerState.track.status]);
+  }, [playerState.track.status, persistPlaybackPatch]);
 
   const seekBy = useCallback(
     (deltaSeconds: number) => {
       if (!transportActionAllowed()) return;
       playlistPlayer.seek(playerState.track.positionSeconds + deltaSeconds);
       setPlayerState(playlistPlayer.getState());
+      persistPlaybackPatch({ positionSeconds: playlistPlayer.getState().track.positionSeconds });
     },
-    [playerState.track.positionSeconds],
+    [playerState.track.positionSeconds, persistPlaybackPatch],
   );
 
-  const seekTo = useCallback((positionSeconds: number) => {
-    if (!transportActionAllowed()) return;
-    playlistPlayer.seek(positionSeconds);
-    setPlayerState(playlistPlayer.getState());
-  }, []);
+  const seekTo = useCallback(
+    (positionSeconds: number) => {
+      if (!transportActionAllowed()) return;
+      playlistPlayer.seek(positionSeconds);
+      setPlayerState(playlistPlayer.getState());
+      persistPlaybackPatch({ positionSeconds: playlistPlayer.getState().track.positionSeconds });
+    },
+    [persistPlaybackPatch],
+  );
 
   const goNext = useCallback(async (options?: { force?: boolean }) => {
     if (!transportActionAllowed()) return;
     await playlistPlayer.next(options);
-    setPlayerState(playlistPlayer.getState());
-  }, []);
+    const state = playlistPlayer.getState();
+    setPlayerState(state);
+    if (state.currentFileId) {
+      persistPlaybackPatch({ currentTrackFileId: state.currentFileId, positionSeconds: state.track.positionSeconds });
+    }
+  }, [persistPlaybackPatch]);
 
   const goPrevious = useCallback(async (options?: { force?: boolean }) => {
     if (!transportActionAllowed()) return;
     await playlistPlayer.previous(options);
-    setPlayerState(playlistPlayer.getState());
-  }, []);
+    const state = playlistPlayer.getState();
+    setPlayerState(state);
+    if (state.currentFileId) {
+      persistPlaybackPatch({ currentTrackFileId: state.currentFileId, positionSeconds: state.track.positionSeconds });
+    }
+  }, [persistPlaybackPatch]);
 
   // Single tap respects loop mode (restart-current on "One", wrap on "All",
   // clamp on "Off"); double tap always moves tracks, wrapping regardless of
@@ -322,12 +423,15 @@ function App() {
     const nextMode = LOOP_MODE_CYCLE[(LOOP_MODE_CYCLE.indexOf(playerState.loopMode) + 1) % LOOP_MODE_CYCLE.length]!;
     playlistPlayer.setLoopMode(nextMode);
     setPlayerState(playlistPlayer.getState());
-  }, [playerState.loopMode]);
+    persistPlaybackPatch({ loopMode: nextMode });
+  }, [playerState.loopMode, persistPlaybackPatch]);
 
   const toggleShuffle = useCallback(() => {
-    playlistPlayer.setShuffle(!playerState.shuffleEnabled);
+    const nextEnabled = !playerState.shuffleEnabled;
+    playlistPlayer.setShuffle(nextEnabled);
     setPlayerState(playlistPlayer.getState());
-  }, [playerState.shuffleEnabled]);
+    persistPlaybackPatch({ shuffleEnabled: nextEnabled });
+  }, [playerState.shuffleEnabled, persistPlaybackPatch]);
 
   const [volume, setVolumeState] = useState(() => playlistPlayer.getVolume());
   useEffect(() => {
@@ -338,24 +442,17 @@ function App() {
       }
     });
   }, []);
-  const handleVolumeChange = useCallback((value: number) => {
-    playlistPlayer.setVolume(value);
-    setVolumeState(value);
-    // Persisted so the next launch doesn't blast out at whatever volume
-    // happened to be in effect before it's set once - merges onto whatever
-    // playback state (loop/shuffle/etc.) is already stored, if any, rather
-    // than clobbering it back to defaults.
-    libraryStore.getPlaybackState().then((stored) => {
-      void libraryStore.putPlaybackState({
-        playlistId: stored?.playlistId ?? null,
-        currentTrackFileId: stored?.currentTrackFileId ?? null,
-        positionSeconds: stored?.positionSeconds ?? 0,
-        loopMode: stored?.loopMode ?? 'off',
-        shuffleEnabled: stored?.shuffleEnabled ?? false,
-        volume: value,
-      });
-    });
-  }, []);
+  const handleVolumeChange = useCallback(
+    (value: number) => {
+      playlistPlayer.setVolume(value);
+      setVolumeState(value);
+      // Persisted so the next launch doesn't blast out at whatever volume
+      // happened to be in effect before it's set once - merges onto the rest
+      // of playbackStateRef rather than clobbering it back to defaults.
+      persistPlaybackPatch({ volume: value });
+    },
+    [persistPlaybackPatch],
+  );
 
   const nowPlayingTrack = playerState.currentFileId ? activeTracksById.get(playerState.currentFileId) : undefined;
 
