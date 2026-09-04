@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
+import { useSpin } from './spin/useSpin';
 
 export interface CrossfadeArtProps {
   /** Identity (fileId) of whatever should be in the "current" slot right now. */
@@ -21,10 +22,6 @@ export interface CrossfadeArtProps {
 
 const DEFAULT_SIZE = 84;
 const GAP = 16;
-/** Duration of one full turn at gain=1 (normal speed). */
-const BASE_SPIN_MS = 16000;
-/** A disc never fully stops turning - even at gain≈0 it keeps a bare, slow rotation, so "next up" reads as queued rather than broken/frozen. */
-const MIN_SPIN_RATE = 0.12;
 /**
  * How long the swap/fade transition takes when the current or next slot's
  * content actually changes. Exported so callers can time their own
@@ -94,61 +91,6 @@ const TONEARM_ANGLE_INNER_DEG = tonearmAngleForRadius(LABEL_FRACTION / 2);
  */
 const TONEARM_LIFT_FRACTION = 0.06;
 
-/** Spin rate is rounded to this granularity before restarting the loop animation - restarting on every ~200ms poll tick's tiny gain fluctuation would look jittery; only a genuinely audible speed change (mostly during an actual crossfade) should visibly re-time it. */
-const RATE_BUCKET = 0.2;
-/** How many full turns to schedule per animation leg - just needs to be long enough that a rate-bucket change (or a lap completing) is very unlikely to still be running the same leg by the time the next one's scheduled; each leg's actual duration still scales with the current rate. */
-const TURNS_PER_LEG = 200;
-
-function useSpin(rate: number): Animated.AnimatedInterpolation<string> {
-  // Degrees, unbounded (not normalized to [0,1] and reset every lap) - a
-  // rate change re-times the animation but always continues forward from
-  // wherever the disc's angle already is, instead of snapping back to 0.
-  // Resetting the value on every rate-bucket change (which happens
-  // constantly while a track is loading, as gain/isPlaying settle) is
-  // exactly what caused the disc to visibly jump back to "straight up"
-  // and restart mid-spin.
-  const rotationDeg = useRef(new Animated.Value(0)).current;
-  // rate<=0 means "not audible at all" (nothing playing) - genuinely stop
-  // turning rather than applying the MIN_SPIN_RATE floor, which is only
-  // meant to keep an audible-but-quiet disc from looking frozen/broken.
-  const bucketedRate = rate <= 0 ? 0 : Math.max(MIN_SPIN_RATE, Math.round(rate / RATE_BUCKET) * RATE_BUCKET);
-  useEffect(() => {
-    if (bucketedRate <= 0) {
-      // Freezes wherever the last leg's stop() below already left it -
-      // reads as the record actually coming to a stop, not resetting.
-      return;
-    }
-    const legDegrees = TURNS_PER_LEG * 360;
-    const legDurationMs = (BASE_SPIN_MS / bucketedRate) * TURNS_PER_LEG;
-    let anim: Animated.CompositeAnimation | null = null;
-    let cancelled = false;
-    const runLeg = () => {
-      if (cancelled) return;
-      // Animated.Value has no public synchronous getter - reading the
-      // private field is a well-worn, deliberate exception here (there's
-      // no other way to continue an in-flight rotation from its current
-      // angle instead of resetting it).
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const current = (rotationDeg as any)._value ?? 0;
-      anim = Animated.timing(rotationDeg, {
-        toValue: current + legDegrees,
-        duration: legDurationMs,
-        easing: Easing.linear,
-        useNativeDriver: true,
-      });
-      anim.start(({ finished }) => {
-        if (finished) runLeg();
-      });
-    };
-    runLeg();
-    return () => {
-      cancelled = true;
-      anim?.stop();
-    };
-  }, [bucketedRate, rotationDeg]);
-  return rotationDeg.interpolate({ inputRange: [0, 360], outputRange: ['0deg', '360deg'], extrapolate: 'extend' });
-}
-
 function centeredCircleStyle(discSize: number, circleSize: number): { width: number; height: number; borderRadius: number; top: number; left: number } {
   return {
     width: circleSize,
@@ -162,17 +104,20 @@ function centeredCircleStyle(discSize: number, circleSize: number): { width: num
 function VinylDisc({
   artUri,
   rate,
+  spinId,
   size,
   opacity = 1,
   translateX,
 }: {
   artUri: string | null;
   rate: number;
+  /** Stable identity for this disc's spin across a mount/unmount (see useSpin.web.ts) - not used natively, but required regardless so every call site supplies one. */
+  spinId: string;
   size: number;
   opacity?: Animated.Value | number;
   translateX?: Animated.Value | number;
 }) {
-  const spin = useSpin(rate);
+  const spinStyle = useSpin(rate, spinId);
   const boxStyle = { width: size, height: size, borderRadius: size / 2 };
   // The placeholder stays underneath throughout (disc is never literally
   // empty), and the art image cross-dissolves in on top of it once it
@@ -202,15 +147,18 @@ function VinylDisc({
   });
   const labelCircleStyle = centeredCircleStyle(size, size * LABEL_FRACTION);
   return (
-    <Animated.View style={[styles.layer, boxStyle, { opacity, transform: [{ translateX: translateX ?? 0 }, { rotate: spin }] }]}>
-      <View style={[styles.layer, styles.vinylBody, boxStyle]} />
-      {grooveRadii.map((diameter, i) => (
-        <View key={i} style={[styles.layer, styles.groove, centeredCircleStyle(size, diameter)]} />
-      ))}
-      <View style={[styles.layer, styles.labelBase, labelCircleStyle]} />
-      {artUri && <Animated.Image source={{ uri: artUri }} style={[styles.layer, labelCircleStyle, { opacity: artOpacity }]} />}
-      <View style={[styles.layer, styles.labelRim, labelCircleStyle]} />
-      <View style={[styles.layer, styles.hole, centeredCircleStyle(size, size * HOLE_FRACTION)]} />
+    <Animated.View style={[styles.layer, boxStyle, { opacity, transform: [{ translateX: translateX ?? 0 }] }]}>
+      {/* Spin lives on its own inner layer, separate from the outer translateX/opacity - a web CSS `animation` on this View's transform can't be combined with a second, separately-driven transform on the same element (the animation fully owns `transform` while running), so translateX has to live one level up instead. */}
+      <Animated.View style={[styles.layer, boxStyle, spinStyle]}>
+        <View style={[styles.layer, styles.vinylBody, boxStyle]} />
+        {grooveRadii.map((diameter, i) => (
+          <View key={i} style={[styles.layer, styles.groove, centeredCircleStyle(size, diameter)]} />
+        ))}
+        <View style={[styles.layer, styles.labelBase, labelCircleStyle]} />
+        {artUri && <Animated.Image source={{ uri: artUri }} style={[styles.layer, labelCircleStyle, { opacity: artOpacity }]} />}
+        <View style={[styles.layer, styles.labelRim, labelCircleStyle]} />
+        <View style={[styles.layer, styles.hole, centeredCircleStyle(size, size * HOLE_FRACTION)]} />
+      </Animated.View>
     </Animated.View>
   );
 }
@@ -321,6 +269,10 @@ export function CrossfadeArt({
   const [incoming, setIncoming] = useState<DiscSnapshot | null>(null);
   const [transitioning, setTransitioning] = useState(false);
 
+  // Namespaces each slot's spinId (see VinylDisc/useSpin.web.ts) so multiple
+  // CrossfadeArt instances on screen at once don't share spin continuity.
+  const spinIdBase = useId();
+
   const slideX = useRef(new Animated.Value(0)).current;
   const outgoingOpacity = useRef(new Animated.Value(0)).current;
   const incomingOpacity = useRef(new Animated.Value(0)).current;
@@ -414,14 +366,14 @@ export function CrossfadeArt({
   return (
     <View style={[styles.row, containerStyle]}>
       <View style={[styles.slot, boxStyle, { left: 0 }]}>
-        {!transitioning && <VinylDisc artUri={displayed.currentArt} rate={currentGain} size={size} />}
-        {outgoing && <VinylDisc artUri={outgoing.artUri} rate={1} size={size} opacity={outgoingOpacity} />}
-        {incoming && <VinylDisc artUri={incoming.artUri} rate={currentGain} size={size} opacity={incomingOpacity} />}
+        {!transitioning && <VinylDisc artUri={displayed.currentArt} rate={currentGain} spinId={`${spinIdBase}-current`} size={size} />}
+        {outgoing && <VinylDisc artUri={outgoing.artUri} rate={1} spinId={`${spinIdBase}-outgoing`} size={size} opacity={outgoingOpacity} />}
+        {incoming && <VinylDisc artUri={incoming.artUri} rate={currentGain} spinId={`${spinIdBase}-incoming`} size={size} opacity={incomingOpacity} />}
         {/* Forced up (`!transitioning &&`) for the swap/fade's whole duration, not just while a disc is actually mid-slide - the needle has to be clear before a disc starts moving under it, not just while it's moving. */}
         <Tonearm down={!transitioning && currentGain > 0} progress={currentProgress} size={size} />
       </View>
       <View style={[styles.slot, boxStyle, { left: size + GAP }]}>
-        <VinylDisc artUri={displayed.nextArt} rate={nextGain} size={size} opacity={nextOpacity} translateX={slideX} />
+        <VinylDisc artUri={displayed.nextArt} rate={nextGain} spinId={`${spinIdBase}-next`} size={size} opacity={nextOpacity} translateX={slideX} />
         <Tonearm down={!transitioning && nextGain > 0} progress={nextProgress} size={size} />
       </View>
     </View>
