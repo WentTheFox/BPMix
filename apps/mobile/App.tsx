@@ -229,10 +229,24 @@ function AppContent() {
     const roots = await fileAccess.listGrantedRoots();
     const withLibrary = await Promise.all(
       roots.map(async (root) => {
-        const [playlists, tracks] = await Promise.all([
+        let [playlists, tracks] = await Promise.all([
           libraryStore.listPlaylists(root.id),
           libraryStore.listTracks(root.id),
         ]);
+        if (playlists.length === 0 && tracks.length === 0) {
+          // A root can reach listGrantedRoots() without ever going through
+          // addFolder's explicit requestRoot+scanRoot flow - e.g. a
+          // composite-adapter root the self-hosted server exposes just by
+          // having a volume mounted (web-only today, but this keeps the
+          // two refresh()s in sync rather than letting them drift). Scan
+          // it now instead of silently showing an empty library until the
+          // user notices and clicks Rescan themselves.
+          await scanRoot(fileAccess, libraryStore, root.id);
+          [playlists, tracks] = await Promise.all([
+            libraryStore.listPlaylists(root.id),
+            libraryStore.listTracks(root.id),
+          ]);
+        }
         return { root, playlists, tracksById: new Map(tracks.map((t) => [t.fileId, t])) };
       }),
     );
