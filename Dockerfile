@@ -17,14 +17,22 @@ COPY apps/server/package.json apps/server/package.json
 COPY apps/mobile/package.json apps/mobile/package.json
 COPY packages/core/package.json packages/core/package.json
 COPY packages/ui/package.json packages/ui/package.json
-RUN pnpm install --frozen-lockfile
+# --filter scopes this to @bpmix/web + @bpmix/server and their actual
+# dependencies - apps/mobile's package.json is still present for correct
+# workspace resolution against the lockfile, but its own dependencies
+# (react-native, and transitively sqlite3 - a native module needing a
+# node-gyp compile) are never installed. That compile was crashing QEMU
+# outright under arm64 emulation ("qemu core dumped") during a cross-arch
+# CI build - this image never runs apps/mobile, so there was never a
+# reason to pay that cost (or carry that native-toolchain fragility) here.
+RUN pnpm install --frozen-lockfile --filter @bpmix/web... --filter @bpmix/server...
 
 COPY . .
 RUN pnpm --filter @bpmix/web build
 RUN pnpm --filter @bpmix/server build
 # Trims apps/server/node_modules down to its own production dependencies
 # (still symlinked to the shared pnpm store, so this is cheap).
-RUN pnpm --filter @bpmix/server deploy --prod --legacy /out/server
+RUN pnpm --filter @bpmix/server deploy --prod /out/server
 RUN cp -r apps/web/dist /out/web
 
 FROM node:22-alpine AS runtime

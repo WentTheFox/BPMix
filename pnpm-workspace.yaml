@@ -2,6 +2,13 @@ packages:
   - 'apps/*'
   - 'packages/*'
 
+# Lets `pnpm --filter @bpmix/server deploy` (Dockerfile) hard-link its
+# workspace:* dependency on @bpmix/core directly instead of falling back to
+# the "legacy" deploy implementation, which re-resolves the ENTIRE
+# workspace lockfile (all ~1200 packages, apps/mobile's native deps
+# included) just to isolate one package's prod dependency tree.
+injectWorkspacePackages: true
+
 allowBuilds:
   # esbuild's postinstall only selects/downloads its own platform binary.
   esbuild: true
