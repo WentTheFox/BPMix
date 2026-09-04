@@ -24,7 +24,6 @@ import {
   usePlaybackPersistence,
   useTrackMetadata,
   VolumeSlider,
-  VU_METER_BAND_COUNT,
 } from '@bpmix/ui';
 import {
   mdiArrowLeft,
@@ -42,7 +41,7 @@ import {
 } from '@mdi/js';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DimensionValue } from 'react-native';
-import { Animated, FlatList, InteractionManager, Pressable, StyleSheet, Text, useColorScheme, View } from 'react-native';
+import { Animated, FlatList, InteractionManager, Linking, Pressable, StyleSheet, Text, useColorScheme, View } from 'react-native';
 import { createAudioEngine } from './adapters/audioEngine';
 import { createCoverArtResizer } from './adapters/coverArtResizer';
 import { createCompositeFileAccess } from './adapters/fileAccess.composite';
@@ -55,6 +54,12 @@ const TRANSPORT_THROTTLE_MS = 300;
 const DEFAULT_CROSSFADE_SECONDS = 8;
 const MIN_CROSSFADE_SECONDS = 1;
 const MAX_CROSSFADE_SECONDS = 20;
+
+// File System Access API is Chromium-only (no Firefox/Safari support as of
+// this writing) - the composite adapter's server roots (Docker self-host)
+// work regardless, but "Add Folder" itself needs this to pick local folders.
+const SUPPORTS_DIRECTORY_PICKER = typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function';
+const SELF_HOSTING_DOCS_URL = 'https://github.com/WentTheFox/BPMix/blob/main/apps/server/README.md';
 
 const fileAccess = createCompositeFileAccess();
 const libraryStore = createLibraryStore();
@@ -258,13 +263,6 @@ function App() {
     }, 200);
     return () => clearInterval(interval);
   }, [persistPositionIfDue]);
-
-  // CrossfadeArt polls this itself (its own interval, straight into its
-  // own Animated.Values, no setState) - see its getAudioBands prop's doc.
-  // A stable ref, not an inline closure, so CrossfadeArt's own effect
-  // dependencies don't need to care that this function's identity changes
-  // every render.
-  const getAudioBands = useCallback(() => playlistPlayer.getFrequencyBands(VU_METER_BAND_COUNT), []);
 
   const addFolder = useCallback(async () => {
     setError(null);
@@ -623,7 +621,6 @@ function App() {
         nextArtUri={incomingCoverArt}
         nextGain={incomingGain}
         nextProgress={incomingProgress}
-        getAudioBands={getAudioBands}
       />
       {playerState.track.status === 'loading' ? (
         <LoadingBar />
@@ -746,6 +743,16 @@ function App() {
       <Pressable style={styles.button} onPress={addFolder}>
         <IconLabel path={mdiFolderPlus} text="Add Folder" color="white" iconSize={18} textStyle={styles.buttonText} />
       </Pressable>
+      {!SUPPORTS_DIRECTORY_PICKER && (
+        <Text style={styles.warning}>
+          This browser can't pick local folders. Use the self-hosted Docker server instead to browse a mounted music
+          library -{' '}
+          <Text style={styles.warningLink} onPress={() => Linking.openURL(SELF_HOSTING_DOCS_URL)}>
+            see the setup guide
+          </Text>
+          .
+        </Text>
+      )}
       {error && <Text style={styles.error}>{error}</Text>}
       {nowPlayingBar}
 
@@ -832,6 +839,16 @@ const styles = StyleSheet.create({
     marginTop: 12,
     maxWidth: 480,
     textAlign: 'center',
+  },
+  warning: {
+    color: '#b45309',
+    marginTop: 12,
+    maxWidth: 480,
+    textAlign: 'center',
+  },
+  warningLink: {
+    textDecorationLine: 'underline',
+    fontWeight: '600',
   },
   backRow: {
     width: '100%',

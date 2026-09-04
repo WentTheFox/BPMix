@@ -34,21 +34,6 @@ export interface SourceNode {
   setRate(value: number): void;
   rampRate(ramp: RampSpec): void;
   stop(whenSeconds?: number): void;
-  /**
-   * Optional: real-time frequency-band loudness of the decoded signal,
-   * tapped *before* this source's own gain node - so it reflects the music
-   * itself (the raw file's dynamics) rather than whatever fade/crossfade/
-   * volume gain happens to be applied right now, which callers likely
-   * already have (e.g. the UI's own currentGain/nextGain crossfade
-   * fraction) and want to show as a separate signal. Returns `bandCount`
-   * values in [0,1], log-spaced low-to-high (see
-   * audio-engine/frequencyBands' bandsFromByteFrequencyData, which engines
-   * backed by a Web-Audio-style AnalyserNode can implement this with
-   * directly). Engines without a live analyser tap (Windows, currently)
-   * simply don't implement this; callers must treat it as bandCount zeros
-   * when absent.
-   */
-  getFrequencyBands?(bandCount: number): number[];
 }
 
 /** Structurally identical to analysis/analyzeTrack's TrackAnalysis - duplicated here (rather than imported) so audio-engine/types doesn't depend on the analysis module. */

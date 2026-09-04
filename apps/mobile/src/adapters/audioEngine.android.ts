@@ -1,4 +1,4 @@
-import { bandsFromByteFrequencyData, type AudioEngine, type DecodedAudio, type FileAccess, type FileRef, type RampSpec, type SourceNode } from '@bpmix/core';
+import type { AudioEngine, DecodedAudio, FileAccess, FileRef, RampSpec, SourceNode } from '@bpmix/core';
 import { AudioContext, type AudioBuffer, type AudioBufferSourceNode } from 'react-native-audio-api';
 
 function decodedAudioToBuffer(context: AudioContext, decoded: DecodedAudio): AudioBuffer {
@@ -81,32 +81,8 @@ export function createAudioEngine(fileAccess: FileAccess): AudioEngine {
       // artifact a naive playbackRate change produces.
       const bufferSource: AudioBufferSourceNode = context.createBufferSource({ pitchCorrection: true });
       bufferSource.buffer = buffer;
-      // Tapped BEFORE gainNode - see SourceNode.getFrequencyBands' doc,
-      // this needs to read the music's own dynamics, not whatever fade/
-      // volume gain is currently applied. A pass-through node (nothing
-      // else connects to it), so its presence doesn't change what's
-      // actually heard.
-      const analyser = context.createAnalyser();
-      analyser.fftSize = 1024;
-      // Default 0.8 is a heavy exponential moving average baked into the
-      // native node itself, on top of which the UI's own spring animation
-      // adds further smoothing - the combination read as barely moving at
-      // all (confirmed on-device). We already want the *display* to be
-      // smooth (that's what the spring is for) - the underlying data
-      // should be raw/reactive instead of pre-damped twice over.
-      analyser.smoothingTimeConstant = 0;
-      // Default range (-100 to -30 dBFS) leaves normally-mastered music
-      // sitting right at/above maxDecibels almost the whole time - the
-      // per-band values all clip near 255 and barely move (confirmed
-      // on-device). Raising maxDecibels means it takes louder content to
-      // reach the top of the byte range, giving typical program material
-      // real headroom to show its actual variation instead of pinning.
-      analyser.minDecibels = -80;
-      analyser.maxDecibels = -10;
-      const frequencyBuffer = new Uint8Array(analyser.frequencyBinCount);
       const gainNode = context.createGain();
-      bufferSource.connect(analyser);
-      analyser.connect(gainNode);
+      bufferSource.connect(gainNode);
       gainNode.connect(context.destination);
 
       // A Web-Audio-style graph keeps every connected node alive (a native,
@@ -121,11 +97,6 @@ export function createAudioEngine(fileAccess: FileAccess): AudioEngine {
       const disconnectNodes = () => {
         try {
           bufferSource.disconnect();
-        } catch {
-          // Already disconnected - fine.
-        }
-        try {
-          analyser.disconnect();
         } catch {
           // Already disconnected - fine.
         }
@@ -181,10 +152,6 @@ export function createAudioEngine(fileAccess: FileAccess): AudioEngine {
           if (effectiveWhen <= context.currentTime) {
             disconnectNodes();
           }
-        },
-        getFrequencyBands(bandCount) {
-          analyser.getByteFrequencyData(frequencyBuffer);
-          return bandsFromByteFrequencyData(frequencyBuffer, bandCount);
         },
       };
 

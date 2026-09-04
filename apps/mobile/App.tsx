@@ -30,7 +30,6 @@ import {
   usePlaybackPersistence,
   useTrackMetadata,
   VolumeSlider,
-  VU_METER_BAND_COUNT,
 } from '@bpmix/ui';
 import {
   mdiArrowLeft,
@@ -302,13 +301,6 @@ function AppContent() {
     }, 200);
     return () => clearInterval(interval);
   }, [persistPositionIfDue]);
-
-  // CrossfadeArt polls this itself (its own interval, straight into its
-  // own Animated.Values, no setState) - see its getAudioBands prop's doc.
-  // A stable ref, not an inline closure, so CrossfadeArt's own effect
-  // dependencies don't need to care that this function's identity changes
-  // every render.
-  const getAudioBands = useCallback(() => playlistPlayer.getFrequencyBands(VU_METER_BAND_COUNT), []);
 
   const addFolder = useCallback(async () => {
     setError(null);
@@ -646,7 +638,6 @@ function AppContent() {
         nextArtUri={incomingCoverArt}
         nextGain={incomingGain}
         nextProgress={incomingProgress}
-        getAudioBands={getAudioBands}
       />
       {isLoadingTrack ? (
         <LoadingBar />

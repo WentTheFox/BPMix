@@ -254,20 +254,6 @@ export class TrackPlayer {
   }
 
   /**
-   * Real-time per-band loudness of whatever's actually got a live
-   * SourceNode right now - the current (outgoing) track, and the incoming
-   * one mid-crossfade, if any. bandCount zeros for a slot with no live
-   * source, or on an engine that doesn't implement
-   * SourceNode.getFrequencyBands (see its doc).
-   */
-  getFrequencyBands(bandCount: number): { outgoing: number[]; incoming: number[] } {
-    return {
-      outgoing: this.source?.getFrequencyBands?.(bandCount) ?? new Array(bandCount).fill(0),
-      incoming: this.pendingCrossfade?.source.getFrequencyBands?.(bandCount) ?? new Array(bandCount).fill(0),
-    };
-  }
-
-  /**
    * Nulls this.source BEFORE calling stop() on the old one, not after. Some
    * native engines invoke the source's onEnded callback synchronously from
    * within stop() (unlike the browser, where it's always async) - if

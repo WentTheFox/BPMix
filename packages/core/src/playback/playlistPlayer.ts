@@ -278,11 +278,6 @@ export class PlaylistPlayer {
     return this.trackPlayer.getVolume();
   }
 
-  /** See TrackPlayer.getFrequencyBands' doc. */
-  getFrequencyBands(bandCount: number): { outgoing: number[]; incoming: number[] } {
-    return this.trackPlayer.getFrequencyBands(bandCount);
-  }
-
   /** Re-shuffles (or restores original order) without interrupting the currently playing track. */
   setShuffle(enabled: boolean): void {
     if (this.shuffleEnabled === enabled || this.trackFileIds.length === 0) {

@@ -16,26 +16,6 @@ export interface CrossfadeArtProps {
   nextGain: number;
   /** Same as currentProgress, for the next slot's tonearm - 0 whenever the next track hasn't actually started playing yet (i.e. outside an in-progress crossfade), which is most of the time, so its needle stays parked at the outer edge until a crossfade actually brings it in. */
   nextProgress?: number;
-  /**
-   * Real-time per-band loudness of both slots' own audio signal -
-   * @bpmix/core's SourceNode.getFrequencyBands()/PlaylistPlayer.
-   * getFrequencyBands(VU_METER_BAND_COUNT), tapped before any fade/volume
-   * gain is applied, so it reflects the music's actual dynamics rather
-   * than how loud we're currently choosing to play it.
-   *
-   * A callback, NOT a `bands: number[]` prop - the VU meter polls this
-   * itself (internally, on its own interval) and writes straight into its
-   * own Animated.Values, never touching React state. An earlier version
-   * had the caller poll on an interval and pass the result down as a
-   * prop, which meant a full React re-render (cascading through every
-   * band column, which each restarted their own animation) 15-somewhat
-   * times a second - confirmed on-device as a serious, continuous frame-
-   * rate hit (sustained ~24-36fps on a high-refresh-rate phone), not just
-   * a one-time cost at a track transition. Optional - a caller with no
-   * live metering (or that doesn't want the VU meter reactive) can omit
-   * it and the meter just stays at its resting/silent look.
-   */
-  getAudioBands?: () => { outgoing: number[]; incoming: number[] };
   size?: number;
 }
 
@@ -113,84 +93,6 @@ const TONEARM_ANGLE_INNER_DEG = tonearmAngleForRadius(LABEL_FRACTION / 2);
  * the current rotation, with no such risk.
  */
 const TONEARM_LIFT_FRACTION = 0.06;
-/**
- * VU meter flanking each disc, two independent pieces of information side
- * by side rather than layered on top of each other:
- * - A small equalizer-style spread of colored green/yellow/red LED
- *   columns (bottom-up, like a classic hardware meter), one per frequency
- *   band - see VU_METER_BAND_COUNT - showing getAudioBands()'s live
- *   result: the music's actual real-time loudness in that band, bouncing
- *   with the track regardless of fade/crossfade state.
- * - A knob on its own narrow track (VuKnobTrack), a pure fade indicator:
- *   at the top while currentGain/nextGain is ~1 (fully audible), sliding
- *   down to the bottom as the slot pauses or an actual crossfade fades it
- *   out - the same signal driving the disc's spin speed, just rendered as
- *   a marker instead of a rotation rate. Was previously overlaid across
- *   the whole meter's width, which - once that width grew to fit
- *   VU_METER_BAND_COUNT's 8 bands - made the knob read as an oversized bar
- *   rather than a marker (confirmed on-device); a dedicated track keeps it
- *   knob-sized regardless of how wide the band spread gets.
- */
-export const VU_METER_BAND_COUNT = 8;
-/** How often the VU meter polls getAudioBands() and re-targets its Animated.Values - entirely inside VuMeter's own effect, never via React state/re-render (see CrossfadeArtProps.getAudioBands' doc). */
-const VU_POLL_MS = 60;
-const VU_BAND_WIDTH = 5;
-const VU_BAND_GAP = 2;
-const VU_KNOB_TRACK_WIDTH = 6;
-const VU_KNOB_TRACK_GAP = 6;
-const VU_METER_WIDTH =
-  VU_KNOB_TRACK_WIDTH + VU_KNOB_TRACK_GAP + VU_METER_BAND_COUNT * VU_BAND_WIDTH + (VU_METER_BAND_COUNT - 1) * VU_BAND_GAP;
-const VU_METER_GAP = 10;
-/**
- * Each band column is 3 static color views (a coarse red/yellow/green
- * gradient, painted once) plus a single overlay that slides to cover
- * whatever's above the current level - not, as an earlier version had it,
- * 10 individually opacity-animated LED segments per column. That was 10
- * native view nodes animating per column - 160 across both meters' worth
- * of bands - for a purely decorative element; this is 4 per column (32
- * total) with exactly one Animated.Value doing the work, and the overlay
- * moves via translateY (native-driver-compatible) rather than an animated
- * height, which would have forced it onto the JS thread (the same
- * category of bug LoadingBar had before it was switched off animating
- * `left`).
- */
-const VU_BAND_RED_FRACTION = 0.08;
-const VU_BAND_YELLOW_FRACTION = 0.17;
-/** Never fully opaque - the "unlit" portion should read as dim, not literally gone, so the meter's full scale is still visible at level 0. */
-const VU_DIM_OVERLAY_COLOR = 'rgba(8,9,12,0.84)';
-const VU_KNOB_HEIGHT = 10;
-/**
- * The knob and the bands both move via a plain Animated.Value.setValue()
- * now, not an Animated.timing() transition - previously each retarget (the
- * bands' every ~60ms poll tick, 16 of them at once across both meters) ran
- * its own scheduled native-driver animation, a lot of concurrently
- * in-flight transitions at once. That lined up with a real on-device
- * Hermes/RuntimeScheduler_Modern native crash (a SIGSEGV deep in
- * libhermesvm during scheduled-task execution) - not confirmed as the
- * cause, but a plausible enough contributor that removing the concurrent
- * animation load here is worth doing regardless of whether it was. The
- * fill still reads as continuous since the poll itself is frequent enough
- * (60ms) that the eye doesn't need interpolation between ticks to smooth
- * it out.
- */
-
-/**
- * Maps a band's magnitude (0-1, from bandsFromByteFrequencyData) to a
- * display fraction. That input is ALREADY on a dB-normalized scale - it's
- * an RMS-style average of AnalyserNode byte-frequency values, themselves a
- * linear remap of [minDecibels, maxDecibels] to [0,255] - so, unlike the
- * old single-value meter (a genuinely linear RMS amplitude that needed its
- * own 20*log10() conversion to reach a dB-ish display scale), applying a
- * log - or even a sqrt - here would be double-converting: a sqrt curve
- * specifically compresses the *top* of the range together, which is
- * exactly where a normally-mastered track's band energy tends to sit most
- * of the time, and made the meter look nearly static (confirmed
- * on-device). A straight clamp leaves the byte-derived scale's own
- * contrast intact.
- */
-function audioLevelToFraction(level: number): number {
-  return Math.max(0, Math.min(1, level));
-}
 
 /** Spin rate is rounded to this granularity before restarting the loop animation - restarting on every ~200ms poll tick's tiny gain fluctuation would look jittery; only a genuinely audible speed change (mostly during an actual crossfade) should visibly re-time it. */
 const RATE_BUCKET = 0.2;
@@ -351,89 +253,6 @@ function Tonearm({ down, progress, size }: { down: boolean; progress: number; si
   );
 }
 
-/**
- * `gain` is the crossfade audibility fraction (currentGain/nextGain - 0
- * when paused/faded out, ~1 while fully audible) - drives only the knob.
- * `audioLevel` is the track's real-time raw RMS - drives only the colored
- * fill. Two Animated.Values because they mean different things and move on
- * different rhythms (the knob only really moves during a pause/crossfade;
- * the fill is meant to bounce continuously with the music).
- */
-/** One frequency band's own LED column - a vertically-stacked set of segments lit bottom-up to `level` (already mapped to [0,1] display fraction). */
-/** `level` is an externally-owned, externally-driven Animated.Value (see CrossfadeArt's own polling effect) - this component never touches its target itself, just renders it. */
-function VuBandColumn({ level, size }: { level: Animated.Value; size: number }) {
-  // The dim overlay is full-column-height, anchored at the top, and slides
-  // straight UP by its own height as level goes 0->1 - at level 0 it sits
-  // in place covering everything, at level 1 it's shifted entirely above
-  // the (overflow: hidden) column and covers nothing. At a middle level,
-  // only its bottom portion remains inside the column's bounds, so what's
-  // actually visible is a dim band from the top down to (1-level)*size -
-  // exactly the "unlit" portion, without animating height directly.
-  const translateY = level.interpolate({ inputRange: [0, 1], outputRange: [0, -size] });
-  const redHeight = size * VU_BAND_RED_FRACTION;
-  const yellowHeight = size * VU_BAND_YELLOW_FRACTION;
-  const greenHeight = size - redHeight - yellowHeight;
-  return (
-    <View style={{ width: VU_BAND_WIDTH, height: size, borderRadius: 1.5, overflow: 'hidden' }}>
-      <View style={[styles.vuBandColor, { top: 0, height: redHeight, backgroundColor: '#ef4444' }]} />
-      <View style={[styles.vuBandColor, { top: redHeight, height: yellowHeight, backgroundColor: '#f59e0b' }]} />
-      <View style={[styles.vuBandColor, { top: redHeight + yellowHeight, height: greenHeight, backgroundColor: '#22c55e' }]} />
-      <Animated.View style={[styles.vuBandDim, { height: size, transform: [{ translateY }] }]} />
-    </View>
-  );
-}
-
-/** The fade-indicator knob's own narrow track, separate from the band columns so its width doesn't depend on how many bands there are. */
-function VuKnobTrack({ gain, size }: { gain: number; size: number }) {
-  const knobTarget = Math.max(0, Math.min(1, gain));
-  const knobLevel = useRef(new Animated.Value(knobTarget)).current;
-  useEffect(() => {
-    // Straight value set, no animation - see the polling effect's doc for
-    // why (a suspected contributor to a real on-device Hermes/RuntimeScheduler
-    // native crash, via the sheer number of concurrently-scheduled Animated
-    // transitions this and the band columns were producing).
-    knobLevel.setValue(knobTarget);
-  }, [knobTarget, knobLevel]);
-  // knobLevel=0 knob center sits at the very bottom, 1 at the very top.
-  const translateY = knobLevel.interpolate({ inputRange: [0, 1], outputRange: [size - VU_KNOB_HEIGHT / 2, -VU_KNOB_HEIGHT / 2] });
-  return (
-    <View style={{ width: VU_KNOB_TRACK_WIDTH, height: size }}>
-      <View style={styles.vuKnobTrackLine} />
-      <Animated.View style={[styles.vuKnob, { height: VU_KNOB_HEIGHT, transform: [{ translateY }] }]} />
-    </View>
-  );
-}
-
-function VuMeter({ gain, bandLevels, size, side }: { gain: number; bandLevels: Animated.Value[]; size: number; side: 'left' | 'right' }) {
-  const bandRow = (
-    <View style={styles.vuBandRow}>
-      {bandLevels.map((level, band) => (
-        <VuBandColumn key={band} level={level} size={size} />
-      ))}
-    </View>
-  );
-  const knobTrack = <VuKnobTrack gain={gain} size={size} />;
-  return (
-    <View
-      style={[styles.vuMeter, { width: VU_METER_WIDTH, height: size, gap: VU_KNOB_TRACK_GAP }, side === 'left' ? { left: 0 } : { right: 0 }]}
-      pointerEvents="none"
-    >
-      {/* Knob track sits on the outer edge (away from the disc) on both sides, for a symmetric look. */}
-      {side === 'left' ? (
-        <>
-          {knobTrack}
-          {bandRow}
-        </>
-      ) : (
-        <>
-          {bandRow}
-          {knobTrack}
-        </>
-      )}
-    </View>
-  );
-}
-
 interface DiscSnapshot {
   key: string;
   artUri: string | null;
@@ -455,12 +274,7 @@ interface DisplayedState {
  * speeds up as a crossfade brings it in - both driven by the same
  * equal-power gain curve powering the real audio fade (see App.tsx's
  * outgoingGain/incomingGain, sampled from the same equalPowerGain() call
- * SourceNode.rampGainCurve uses for real playback). The same two gain
- * values also drive the fade-indicator knob on a small VU meter flanking
- * each disc (see VuMeter) - same idea as the spin, rendered as a marker
- * position instead of a rotation rate. That meter's colored fill is a
- * separate signal (getAudioBands()'s live per-band loudness), independent
- * of fade state.
+ * SourceNode.rampGainCurve uses for real playback).
  *
  * What's actually on screen (`displayed`) only changes via one of two
  * animated transitions, never a silent prop-driven pop:
@@ -495,7 +309,6 @@ export function CrossfadeArt({
   nextArtUri,
   nextGain,
   nextProgress = 0,
-  getAudioBands,
   size = DEFAULT_SIZE,
 }: CrossfadeArtProps): React.JSX.Element {
   const [displayed, setDisplayed] = useState<DisplayedState>({
@@ -512,45 +325,6 @@ export function CrossfadeArt({
   const outgoingOpacity = useRef(new Animated.Value(0)).current;
   const incomingOpacity = useRef(new Animated.Value(0)).current;
   const nextOpacity = useRef(new Animated.Value(nextTrackKey ? 1 : 0)).current;
-
-  // VU meter band levels - owned here (not per-VuMeter) so a single poll
-  // tick updates both sides together. Created once and mutated in place by
-  // the effect below via Animated.timing().start(), never via setState -
-  // see CrossfadeArtProps.getAudioBands' doc for why that distinction
-  // matters (a naive setState-per-tick version was a confirmed, serious,
-  // continuous frame-rate regression on-device, not just a one-off cost).
-  const currentBandLevels = useRef(Array.from({ length: VU_METER_BAND_COUNT }, () => new Animated.Value(0))).current;
-  const nextBandLevels = useRef(Array.from({ length: VU_METER_BAND_COUNT }, () => new Animated.Value(0))).current;
-  const getAudioBandsRef = useRef(getAudioBands);
-  useEffect(() => {
-    getAudioBandsRef.current = getAudioBands;
-  }, [getAudioBands]);
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const result = getAudioBandsRef.current?.();
-      for (let i = 0; i < VU_METER_BAND_COUNT; i++) {
-        const currentLevel = currentBandLevels[i];
-        const nextLevel = nextBandLevels[i];
-        if (!currentLevel || !nextLevel) continue;
-        // Straight value set, no animation - an Animated.timing() per band
-        // per tick (16 of them, every 60ms) meant a very large number of
-        // concurrently-scheduled native-driver transitions in flight at
-        // once, which lined up with a real on-device Hermes/
-        // RuntimeScheduler_Modern native crash (a SIGSEGV deep in libhermesvm
-        // during scheduled-task execution) - not confirmed as the cause,
-        // but a plausible enough contributor that removing the concurrent
-        // animation load here is worth doing regardless. The segments
-        // already look continuous because the poll itself is frequent
-        // enough (60ms) for the eye not to need interpolation between ticks.
-        currentLevel.setValue(audioLevelToFraction(result?.outgoing[i] ?? 0));
-        nextLevel.setValue(audioLevelToFraction(result?.incoming[i] ?? 0));
-      }
-    }, VU_POLL_MS);
-    return () => clearInterval(interval);
-    // Mount-once - getAudioBandsRef sidesteps needing getAudioBands (or the
-    // Animated.Value arrays, stable for this component's lifetime) as deps.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // The current slot changing - the one animated transition that can
   // involve a slide (natural progression) as well as a fade.
@@ -634,25 +408,22 @@ export function CrossfadeArt({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nextTrackKey, transitioning]);
 
-  const discsOffset = VU_METER_WIDTH + VU_METER_GAP;
-  const containerStyle = { width: discsOffset * 2 + size * 2 + GAP, height: size };
+  const containerStyle = { width: size * 2 + GAP, height: size };
   const boxStyle = { width: size, height: size };
 
   return (
     <View style={[styles.row, containerStyle]}>
-      <VuMeter gain={currentGain} bandLevels={currentBandLevels} size={size} side="left" />
-      <View style={[styles.slot, boxStyle, { left: discsOffset }]}>
+      <View style={[styles.slot, boxStyle, { left: 0 }]}>
         {!transitioning && <VinylDisc artUri={displayed.currentArt} rate={currentGain} size={size} />}
         {outgoing && <VinylDisc artUri={outgoing.artUri} rate={1} size={size} opacity={outgoingOpacity} />}
         {incoming && <VinylDisc artUri={incoming.artUri} rate={currentGain} size={size} opacity={incomingOpacity} />}
         {/* Forced up (`!transitioning &&`) for the swap/fade's whole duration, not just while a disc is actually mid-slide - the needle has to be clear before a disc starts moving under it, not just while it's moving. */}
         <Tonearm down={!transitioning && currentGain > 0} progress={currentProgress} size={size} />
       </View>
-      <View style={[styles.slot, boxStyle, { left: discsOffset + size + GAP }]}>
+      <View style={[styles.slot, boxStyle, { left: size + GAP }]}>
         <VinylDisc artUri={displayed.nextArt} rate={nextGain} size={size} opacity={nextOpacity} translateX={slideX} />
         <Tonearm down={!transitioning && nextGain > 0} progress={nextProgress} size={size} />
       </View>
-      <VuMeter gain={nextGain} bandLevels={nextBandLevels} size={size} side="right" />
     </View>
   );
 }
@@ -737,46 +508,5 @@ const styles = StyleSheet.create({
     height: 5,
     borderRadius: 2.5,
     backgroundColor: '#111827',
-  },
-  vuMeter: {
-    position: 'absolute',
-    top: 0,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-  vuBandRow: {
-    flexDirection: 'row',
-    gap: VU_BAND_GAP,
-  },
-  vuBandColor: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-  },
-  vuBandDim: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: VU_DIM_OVERLAY_COLOR,
-  },
-  vuKnobTrackLine: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    left: '50%',
-    width: 2,
-    marginLeft: -1,
-    borderRadius: 1,
-    backgroundColor: 'rgba(255,255,255,0.14)',
-  },
-  vuKnob: {
-    position: 'absolute',
-    left: -3,
-    right: -3,
-    borderRadius: 3,
-    backgroundColor: '#f8fafc',
-    borderWidth: 1.5,
-    borderColor: 'rgba(0,0,0,0.45)',
   },
 });
