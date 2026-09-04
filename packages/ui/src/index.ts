@@ -1,9 +1,14 @@
+export * from './AppTitle';
 export * from './CrossfadeArt';
 export * from './Icon';
 export * from './IconLabel';
+export * from './LibraryScreen';
 export * from './LoadingBar';
+export { LoopButton, ShuffleButton } from './LoopShuffleButtons';
+export * from './NowPlayingBar';
 export * from './SeekBar';
 export * from './Skeleton';
+export * from './theme';
 export * from './TrackList';
 export * from './TrackRow';
 export * from './useCoverArt';

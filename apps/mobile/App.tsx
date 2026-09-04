@@ -17,48 +17,26 @@ import {
   scanRoot,
 } from '@bpmix/core';
 import {
+  AppTitle,
   CROSSFADE_ART_TRANSITION_MS,
-  CrossfadeArt,
   Icon,
   IconLabel,
-  LoadingBar,
-  SeekBar,
+  LibraryScreen,
+  LoopButton,
+  NowPlayingBar,
+  ShuffleButton,
   TrackList,
   useCoverArt,
   useDoublePressHandler,
   useFadeInOnChange,
   usePlaybackPersistence,
+  useThemeColors,
   useTrackMetadata,
-  VolumeSlider,
 } from '@bpmix/ui';
-import {
-  mdiArrowLeft,
-  mdiFolder,
-  mdiFolderPlus,
-  mdiMusicNote,
-  mdiPause,
-  mdiPlay,
-  mdiPlaylistMusic,
-  mdiRefresh,
-  mdiRepeat,
-  mdiRepeatOnce,
-  mdiShuffle,
-  mdiSkipNext,
-  mdiSkipPrevious,
-} from '@mdi/js';
+import type { RootWithLibrary } from '@bpmix/ui';
+import { mdiArrowLeft, mdiPause, mdiPlay, mdiSkipNext, mdiSkipPrevious } from '@mdi/js';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Animated,
-  FlatList,
-  InteractionManager,
-  Pressable,
-  StatusBar,
-  StyleSheet,
-  Text,
-  useColorScheme,
-  View,
-} from 'react-native';
+import { ActivityIndicator, InteractionManager, Pressable, StatusBar, StyleSheet, Text, useColorScheme, View } from 'react-native';
 import {
   SafeAreaProvider,
   useSafeAreaInsets,
@@ -145,42 +123,10 @@ if (typeof module !== 'undefined' && module?.hot) {
 }
 
 const LOOP_MODE_CYCLE: LoopMode[] = ['off', 'all', 'one'];
-// 'off' reuses the repeat-all glyph dimmed, rather than a distinct
-// "repeat off" icon - Segoe Fluent Icons (the Windows Icon renderer's font)
-// has no such glyph, so state is conveyed by icon shape + color together:
-// off = dim mdiRepeat, all = lit mdiRepeat, one = lit mdiRepeatOnce.
-const LOOP_MODE_ICON: Record<LoopMode, string> = { off: mdiRepeat, all: mdiRepeat, one: mdiRepeatOnce };
-
-interface RootWithLibrary {
-  root: GrantedRoot;
-  playlists: PlaylistRecord[];
-  tracksById: Map<string, TrackRecord>;
-}
 
 type Screen =
   | { kind: 'library' }
   | { kind: 'playlist'; root: GrantedRoot; playlist: PlaylistRecord; tracksById: Map<string, TrackRecord> };
-
-function formatSeconds(seconds: number): string {
-  if (!Number.isFinite(seconds)) return '0:00';
-  const total = Math.max(0, Math.round(seconds));
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
-const lightColors = {
-  background: '#ffffff',
-  text: '#111111',
-  subtleText: '#111111',
-};
-
-const darkColors = {
-  background: '#111111',
-  text: '#f5f5f5',
-  subtleText: '#f5f5f5',
-};
-type Colors = typeof lightColors;
 
 function App() {
   const isDarkMode = useColorScheme() === 'dark';
@@ -195,8 +141,7 @@ function App() {
 
 function AppContent() {
   const insets = useSafeAreaInsets();
-  const isDarkMode = useColorScheme() === 'dark';
-  const colors = isDarkMode ? darkColors : lightColors;
+  const colors = useThemeColors();
   const [rootsWithLibrary, setRootsWithLibrary] = useState<RootWithLibrary[]>([]);
   const [busyRootId, setBusyRootId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -613,88 +558,46 @@ function AppContent() {
   const upNextOpacity = useFadeInOnChange(settledNextKey);
 
   const nowPlayingBar = playerState.currentFileId && (
-    <View style={styles.nowPlaying}>
-      {/* No art thumbnail here - CrossfadeArt below already shows the
-          current track's art at full size (its outgoing side, always
-          rendered once duration is known, opaque whenever nothing's
-          actually crossfading), so a second small copy next to the title
-          would just be the same image twice. */}
-      <Animated.View style={[styles.nowPlayingHeader, { opacity: nowPlayingOpacity }]}>
-        <View style={styles.nowPlayingHeaderText}>
-          <Text style={[styles.nowPlayingName, { color: colors.text }]} numberOfLines={1}>
-            {settledCurrentTrack ? formatTrackTitle(settledCurrentMetadata, settledCurrentTrack) : playerState.currentFileId}
-          </Text>
+    <NowPlayingBar
+      colors={colors}
+      title={settledCurrentTrack ? formatTrackTitle(settledCurrentMetadata, settledCurrentTrack) : playerState.currentFileId}
+      upNextTitle={settledNextTrack ? formatTrackTitle(settledNextMetadata, settledNextTrack) : null}
+      nowPlayingOpacity={nowPlayingOpacity}
+      upNextOpacity={upNextOpacity}
+      currentTrackKey={outgoingTrack?.fileId ?? null}
+      currentArtUri={outgoingCoverArt}
+      currentGain={outgoingGain}
+      currentProgress={outgoingProgress}
+      nextTrackKey={incomingTrack?.fileId ?? null}
+      nextArtUri={incomingCoverArt}
+      nextGain={incomingGain}
+      nextProgress={incomingProgress}
+      isLoading={isLoadingTrack}
+      positionSeconds={displayPositionSeconds}
+      durationSeconds={displayDurationSeconds}
+      // Disabled mid-crossfade: seekTo() still only affects the actual
+      // (outgoing) source, which no longer matches what the bar is showing
+      // (the incoming track's position/duration) - a tap here would compute
+      // a fraction against the wrong track's duration.
+      onSeekTo={pendingIncoming ? () => {} : seekTo}
+      volume={volume}
+      onChangeVolume={handleVolumeChange}
+      controls={
+        <View style={styles.playerControlsRow}>
+          <LoopButton loopMode={playerState.loopMode} onPress={cycleLoopMode} />
+          <Pressable style={styles.controlButton} onPress={handlePreviousPress}>
+            <Icon path={mdiSkipPrevious} size={20} color="white" />
+          </Pressable>
+          <Pressable style={[styles.controlButton, styles.controlButtonPrimary]} onPress={togglePause}>
+            <Icon path={playerState.track.status === 'playing' ? mdiPause : mdiPlay} size={30} color="white" />
+          </Pressable>
+          <Pressable style={styles.controlButton} onPress={handleNextPress}>
+            <Icon path={mdiSkipNext} size={20} color="white" />
+          </Pressable>
+          <ShuffleButton shuffleEnabled={playerState.shuffleEnabled} onPress={toggleShuffle} />
         </View>
-      </Animated.View>
-      {/* Text only, deliberately no art thumbnail here - CrossfadeArt below
-          already shows the incoming track's actual art (blended with the
-          outgoing one, always rendered as a preview once duration is known,
-          not just mid-crossfade), so a second copy of the same art would be
-          redundant. */}
-      {settledNextTrack && (
-        <Animated.View style={[styles.upNext, { opacity: upNextOpacity }]}>
-          <Text style={[styles.upNextText, { color: colors.subtleText }]} numberOfLines={1}>
-            Up next: {formatTrackTitle(settledNextMetadata, settledNextTrack)}
-          </Text>
-        </Animated.View>
-      )}
-      {/* Always mounted (not gated on transitionPlan, which goes null
-          during every track's brief loading phase before duration is
-          known) - CrossfadeArt owns persistent state across track changes
-          for its swap/fade animation, and unmounting it mid-transition
-          would cut it short. */}
-      <CrossfadeArt
-        currentTrackKey={outgoingTrack?.fileId ?? null}
-        currentArtUri={outgoingCoverArt}
-        currentGain={outgoingGain}
-        currentProgress={outgoingProgress}
-        nextTrackKey={incomingTrack?.fileId ?? null}
-        nextArtUri={incomingCoverArt}
-        nextGain={incomingGain}
-        nextProgress={incomingProgress}
-      />
-      {isLoadingTrack ? (
-        <LoadingBar />
-      ) : (
-        <SeekBar
-          positionSeconds={displayPositionSeconds}
-          durationSeconds={displayDurationSeconds}
-          // Disabled mid-crossfade: seekTo() still only affects the actual
-          // (outgoing) source, which no longer matches what the bar is
-          // showing (the incoming track's position/duration) - a tap here
-          // would compute a fraction against the wrong track's duration.
-          onSeekTo={pendingIncoming ? () => {} : seekTo}
-        />
-      )}
-      <View style={styles.seekTimesRow}>
-        <Text style={[styles.seekTimeText, { color: colors.subtleText }]}>{formatSeconds(displayPositionSeconds)}</Text>
-        <Text style={[styles.seekTimeText, { color: colors.subtleText }]}>{formatSeconds(displayDurationSeconds)}</Text>
-      </View>
-      <View style={styles.playerControlsRow}>
-        <Pressable
-          style={[styles.transportIconButton, playerState.loopMode !== 'off' && styles.transportIconButtonActive]}
-          onPress={cycleLoopMode}
-        >
-          <Icon path={LOOP_MODE_ICON[playerState.loopMode]} size={18} color="white" />
-        </Pressable>
-        <Pressable style={styles.controlButton} onPress={handlePreviousPress}>
-          <Icon path={mdiSkipPrevious} size={20} color="white" />
-        </Pressable>
-        <Pressable style={[styles.controlButton, styles.controlButtonPrimary]} onPress={togglePause}>
-          <Icon path={playerState.track.status === 'playing' ? mdiPause : mdiPlay} size={30} color="white" />
-        </Pressable>
-        <Pressable style={styles.controlButton} onPress={handleNextPress}>
-          <Icon path={mdiSkipNext} size={20} color="white" />
-        </Pressable>
-        <Pressable
-          style={[styles.transportIconButton, playerState.shuffleEnabled && styles.transportIconButtonActive]}
-          onPress={toggleShuffle}
-        >
-          <Icon path={mdiShuffle} size={18} color="white" />
-        </Pressable>
-      </View>
-      <VolumeSlider volume={volume} onChangeVolume={handleVolumeChange} />
-    </View>
+      }
+    />
   );
 
   // Covers the library scan + playback-state restore's own async window -
@@ -705,14 +608,7 @@ function AppContent() {
   if (isRestoring) {
     return (
       <View style={[styles.container, styles.restoringContainer, { paddingTop: insets.top, backgroundColor: colors.background }]}>
-        <IconLabel
-          path={mdiMusicNote}
-          text="BPMix"
-          color={colors.text}
-          iconSize={28}
-          textStyle={styles.title}
-          containerStyle={styles.titleRow}
-        />
+        <AppTitle color={colors.text} />
         <ActivityIndicator color={colors.text} />
       </View>
     );
@@ -751,66 +647,16 @@ function AppContent() {
   return (
     <View style={[styles.container, { paddingTop: insets.top, backgroundColor: colors.background }]}>
       {__DEV__ && SHOW_MEMORY_OVERLAY && <MemoryOverlay />}
-      <IconLabel
-        path={mdiMusicNote}
-        text="BPMix"
-        color={colors.text}
-        iconSize={28}
-        textStyle={styles.title}
-        containerStyle={styles.titleRow}
-      />
-      <Pressable style={[styles.button, isAddingFolder && styles.buttonDisabled]} onPress={addFolder} disabled={isAddingFolder}>
-        {isAddingFolder ? (
-          <View style={styles.buttonRow}>
-            <ActivityIndicator color="#fff" style={styles.buttonSpinner} />
-            <Text style={styles.buttonText}>Scanning folder…</Text>
-          </View>
-        ) : (
-          <IconLabel path={mdiFolderPlus} text="Add Folder" color="white" iconSize={18} textStyle={styles.buttonText} />
-        )}
-      </Pressable>
-      {error && <Text style={styles.error}>{error}</Text>}
-      {nowPlayingBar}
-
-      <FlatList
-        style={styles.list}
-        data={rootsWithLibrary}
-        keyExtractor={({ root }) => root.id}
-        renderItem={({ item: { root, playlists, tracksById } }) => (
-          <View style={styles.rootSection}>
-            <View style={styles.rootHeader}>
-              <IconLabel path={mdiFolder} text={root.displayName} color={colors.text} iconSize={18} textStyle={styles.rootName} />
-              <Pressable onPress={() => rescan(root.id)} disabled={busyRootId === root.id}>
-                {busyRootId === root.id ? (
-                  <Text style={styles.rescanLink}>Scanning…</Text>
-                ) : (
-                  <IconLabel path={mdiRefresh} text="Rescan" color="#3b82f6" iconSize={16} textStyle={styles.rescanLink} />
-                )}
-              </Pressable>
-            </View>
-            {playlists.length === 0 && (
-              <Text style={[styles.empty, { color: colors.subtleText }]}>No playlists found yet.</Text>
-            )}
-            {playlists.map((playlist) => (
-              <Pressable
-                key={playlist.id}
-                style={styles.playlist}
-                onPress={() => setScreen({ kind: 'playlist', root, playlist, tracksById })}
-              >
-                <IconLabel
-                  path={mdiPlaylistMusic}
-                  text={playlist.name}
-                  color={colors.text}
-                  iconSize={16}
-                  textStyle={styles.playlistName}
-                />
-                <Text style={[styles.trackCount, { color: colors.subtleText }]}>
-                  {playlist.trackFileIds.length} track(s)
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        )}
+      <LibraryScreen
+        colors={colors}
+        rootsWithLibrary={rootsWithLibrary}
+        busyRootId={busyRootId}
+        isAddingFolder={isAddingFolder}
+        onAddFolder={addFolder}
+        onRescan={rescan}
+        onSelectPlaylist={(root, playlist, tracksById) => setScreen({ kind: 'playlist', root, playlist, tracksById })}
+        error={error}
+        nowPlayingBar={nowPlayingBar}
       />
     </View>
   );
@@ -825,33 +671,6 @@ const styles = StyleSheet.create({
   restoringContainer: {
     justifyContent: 'center',
     gap: 16,
-  },
-  titleRow: {
-    marginBottom: 16,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: '700',
-  },
-  button: {
-    backgroundColor: '#3b82f6',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  buttonText: {
-    color: 'white',
-    fontWeight: '600',
-  },
-  buttonDisabled: {
-    opacity: 0.7,
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  buttonSpinner: {
-    marginRight: 8,
   },
   error: {
     color: '#dc2626',
@@ -868,42 +687,6 @@ const styles = StyleSheet.create({
   backLink: {
     fontSize: 18,
     fontWeight: '600',
-  },
-  nowPlaying: {
-    marginTop: 16,
-    width: '100%',
-    maxWidth: 480,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 8,
-    backgroundColor: 'rgba(59, 130, 246, 0.1)',
-  },
-  nowPlayingHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  nowPlayingHeaderText: {
-    flex: 1,
-    minWidth: 0,
-  },
-  upNext: {
-    marginTop: 8,
-  },
-  upNextText: {
-    fontSize: 12,
-  },
-  nowPlayingName: {
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  seekTimesRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 4,
-  },
-  seekTimeText: {
-    fontSize: 12,
   },
   // The primary play/pause/seek/skip row, styled like a real player's
   // transport bar: big circular icon buttons, evenly spaced, with
@@ -930,57 +713,6 @@ const styles = StyleSheet.create({
     height: 72,
     borderRadius: 36,
     backgroundColor: '#2563eb',
-  },
-  // Loop/shuffle: smaller and dimmer than the transport buttons they flank -
-  // secondary controls, not primary ones - lighting up (transportIconButtonActive)
-  // when their mode is non-default, since the icon glyph alone can't carry
-  // on/off state for shuffle (same icon either way).
-  transportIconButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#475569',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  transportIconButtonActive: {
-    backgroundColor: '#3b82f6',
-  },
-  list: {
-    marginTop: 24,
-    width: '100%',
-    maxWidth: 480,
-  },
-  rootSection: {
-    marginBottom: 20,
-    paddingHorizontal: 16,
-  },
-  rootHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  rootName: {
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  rescanLink: {
-    color: '#3b82f6',
-  },
-  empty: {
-    opacity: 0.6,
-    marginTop: 4,
-  },
-  playlist: {
-    marginTop: 8,
-    paddingLeft: 8,
-  },
-  playlistName: {
-    fontSize: 15,
-  },
-  trackCount: {
-    fontSize: 12,
-    opacity: 0.6,
   },
 });
 

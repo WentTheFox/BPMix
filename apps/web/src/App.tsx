@@ -11,50 +11,37 @@ import {
   scanRoot,
 } from '@bpmix/core';
 import {
+  AppTitle,
   CROSSFADE_ART_TRANSITION_MS,
-  CrossfadeArt,
   Icon,
   IconLabel,
-  LoadingBar,
-  SeekBar,
+  LibraryScreen,
+  LoopButton,
+  NowPlayingBar,
+  ShuffleButton,
   TrackList,
   useCoverArt,
   useDoublePressHandler,
   useFadeInOnChange,
   usePlaybackPersistence,
+  useThemeColors,
   useTrackMetadata,
-  VolumeSlider,
 } from '@bpmix/ui';
-import {
-  mdiArrowLeft,
-  mdiFastForward10,
-  mdiFolder,
-  mdiFolderPlus,
-  mdiMusicNote,
-  mdiPause,
-  mdiPlay,
-  mdiPlaylistMusic,
-  mdiRefresh,
-  mdiRewind10,
-  mdiSkipNext,
-  mdiSkipPrevious,
-} from '@mdi/js';
+import type { RootWithLibrary } from '@bpmix/ui';
+import { mdiArrowLeft, mdiFastForward10, mdiPause, mdiPlay, mdiRewind10, mdiSkipNext, mdiSkipPrevious } from '@mdi/js';
 import type { CSSProperties } from 'react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DimensionValue } from 'react-native';
-import { Animated, FlatList, InteractionManager, Pressable, StyleSheet, Text, useColorScheme, View } from 'react-native';
+import { InteractionManager, Pressable, StyleSheet, Text, View } from 'react-native';
 import { createAudioEngine } from './adapters/audioEngine';
 import { createCoverArtResizer } from './adapters/coverArtResizer';
 import { createCompositeFileAccess } from './adapters/fileAccess.composite';
 import { createLibraryStore } from './adapters/libraryStore';
 
 const TRANSPORT_THROTTLE_MS = 300;
-// A real settings screen (Stage 8) would persist this - for now it's a
-// simple in-memory control (see the "Crossfade" stepper below) that starts
-// here and can be adjusted live.
+// A real settings screen (Stage 8) would make this configurable - for now
+// it's fixed, per CLAUDE.md's TODO to drop the user-facing crossfade control.
 const DEFAULT_CROSSFADE_SECONDS = 8;
-const MIN_CROSSFADE_SECONDS = 1;
-const MAX_CROSSFADE_SECONDS = 20;
 
 // File System Access API is Chromium-only (no Firefox/Safari support as of
 // this writing) - the composite adapter's server roots (Docker self-host)
@@ -126,42 +113,13 @@ if (import.meta.hot) {
 }
 
 const LOOP_MODE_CYCLE: LoopMode[] = ['off', 'all', 'one'];
-const LOOP_MODE_LABEL: Record<LoopMode, string> = { off: 'Loop: Off', all: 'Loop: All', one: 'Loop: One' };
-
-interface RootWithLibrary {
-  root: GrantedRoot;
-  playlists: PlaylistRecord[];
-  tracksById: Map<string, TrackRecord>;
-}
 
 type Screen =
   | { kind: 'library' }
   | { kind: 'playlist'; root: GrantedRoot; playlist: PlaylistRecord; tracksById: Map<string, TrackRecord> };
 
-function formatSeconds(seconds: number): string {
-  if (!Number.isFinite(seconds)) return '0:00';
-  const total = Math.max(0, Math.round(seconds));
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
-const lightColors = {
-  background: '#ffffff',
-  text: '#111111',
-  subtleText: '#111111',
-};
-
-const darkColors = {
-  background: '#111111',
-  text: '#f5f5f5',
-  subtleText: '#f5f5f5',
-};
-type Colors = typeof lightColors;
-
 function App() {
-  const isDarkMode = useColorScheme() === 'dark';
-  const colors = isDarkMode ? darkColors : lightColors;
+  const colors = useThemeColors();
   const [rootsWithLibrary, setRootsWithLibrary] = useState<RootWithLibrary[]>([]);
   const [busyRootId, setBusyRootId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -459,19 +417,6 @@ function App() {
   }, [playerState.position, playerState.loopMode, playerState.shuffleEnabled, playerState.totalTracks]);
   const nextTrack = nextFileId ? activeTracksById.get(nextFileId) : undefined;
 
-  // Live-adjustable crossfade duration (the "Crossfade" stepper below) -
-  // keeps playlistPlayer's actual scheduling in sync with whatever the
-  // preview is showing, so they never disagree.
-  const [crossfadeSeconds, setCrossfadeSecondsState] = useState(DEFAULT_CROSSFADE_SECONDS);
-  useEffect(() => {
-    playlistPlayer.setCrossfadeSeconds(crossfadeSeconds);
-  }, [crossfadeSeconds]);
-  const adjustCrossfadeSeconds = useCallback((delta: number) => {
-    setCrossfadeSecondsState((current) =>
-      Math.max(MIN_CROSSFADE_SECONDS, Math.min(MAX_CROSSFADE_SECONDS, current + delta)),
-    );
-  }, []);
-
   // A crossfade already in flight (natural end-of-track OR a manual skip's
   // short one - see TrackPlayerState.pendingIncoming's doc) switches the
   // displayed name/position/duration/track-counter over to the incoming
@@ -495,13 +440,13 @@ function App() {
     if (pendingIncoming) {
       // A crossfade is genuinely happening right now - reflect its real
       // duration (a manual skip's fadeDurationSeconds is much shorter than
-      // the natural end-of-track crossfadeSeconds default below), not a
+      // the natural end-of-track DEFAULT_CROSSFADE_SECONDS below), not a
       // static preview of a future one.
       return { fadeStartSeconds: 0, fadeDurationSeconds: pendingIncoming.fadeDurationSeconds, incomingStartSeconds: 0 };
     }
     if (playerState.track.durationSeconds <= 0) return null;
-    return computeTransitionPlan(playerState.track.durationSeconds, crossfadeSeconds);
-  }, [pendingIncoming, playerState.track.durationSeconds, crossfadeSeconds]);
+    return computeTransitionPlan(playerState.track.durationSeconds, DEFAULT_CROSSFADE_SECONDS);
+  }, [pendingIncoming, playerState.track.durationSeconds]);
 
   // The preview's timeline is relative to the fade start (t=0). While a
   // crossfade is actually in flight, pendingIncoming.positionSeconds IS
@@ -599,109 +544,56 @@ function App() {
   const upNextOpacity = useFadeInOnChange(settledNextKey);
 
   const nowPlayingBar = playerState.currentFileId && (
-    <View style={styles.nowPlaying}>
-      {/* No art thumbnail here - CrossfadeArt below already shows the
-          current track's art at full size (its outgoing side, always
-          rendered once duration is known, opaque whenever nothing's
-          actually crossfading), so a second small copy next to the title
-          would just be the same image twice. */}
-      <Animated.View style={[styles.nowPlayingHeader, { opacity: nowPlayingOpacity }]}>
-        <View style={styles.nowPlayingHeaderText}>
-          <Text style={[styles.nowPlayingName, { color: colors.text }]} numberOfLines={1}>
-            {settledCurrentTrack ? formatTrackTitle(settledCurrentMetadata, settledCurrentTrack) : playerState.currentFileId}
-          </Text>
-        </View>
-      </Animated.View>
-      {/* Text only, deliberately no art thumbnail here - CrossfadeArt below
-          already shows the incoming track's actual art (blended with the
-          outgoing one, always rendered as a preview once duration is known,
-          not just mid-crossfade), so a second copy of the same art would be
-          redundant. */}
-      {settledNextTrack && (
-        <Animated.View style={[styles.upNext, { opacity: upNextOpacity }]}>
-          <Text style={[styles.upNextText, { color: colors.subtleText }]} numberOfLines={1}>
-            Up next: {formatTrackTitle(settledNextMetadata, settledNextTrack)}
-          </Text>
-        </Animated.View>
-      )}
-      {/* Always mounted (not gated on transitionPlan, which goes null
-          during every track's brief loading phase before duration is
-          known) - CrossfadeArt owns persistent state across track changes
-          for its swap/fade animation, and unmounting it mid-transition
-          would cut it short. */}
-      <CrossfadeArt
-        currentTrackKey={outgoingTrack?.fileId ?? null}
-        currentArtUri={outgoingCoverArt}
-        currentGain={outgoingGain}
-        currentProgress={outgoingProgress}
-        nextTrackKey={incomingTrack?.fileId ?? null}
-        nextArtUri={incomingCoverArt}
-        nextGain={incomingGain}
-        nextProgress={incomingProgress}
-      />
-      {playerState.track.status === 'loading' ? (
-        <LoadingBar />
-      ) : (
-        <SeekBar
-          positionSeconds={displayPositionSeconds}
-          durationSeconds={displayDurationSeconds}
-          // Disabled mid-crossfade: seekTo() still only affects the actual
-          // (outgoing) source, which no longer matches what the bar is
-          // showing (the incoming track's position/duration) - a tap here
-          // would compute a fraction against the wrong track's duration.
-          onSeekTo={pendingIncoming ? () => {} : seekTo}
-        />
-      )}
-      <View style={styles.seekTimesRow}>
-        <Text style={[styles.seekTimeText, { color: colors.subtleText }]}>{formatSeconds(displayPositionSeconds)}</Text>
-        <Text style={[styles.seekTimeText, { color: colors.subtleText }]}>{formatSeconds(displayDurationSeconds)}</Text>
-      </View>
-      <View style={styles.playerControlsRow}>
-        <Pressable style={styles.controlButton} onPress={handlePreviousPress}>
-          <Icon path={mdiSkipPrevious} size={20} color="white" />
-        </Pressable>
-        <Pressable style={styles.controlButtonWide} onPress={() => seekBy(-10)}>
-          <Icon path={mdiRewind10} size={22} color="white" />
-        </Pressable>
-        <Pressable style={[styles.controlButton, styles.controlButtonPrimary]} onPress={togglePause}>
-          <Icon path={playerState.track.status === 'playing' ? mdiPause : mdiPlay} size={30} color="white" />
-        </Pressable>
-        <Pressable style={styles.controlButtonWide} onPress={() => seekBy(10)}>
-          <Icon path={mdiFastForward10} size={22} color="white" />
-        </Pressable>
-        <Pressable style={styles.controlButton} onPress={handleNextPress}>
-          <Icon path={mdiSkipNext} size={20} color="white" />
-        </Pressable>
-      </View>
-      <View style={styles.transportRow}>
-        <Pressable style={styles.transportButton} onPress={cycleLoopMode}>
-          <Text style={styles.transportButtonText}>{LOOP_MODE_LABEL[playerState.loopMode]}</Text>
-        </Pressable>
-        <Pressable style={styles.transportButton} onPress={toggleShuffle}>
-          <Text style={styles.transportButtonText}>Shuffle: {playerState.shuffleEnabled ? 'On' : 'Off'}</Text>
-        </Pressable>
-      </View>
-      <View style={styles.transportRow}>
-        <Pressable
-          style={styles.transportButton}
-          onPress={() => adjustCrossfadeSeconds(-1)}
-          disabled={crossfadeSeconds <= MIN_CROSSFADE_SECONDS}
-        >
-          <Text style={styles.transportButtonText}>-1s</Text>
-        </Pressable>
-        <Text style={[styles.transportButtonText, { color: colors.text, minWidth: 100, textAlign: 'center' }]}>
-          Crossfade: {crossfadeSeconds}s
-        </Text>
-        <Pressable
-          style={styles.transportButton}
-          onPress={() => adjustCrossfadeSeconds(1)}
-          disabled={crossfadeSeconds >= MAX_CROSSFADE_SECONDS}
-        >
-          <Text style={styles.transportButtonText}>+1s</Text>
-        </Pressable>
-      </View>
-      <VolumeSlider volume={volume} onChangeVolume={handleVolumeChange} />
-    </View>
+    <NowPlayingBar
+      colors={colors}
+      title={settledCurrentTrack ? formatTrackTitle(settledCurrentMetadata, settledCurrentTrack) : playerState.currentFileId}
+      upNextTitle={settledNextTrack ? formatTrackTitle(settledNextMetadata, settledNextTrack) : null}
+      nowPlayingOpacity={nowPlayingOpacity}
+      upNextOpacity={upNextOpacity}
+      currentTrackKey={outgoingTrack?.fileId ?? null}
+      currentArtUri={outgoingCoverArt}
+      currentGain={outgoingGain}
+      currentProgress={outgoingProgress}
+      nextTrackKey={incomingTrack?.fileId ?? null}
+      nextArtUri={incomingCoverArt}
+      nextGain={incomingGain}
+      nextProgress={incomingProgress}
+      isLoading={playerState.track.status === 'loading'}
+      positionSeconds={displayPositionSeconds}
+      durationSeconds={displayDurationSeconds}
+      // Disabled mid-crossfade: seekTo() still only affects the actual
+      // (outgoing) source, which no longer matches what the bar is showing
+      // (the incoming track's position/duration) - a tap here would compute
+      // a fraction against the wrong track's duration.
+      onSeekTo={pendingIncoming ? () => {} : seekTo}
+      volume={volume}
+      onChangeVolume={handleVolumeChange}
+      controls={
+        <>
+          <View style={styles.playerControlsRow}>
+            <Pressable style={styles.controlButton} onPress={handlePreviousPress}>
+              <Icon path={mdiSkipPrevious} size={20} color="white" />
+            </Pressable>
+            <Pressable style={styles.controlButtonWide} onPress={() => seekBy(-10)}>
+              <Icon path={mdiRewind10} size={22} color="white" />
+            </Pressable>
+            <Pressable style={[styles.controlButton, styles.controlButtonPrimary]} onPress={togglePause}>
+              <Icon path={playerState.track.status === 'playing' ? mdiPause : mdiPlay} size={30} color="white" />
+            </Pressable>
+            <Pressable style={styles.controlButtonWide} onPress={() => seekBy(10)}>
+              <Icon path={mdiFastForward10} size={22} color="white" />
+            </Pressable>
+            <Pressable style={styles.controlButton} onPress={handleNextPress}>
+              <Icon path={mdiSkipNext} size={20} color="white" />
+            </Pressable>
+          </View>
+          <View style={styles.transportRow}>
+            <LoopButton loopMode={playerState.loopMode} onPress={cycleLoopMode} />
+            <ShuffleButton shuffleEnabled={playerState.shuffleEnabled} onPress={toggleShuffle} />
+          </View>
+        </>
+      }
+    />
   );
 
   // Covers the library scan + playback-state restore's own async window -
@@ -712,14 +604,7 @@ function App() {
   if (isRestoring) {
     return (
       <View style={[styles.container, styles.restoringContainer, { backgroundColor: colors.background }]}>
-        <IconLabel
-          path={mdiMusicNote}
-          text="BPMix"
-          color={colors.text}
-          iconSize={28}
-          textStyle={styles.title}
-          containerStyle={styles.titleRow}
-        />
+        <AppTitle color={colors.text} />
       </View>
     );
   }
@@ -749,69 +634,28 @@ function App() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <IconLabel
-        path={mdiMusicNote}
-        text="BPMix"
-        color={colors.text}
-        iconSize={28}
-        textStyle={styles.title}
-        containerStyle={styles.titleRow}
-      />
-      <Pressable style={styles.button} onPress={addFolder}>
-        <IconLabel path={mdiFolderPlus} text="Add Folder" color="white" iconSize={18} textStyle={styles.buttonText} />
-      </Pressable>
-      {!SUPPORTS_DIRECTORY_PICKER && (
-        <Text style={styles.warning}>
-          This browser can't pick local folders. Use the self-hosted Docker server instead to browse a mounted music
-          library -{' '}
-          <a href={SELF_HOSTING_DOCS_URL} target="_blank" rel="noopener noreferrer" style={webLinkStyle}>
-            see the setup guide
-          </a>
-          .
-        </Text>
-      )}
-      {error && <Text style={styles.error}>{error}</Text>}
-      {nowPlayingBar}
-
-      <FlatList
-        style={styles.list}
-        data={rootsWithLibrary}
-        keyExtractor={({ root }) => root.id}
-        renderItem={({ item: { root, playlists, tracksById } }) => (
-          <View style={styles.rootSection}>
-            <View style={styles.rootHeader}>
-              <IconLabel path={mdiFolder} text={root.displayName} color={colors.text} iconSize={18} textStyle={styles.rootName} />
-              <Pressable onPress={() => rescan(root.id)} disabled={busyRootId === root.id}>
-                {busyRootId === root.id ? (
-                  <Text style={styles.rescanLink}>Scanning…</Text>
-                ) : (
-                  <IconLabel path={mdiRefresh} text="Rescan" color="#3b82f6" iconSize={16} textStyle={styles.rescanLink} />
-                )}
-              </Pressable>
-            </View>
-            {playlists.length === 0 && (
-              <Text style={[styles.empty, { color: colors.subtleText }]}>No playlists found yet.</Text>
-            )}
-            {playlists.map((playlist) => (
-              <Pressable
-                key={playlist.id}
-                style={styles.playlist}
-                onPress={() => setScreen({ kind: 'playlist', root, playlist, tracksById })}
-              >
-                <IconLabel
-                  path={mdiPlaylistMusic}
-                  text={playlist.name}
-                  color={colors.text}
-                  iconSize={16}
-                  textStyle={styles.playlistName}
-                />
-                <Text style={[styles.trackCount, { color: colors.subtleText }]}>
-                  {playlist.trackFileIds.length} track(s)
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        )}
+      <LibraryScreen
+        colors={colors}
+        rootsWithLibrary={rootsWithLibrary}
+        busyRootId={busyRootId}
+        onAddFolder={addFolder}
+        onRescan={rescan}
+        onSelectPlaylist={(root, playlist, tracksById) => setScreen({ kind: 'playlist', root, playlist, tracksById })}
+        error={error}
+        nowPlayingBar={nowPlayingBar}
+        listStyle={styles.list}
+        bannerContent={
+          !SUPPORTS_DIRECTORY_PICKER && (
+            <Text style={styles.warning}>
+              This browser can't pick local folders. Use the self-hosted Docker server instead to browse a mounted music
+              library -{' '}
+              <a href={SELF_HOSTING_DOCS_URL} target="_blank" rel="noopener noreferrer" style={webLinkStyle}>
+                see the setup guide
+              </a>
+              .
+            </Text>
+          )
+        }
       />
     </View>
   );
@@ -833,23 +677,6 @@ const styles = StyleSheet.create({
   restoringContainer: {
     justifyContent: 'center',
     opacity: 0.8,
-  },
-  titleRow: {
-    marginBottom: 16,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: '700',
-  },
-  button: {
-    backgroundColor: '#3b82f6',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  buttonText: {
-    color: 'white',
-    fontWeight: '600',
   },
   error: {
     color: '#dc2626',
@@ -873,62 +700,14 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
   },
-  nowPlaying: {
-    marginTop: 16,
-    width: '100%',
-    maxWidth: 480,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 8,
-    backgroundColor: 'rgba(59, 130, 246, 0.1)',
-  },
-  nowPlayingHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  nowPlayingHeaderText: {
-    flex: 1,
-    minWidth: 0,
-  },
-  upNext: {
-    marginTop: 8,
-  },
-  upNextText: {
-    fontSize: 12,
-  },
-  nowPlayingName: {
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  seekTimesRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 4,
-  },
-  seekTimeText: {
-    fontSize: 12,
-  },
   transportRow: {
     flexDirection: 'row',
     gap: 8,
     marginTop: 8,
   },
-  transportButton: {
-    backgroundColor: '#3b82f6',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-  },
-  transportButtonText: {
-    color: 'white',
-    fontWeight: '600',
-    fontSize: 12,
-  },
   // The primary play/pause/seek/skip row, styled like a real player's
   // transport bar: big circular icon buttons, evenly spaced, with
-  // play/pause noticeably larger and centered - easier to tap accurately
-  // on mobile than the small text-label buttons every other row still uses.
+  // play/pause noticeably larger and centered.
   playerControlsRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -959,42 +738,9 @@ const styles = StyleSheet.create({
     borderRadius: 36,
     backgroundColor: '#2563eb',
   },
+  // Merged onto LibraryScreen's own base list style - see its listStyle prop's doc.
   list: {
     flex: 1,
-    marginTop: 24,
-    width: '100%',
-    maxWidth: 480,
-  },
-  rootSection: {
-    marginBottom: 20,
-    paddingHorizontal: 16,
-  },
-  rootHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  rootName: {
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  rescanLink: {
-    color: '#3b82f6',
-  },
-  empty: {
-    opacity: 0.6,
-    marginTop: 4,
-  },
-  playlist: {
-    marginTop: 8,
-    paddingLeft: 8,
-  },
-  playlistName: {
-    fontSize: 15,
-  },
-  trackCount: {
-    fontSize: 12,
-    opacity: 0.6,
   },
 });
 
