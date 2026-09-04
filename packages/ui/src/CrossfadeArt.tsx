@@ -35,6 +35,13 @@ export const CROSSFADE_ART_TRANSITION_MS = 450;
 const LABEL_FRACTION = 0.38;
 const HOLE_FRACTION = 0.09;
 const GROOVE_RING_COUNT = 3;
+/** How long the needle takes to lift off/drop onto a disc when that slot's audibility crosses the audible/silent boundary. */
+const TONEARM_MOVE_MS = 220;
+/** Rotation (pivoting at its own top-right corner, arm body extending left from there) with the needle down, swung onto the disc. */
+const TONEARM_DOWN_DEG = -46;
+/** Rotation with the needle lifted clear of the disc - still angled toward it (reads as "parked over this slot, paused") rather than swung all the way back to resting flat. Small - there's very little clearance between the disc's top edge and the title/"up next" text sitting just above it, so the lifted position can't rise far before it'd overlap that text. */
+const TONEARM_UP_DEG = 3;
+const TONEARM_ARM_LENGTH_FRACTION = 0.34;
 /** Spin rate is rounded to this granularity before restarting the loop animation - restarting on every ~200ms poll tick's tiny gain fluctuation would look jittery; only a genuinely audible speed change (mostly during an actual crossfade) should visibly re-time it. */
 const RATE_BUCKET = 0.2;
 /** How many full turns to schedule per animation leg - just needs to be long enough that a rate-bucket change (or a lap completing) is very unlikely to still be running the same leg by the time the next one's scheduled; each leg's actual duration still scales with the current rate. */
@@ -147,6 +154,38 @@ function VinylDisc({
       <View style={[styles.layer, styles.label, centeredCircleStyle(size, size * LABEL_FRACTION)]} />
       <View style={[styles.layer, styles.hole, centeredCircleStyle(size, size * HOLE_FRACTION)]} />
     </Animated.View>
+  );
+}
+
+/**
+ * The needle/tonearm resting over a slot - one per slot (current, next),
+ * NOT one per VinylDisc instance, so it doesn't spin with the record and
+ * doesn't multiply into several arms while outgoing/incoming ghost discs
+ * are mounted mid-transition. Pivots at its own top-right corner, flush
+ * with the disc's edge - there's very little vertical clearance above the
+ * disc (the title/"up next" text sits right there), so the mount can't
+ * float above it the way a real tonearm's base would - and swings down
+ * onto the disc when `down` is true, lifting clear (but staying angled
+ * toward the slot, like a parked player rather than one swung fully away)
+ * when false.
+ */
+function Tonearm({ down, size }: { down: boolean; size: number }) {
+  const lift = useRef(new Animated.Value(down ? 0 : 1)).current;
+  useEffect(() => {
+    Animated.timing(lift, { toValue: down ? 0 : 1, duration: TONEARM_MOVE_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+  }, [down, lift]);
+  // Positive rotate() here swings the (left-extending, right-anchored) arm
+  // UP, not down - counterintuitive but confirmed on-device - hence
+  // TONEARM_DOWN_DEG being the negative one of the pair.
+  const rotate = lift.interpolate({ inputRange: [0, 1], outputRange: [`${TONEARM_DOWN_DEG}deg`, `${TONEARM_UP_DEG}deg`] });
+  const armLength = size * TONEARM_ARM_LENGTH_FRACTION;
+  return (
+    <View style={styles.tonearmMount} pointerEvents="none">
+      <View style={styles.tonearmPivot} />
+      <Animated.View style={[styles.tonearmArm, { width: armLength, transform: [{ rotate }] }]}>
+        <View style={styles.tonearmNeedle} />
+      </Animated.View>
+    </View>
   );
 }
 
@@ -304,9 +343,11 @@ export function CrossfadeArt({ currentTrackKey, currentArtUri, currentGain, next
         {!transitioning && <VinylDisc artUri={displayed.currentArt} rate={currentGain} size={size} />}
         {outgoing && <VinylDisc artUri={outgoing.artUri} rate={1} size={size} opacity={outgoingOpacity} />}
         {incoming && <VinylDisc artUri={incoming.artUri} rate={currentGain} size={size} opacity={incomingOpacity} />}
+        <Tonearm down={currentGain > 0} size={size} />
       </View>
       <View style={[styles.slot, boxStyle, { left: size + GAP }]}>
         <VinylDisc artUri={displayed.nextArt} rate={nextGain} size={size} opacity={nextOpacity} translateX={slideX} />
+        <Tonearm down={nextGain > 0} size={size} />
       </View>
     </View>
   );
@@ -341,5 +382,42 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.4)',
+  },
+  tonearmMount: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    width: 1,
+    height: 1,
+  },
+  tonearmPivot: {
+    position: 'absolute',
+    top: -3,
+    left: -3,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#1f2937',
+  },
+  tonearmArm: {
+    position: 'absolute',
+    top: -1.5,
+    right: 0,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: '#374151',
+    // Pivots around its own top-right corner (the mount point above), not
+    // its center - that's what makes the free end sweep an arc onto/off of
+    // the disc instead of rotating in place.
+    transformOrigin: ['100%', '50%', 0],
+  },
+  tonearmNeedle: {
+    position: 'absolute',
+    top: -2,
+    left: -2.5,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#111827',
   },
 });
