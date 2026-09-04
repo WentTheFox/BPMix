@@ -8,6 +8,7 @@
   "scripts": {
     "android": "pnpm --filter @bpmix/mobile android",
     "web": "pnpm --filter @bpmix/web dev",
+    "build": "pnpm --filter @bpmix/web build && pnpm --filter @bpmix/server build",
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm -r --if-present test"
   }

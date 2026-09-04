@@ -45,7 +45,7 @@ import type { DimensionValue } from 'react-native';
 import { Animated, FlatList, InteractionManager, Pressable, StyleSheet, Text, useColorScheme, View } from 'react-native';
 import { createAudioEngine } from './adapters/audioEngine';
 import { createCoverArtResizer } from './adapters/coverArtResizer';
-import { createFileAccess } from './adapters/fileAccess';
+import { createCompositeFileAccess } from './adapters/fileAccess.composite';
 import { createLibraryStore } from './adapters/libraryStore';
 
 const TRANSPORT_THROTTLE_MS = 300;
@@ -56,7 +56,7 @@ const DEFAULT_CROSSFADE_SECONDS = 8;
 const MIN_CROSSFADE_SECONDS = 1;
 const MAX_CROSSFADE_SECONDS = 20;
 
-const fileAccess = createFileAccess();
+const fileAccess = createCompositeFileAccess();
 const libraryStore = createLibraryStore();
 const coverArtResizer = createCoverArtResizer();
 const audioEngine = createAudioEngine(fileAccess);

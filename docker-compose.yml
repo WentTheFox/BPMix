@@ -1,0 +1,11 @@
+# Example: `docker compose up -d --build`, then open http://localhost:8080.
+# Add one bind mount per library folder you want to expose; each becomes a
+# library root named after its subdirectory under /music.
+services:
+  bpmix:
+    build: .
+    ports:
+      - '8080:8080'
+    volumes:
+      - ~/Music:/music/MyLibrary:ro
+    restart: unless-stopped
