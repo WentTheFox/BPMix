@@ -46,21 +46,48 @@ const GROOVE_RING_COUNT = 3;
 /** How long the needle takes to react to a progress/lift change. */
 const TONEARM_MOVE_MS = 220;
 /**
- * Arm length as a fraction of the disc size, and the two rotation angles
- * (pivoting at its own top-right corner, arm body extending left from
- * there) that place the needle tip exactly at progress 0 and 1.
- * Deliberately not independent numbers: with the pivot fixed at the disc's
- * top-right corner, TONEARM_ANGLE_INNER_DEG=-45 and an arm length of
- * size*√0.5 (the pivot-to-disc-center distance) makes the tip land exactly
- * on the disc's center at progress 1. TONEARM_ANGLE_OUTER_DEG is the OTHER
- * angle, on that same arm-length circle, where it crosses the disc's rim -
- * i.e. the two angles are the two points where a single fixed-length
- * swinging arm can reach both "the very edge" and "the very center", not
- * two independently-chosen values.
+ * Arm length as a fraction of the disc size - long enough that, pivoting
+ * at the disc's top-right corner, it can reach all the way to the disc's
+ * center (distance size*√0.5). Kept at exactly that length (not longer)
+ * because TONEARM_ANGLE_OUTER_DEG/TONEARM_ANGLE_INNER_DEG below are
+ * derived FROM it: with a fixed arm length, rotation alone can only reach
+ * the two points where a circle of that radius around the pivot crosses
+ * whatever target circle (the disc's rim, the label's edge) - not any
+ * arbitrary point - so the arm length has to be picked first, and the
+ * angles follow from it, not the other way around.
  */
 const TONEARM_ARM_LENGTH_FRACTION = Math.SQRT1_2;
-const TONEARM_ANGLE_OUTER_DEG = -3.6;
-const TONEARM_ANGLE_INNER_DEG = -45;
+
+/**
+ * Rotation (pivoting at the disc's top-right corner, arm body extending
+ * left from there) that places the needle tip on the circle of the given
+ * radius (as a fraction of disc size, centered on the disc) - the FIRST
+ * such crossing while sweeping in from the outer edge (increasing
+ * rotation magnitude), which is the one that's actually reachable by
+ * continuously turning the arm inward rather than the far side of the
+ * disc. Used for both ends of the needle's travel: radiusFraction=0.5
+ * (the disc's own rim) for progress 0, and LABEL_FRACTION/2 (the label's
+ * edge, where a real record's grooves actually end) for progress 1 - a
+ * physical record's playable surface is only that outer band, not the
+ * whole disc down to the spindle hole.
+ *
+ * Derivation: with the pivot at (1,0) and arm length L=√0.5 (unit disc,
+ * center at (0.5,0.5)), the radical line between the pivot's swept circle
+ * and the target circle of radius r simplifies to y = x - r² (using
+ * L²=0.5). Substituting into the pivot circle and solving the resulting
+ * quadratic for x, the smaller root is the near/first crossing.
+ */
+function tonearmAngleForRadius(radiusFraction: number): number {
+  const r = radiusFraction;
+  const a = 1 + r * r;
+  const b = 0.25 + 0.5 * r ** 4;
+  const x = (a - Math.sqrt(a * a - 4 * b)) / 2;
+  const y = x - r * r;
+  return (Math.atan2(-y, 1 - x) * 180) / Math.PI;
+}
+
+const TONEARM_ANGLE_OUTER_DEG = tonearmAngleForRadius(0.5);
+const TONEARM_ANGLE_INNER_DEG = tonearmAngleForRadius(LABEL_FRACTION / 2);
 /**
  * Lifting is a small upward *translation* of the whole arm+pivot, not a
  * rotation - rotating further "up" to lift would, at a shallow
@@ -206,19 +233,25 @@ function VinylDisc({
   }, [artUri, artOpacity]);
   // Groove rings sit between the label and the disc's outer edge, evenly
   // spaced - purely decorative, drawn as plain bordered circles rather than
-  // an actual radial texture.
+  // an actual radial texture. This is also the record's actual playable
+  // surface (see tonearmAngleForRadius's doc) - a real record has no art
+  // printed on the vinyl itself out here, just grooves over plain black
+  // vinyl, so the art only appears on the label (below) instead of behind
+  // these rings.
   const grooveRadii = Array.from({ length: GROOVE_RING_COUNT }, (_, i) => {
     const t = (i + 1) / (GROOVE_RING_COUNT + 1);
     return size * LABEL_FRACTION + (size - size * LABEL_FRACTION) * t;
   });
+  const labelCircleStyle = centeredCircleStyle(size, size * LABEL_FRACTION);
   return (
     <Animated.View style={[styles.layer, boxStyle, { opacity, transform: [{ translateX: translateX ?? 0 }, { rotate: spin }] }]}>
-      <View style={[styles.layer, styles.placeholder, boxStyle]} />
-      {artUri && <Animated.Image source={{ uri: artUri }} style={[styles.layer, boxStyle, { opacity: artOpacity }]} />}
+      <View style={[styles.layer, styles.vinylBody, boxStyle]} />
       {grooveRadii.map((diameter, i) => (
         <View key={i} style={[styles.layer, styles.groove, centeredCircleStyle(size, diameter)]} />
       ))}
-      <View style={[styles.layer, styles.label, centeredCircleStyle(size, size * LABEL_FRACTION)]} />
+      <View style={[styles.layer, styles.labelBase, labelCircleStyle]} />
+      {artUri && <Animated.Image source={{ uri: artUri }} style={[styles.layer, labelCircleStyle, { opacity: artOpacity }]} />}
+      <View style={[styles.layer, styles.labelRim, labelCircleStyle]} />
       <View style={[styles.layer, styles.hole, centeredCircleStyle(size, size * HOLE_FRACTION)]} />
     </Animated.View>
   );
@@ -485,11 +518,12 @@ export function CrossfadeArt({
         {!transitioning && <VinylDisc artUri={displayed.currentArt} rate={currentGain} size={size} />}
         {outgoing && <VinylDisc artUri={outgoing.artUri} rate={1} size={size} opacity={outgoingOpacity} />}
         {incoming && <VinylDisc artUri={incoming.artUri} rate={currentGain} size={size} opacity={incomingOpacity} />}
-        <Tonearm down={currentGain > 0} progress={currentProgress} size={size} />
+        {/* Forced up (`!transitioning &&`) for the swap/fade's whole duration, not just while a disc is actually mid-slide - the needle has to be clear before a disc starts moving under it, not just while it's moving. */}
+        <Tonearm down={!transitioning && currentGain > 0} progress={currentProgress} size={size} />
       </View>
       <View style={[styles.slot, boxStyle, { left: discsOffset + size + GAP }]}>
         <VinylDisc artUri={displayed.nextArt} rate={nextGain} size={size} opacity={nextOpacity} translateX={slideX} />
-        <Tonearm down={nextGain > 0} progress={nextProgress} size={size} />
+        <Tonearm down={!transitioning && nextGain > 0} progress={nextProgress} size={size} />
       </View>
       <VuMeter gain={nextGain} audioLevel={nextAudioLevel} size={size} side="right" />
     </View>
@@ -510,16 +544,30 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
   },
-  placeholder: {
-    backgroundColor: 'rgba(128,128,128,0.15)',
+  // Plain black vinyl - the disc's actual base color, visible everywhere
+  // outside the label (the grooved area has no art on a real record).
+  vinylBody: {
+    backgroundColor: '#161616',
   },
   groove: {
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.15)',
+    borderColor: 'rgba(255,255,255,0.08)',
   },
-  label: {
-    backgroundColor: 'rgba(0,0,0,0.35)',
+  // Sits under the art (which is cropped to this same circle) so a track
+  // with no art yet still shows a plain label instead of bare vinyl body
+  // poking through the label's own footprint.
+  labelBase: {
+    backgroundColor: '#2a2a2a',
+  },
+  // A thin ring on top of the art marking the label's edge, like a real
+  // paper label's visible border against the vinyl - a plain fill here
+  // (like the old design) would have hidden the art underneath instead of
+  // just framing it.
+  labelRim: {
+    backgroundColor: 'transparent',
+    borderWidth: 1.5,
+    borderColor: 'rgba(0,0,0,0.5)',
   },
   hole: {
     backgroundColor: '#000',
