@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { FileAccess, FileRef, GrantedRoot, DirectoryEntry } from '../file-access/types';
 import type { AnalysisResult, LibraryStore, PlaybackState, PlaylistRecord, TrackRecord } from '../library-store/types';
-import type { TrackMetadata } from './types';
+import type { CoverArtBytes, TrackMetadata } from './types';
 import type { CoverArtResizer } from './coverArtResizer';
+import { encodeBase64 } from './base64';
 import { COVER_ART_MAX_DIMENSION_PX, ensureTrackMetadata, isMetadataFresh, METADATA_PARSER_VERSION } from './ensureMetadata';
 
 class FakeLibraryStore implements LibraryStore {
@@ -30,11 +31,12 @@ class FakeLibraryStore implements LibraryStore {
   async getCoverArt(fileId: string): Promise<string | null> {
     return this.coverArt.get(fileId) ?? null;
   }
-  async putCoverArt(fileId: string, dataUri: string | null): Promise<void> {
-    if (dataUri === null) {
+  // Mimics a real adapter's own encoding step (see e.g. libraryStore.android.ts) - putCoverArt takes raw bytes, not a pre-encoded string.
+  async putCoverArt(fileId: string, art: CoverArtBytes | null): Promise<void> {
+    if (art === null) {
       this.coverArt.delete(fileId);
     } else {
-      this.coverArt.set(fileId, dataUri);
+      this.coverArt.set(fileId, `data:${art.mimeType};base64,${encodeBase64(art.data)}`);
     }
   }
   async getPlaybackState(): Promise<PlaybackState | null> {

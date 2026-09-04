@@ -1,8 +1,9 @@
-import { trackDisplayName, METADATA_PARSER_VERSION, type LibraryStore, type TrackRecord } from '@bpmix/core';
+import { isMetadataCurrent, trackDisplayName, type LibraryStore, type TrackRecord } from '@bpmix/core';
 import { mdiPause, mdiPlay } from '@mdi/js';
 import { memo, useEffect, useRef } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Icon } from './Icon';
+import { Skeleton } from './Skeleton';
 import { useCoverArt } from './useCoverArt';
 import { useTrackMetadata } from './useTrackMetadata';
 
@@ -47,7 +48,13 @@ export const TrackRow = memo(function TrackRow({ track, isCurrent, isPlaying, te
   // Not just metadata !== null - useTrackMetadata can display a still-stale
   // (older parserVersion) result immediately while it keeps retrying, and
   // that stale snapshot may predate cover art existing at all.
-  const coverArt = useCoverArt(libraryStore, track.fileId, metadata?.parserVersion === METADATA_PARSER_VERSION);
+  const metadataCurrent = isMetadataCurrent(metadata);
+  const coverArt = useCoverArt(libraryStore, track.fileId, metadataCurrent);
+  // True only while genuinely still waiting on the scan to reach this
+  // track - once metadata is current we know for certain whether there's
+  // art or not, so a still-shimmering placeholder past that point would be
+  // lying about there being more to load.
+  const artLoading = !metadataCurrent;
 
   // Cross-dissolves from the placeholder to the art once it loads, rather
   // than popping in - the placeholder stays underneath throughout (never
@@ -68,7 +75,7 @@ export const TrackRow = memo(function TrackRow({ track, isCurrent, isPlaying, te
     <Pressable style={styles.trackRow} onPress={() => onPress(track)}>
       <View style={styles.trackRowContent}>
         <View style={styles.art}>
-          <View style={[styles.art, styles.artPlaceholder]} />
+          {artLoading ? <Skeleton style={styles.art} /> : <View style={[styles.art, styles.artPlaceholder]} />}
           {coverArt && <Animated.Image source={{ uri: coverArt }} style={[styles.art, styles.artOverlay, { opacity: artOpacity }]} />}
           {isCurrent && (
             <View style={[styles.art, styles.artOverlay, styles.artCurrentTint]}>
@@ -80,10 +87,12 @@ export const TrackRow = memo(function TrackRow({ track, isCurrent, isPlaying, te
           <Text style={[styles.trackTitle, { color: isCurrent ? '#3b82f6' : textColor }]} numberOfLines={1}>
             {title}
           </Text>
-          {artist && (
+          {artist ? (
             <Text style={[styles.trackArtist, { color: textColor }]} numberOfLines={1}>
               {artist}
             </Text>
+          ) : (
+            artLoading && <Skeleton style={styles.artistSkeleton} />
           )}
         </View>
       </View>
@@ -131,5 +140,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     opacity: 0.7,
     marginTop: 1,
+  },
+  artistSkeleton: {
+    width: '40%',
+    height: 10,
+    marginTop: 4,
   },
 });

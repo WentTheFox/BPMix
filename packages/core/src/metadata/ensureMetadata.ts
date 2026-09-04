@@ -1,9 +1,8 @@
 import type { FileAccess, FileRef } from '../file-access/types';
 import type { LibraryStore } from '../library-store/types';
-import { encodeBase64 } from './base64';
 import type { CoverArtResizer } from './coverArtResizer';
 import { readTags } from './readTags';
-import type { TrackMetadata } from './types';
+import type { CoverArtBytes, TrackMetadata } from './types';
 
 /** Bumped whenever readTags' behavior changes, so already-scanned files get re-read instead of keeping a stale result forever - same role as ANALYSIS_ALGORITHM_VERSION. (v2: also extracts cover art. v3: downscales/cuts off oversized art instead of storing it verbatim - a bump here is what gets already-v2-scanned tracks' oversized art reprocessed, not just newly-scanned ones.) */
 export const METADATA_PARSER_VERSION = 3;
@@ -57,11 +56,13 @@ export function isMetadataCurrent(metadata: TrackMetadata | null): boolean {
  * avoid the overhead when the size cutoff alone will pass it through
  * untouched anyway), falls back to the raw bytes if there's no resizer or
  * it declines, and finally drops anything still over MAX_COVER_ART_BYTES.
+ * Returns raw bytes, not an encoded string - it's up to each LibraryStore
+ * adapter how to persist/serve them (see LibraryStore.putCoverArt's doc).
  */
-async function encodeCoverArt(
-  coverArt: { mimeType: string; data: Uint8Array } | null,
+async function resolveCoverArt(
+  coverArt: CoverArtBytes | null,
   resizer: CoverArtResizer | undefined,
-): Promise<string | null> {
+): Promise<CoverArtBytes | null> {
   if (!coverArt) return null;
   let { mimeType, data } = coverArt;
   if (resizer && data.length > MAX_COVER_ART_BYTES) {
@@ -72,7 +73,7 @@ async function encodeCoverArt(
     }
   }
   if (data.length > MAX_COVER_ART_BYTES) return null;
-  return `data:${mimeType};base64,${encodeBase64(data)}`;
+  return { mimeType, data };
 }
 
 /**
@@ -83,7 +84,7 @@ async function encodeCoverArt(
  * without re-reading the file every time), and persists it.
  *
  * `resizer`, when given, downscales oversized embedded art before storing
- * it - see encodeCoverArt.
+ * it - see resolveCoverArt.
  */
 export async function ensureTrackMetadata(
   store: LibraryStore,
@@ -109,6 +110,6 @@ export async function ensureTrackMetadata(
   await store.putMetadata(result);
   // Always written, even when null - clears stale art from a prior scan if
   // the file changed and no longer has any (or never did).
-  await store.putCoverArt(ref.id, await encodeCoverArt(tags?.coverArt ?? null, resizer));
+  await store.putCoverArt(ref.id, await resolveCoverArt(tags?.coverArt ?? null, resizer));
   return result;
 }

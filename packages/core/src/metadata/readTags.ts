@@ -9,13 +9,14 @@
 // those two readers (browserify -i), so it only needs the ArrayFileReader
 // path this module actually uses.
 import { Reader, type PictureType } from 'jsmediatags/dist/jsmediatags.min.js';
+import type { CoverArtBytes } from './types';
 
 export interface ParsedTags {
   title: string | null;
   artists: string[];
   album: string | null;
-  /** Raw, un-resized, un-encoded - see ensureTrackMetadata for the resize/size-cutoff/data-URI-encoding pipeline downstream of this. */
-  coverArt: { mimeType: string; data: Uint8Array } | null;
+  /** Raw, un-resized - see ensureTrackMetadata for the resize/size-cutoff/storage pipeline downstream of this. */
+  coverArt: CoverArtBytes | null;
 }
 
 /** Splits a multi-artist tag value into individual names: ID3v2.4 separates multiple TPE1 values with NUL, v2.3 conventionally uses "/". */

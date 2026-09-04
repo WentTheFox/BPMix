@@ -1,4 +1,4 @@
-import type { TrackMetadata } from '../metadata/types';
+import type { CoverArtBytes, TrackMetadata } from '../metadata/types';
 
 export interface TrackRecord {
   /** Matches FileRef.id. */
@@ -59,10 +59,19 @@ export interface LibraryStore {
   getMetadata(fileId: string): Promise<TrackMetadata | null>;
   putMetadata(result: TrackMetadata): Promise<void>;
 
-  /** The cover art data URI extracted alongside a track's metadata (see ensureTrackMetadata) - null when the file has none, or hasn't been scanned yet (indistinguishable here; see useCoverArt for how the UI tells them apart). */
+  /**
+   * A URI ready to hand straight to an <Image source={{uri}}/> for the
+   * cover art extracted alongside a track's metadata (see
+   * ensureTrackMetadata) - null when the file has none, or hasn't been
+   * scanned yet (indistinguishable here; see useCoverArt for how the UI
+   * tells them apart). What kind of URI this actually is is up to the
+   * adapter: a data: URI (Android/Windows, whose storage is text-based
+   * anyway) or a blob: object URL (web, backed by a real Blob in
+   * IndexedDB rather than a base64 string - cheaper to store and decode).
+   */
   getCoverArt(fileId: string): Promise<string | null>;
-  /** `dataUri: null` clears any previously stored art (e.g. the file changed and no longer has any). */
-  putCoverArt(fileId: string, dataUri: string | null): Promise<void>;
+  /** `art: null` clears any previously stored art (e.g. the file changed and no longer has any). Raw bytes, not a pre-encoded string - each adapter decides its own storage/URI representation (see getCoverArt). */
+  putCoverArt(fileId: string, art: CoverArtBytes | null): Promise<void>;
 
   getPlaybackState(): Promise<PlaybackState | null>;
   putPlaybackState(state: PlaybackState): Promise<void>;

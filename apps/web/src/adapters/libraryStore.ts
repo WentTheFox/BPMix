@@ -1,8 +1,12 @@
-import type { AnalysisResult, LibraryStore, PlaybackState, PlaylistRecord, TrackMetadata, TrackRecord } from '@bpmix/core';
+import type { AnalysisResult, CoverArtBytes, LibraryStore, PlaybackState, PlaylistRecord, TrackMetadata, TrackRecord } from '@bpmix/core';
 import { idbDelete, idbGet, idbGetAll, idbPut, openDb } from './indexedDb';
 
 const DB_NAME = 'bpmix-library';
-const DB_VERSION = 3;
+// v4: coverArt now stores a real Blob instead of a base64 data URI string
+// (see putCoverArt/getCoverArt) - the object store is dropped and
+// recreated below rather than migrated, since art is fully re-derivable
+// by rescanning and the two versions' values aren't even the same type.
+const DB_VERSION = 4;
 const TRACKS_STORE = 'tracks';
 const PLAYLISTS_STORE = 'playlists';
 const ANALYSIS_STORE = 'analysis';
@@ -25,10 +29,14 @@ function getDb(): Promise<IDBDatabase> {
     if (!db.objectStoreNames.contains(METADATA_STORE)) {
       db.createObjectStore(METADATA_STORE, { keyPath: 'fileId' });
     }
-    if (!db.objectStoreNames.contains(COVER_ART_STORE)) {
-      // Keyed explicitly (not via keyPath) - the value is just the data URI string, not an object with a fileId field.
-      db.createObjectStore(COVER_ART_STORE);
+    // Unconditionally dropped and recreated (not just created if absent,
+    // like the other stores) - see DB_VERSION's doc comment for why an
+    // older version's coverArt store can't just be reused as-is.
+    if (db.objectStoreNames.contains(COVER_ART_STORE)) {
+      db.deleteObjectStore(COVER_ART_STORE);
     }
+    // Keyed explicitly (not via keyPath) - the value is a Blob, not an object with a fileId field.
+    db.createObjectStore(COVER_ART_STORE);
     if (!db.objectStoreNames.contains(PLAYBACK_STATE_STORE)) {
       db.createObjectStore(PLAYBACK_STATE_STORE);
     }
@@ -83,17 +91,28 @@ export function createLibraryStore(): LibraryStore {
       await idbPut(db, METADATA_STORE, result);
     },
 
+    // A real Blob, not a base64 data URI string - IndexedDB stores binary
+    // values natively, so there's no need to pay the ~33% base64 size
+    // overhead (or its CPU decode cost) that Android/Windows accept for
+    // lack of any better storage primitive there (see their own
+    // putCoverArt). URL.createObjectURL gives back a URI just as usable by
+    // <Image source={{uri}}/> as a data: URI would be. That object URL is
+    // intentionally never revoked - useCoverArt's cache resolves each
+    // fileId at most once per session and holds onto the URL for as long
+    // as the page lives, so there's nothing to revoke until the whole page
+    // (and the URL along with it) goes away anyway.
     async getCoverArt(fileId: string): Promise<string | null> {
       const db = await getDb();
-      const result = await idbGet<string>(db, COVER_ART_STORE, fileId);
-      return result ?? null;
+      const blob = await idbGet<Blob>(db, COVER_ART_STORE, fileId);
+      return blob ? URL.createObjectURL(blob) : null;
     },
-    async putCoverArt(fileId: string, dataUri: string | null): Promise<void> {
+    async putCoverArt(fileId: string, art: CoverArtBytes | null): Promise<void> {
       const db = await getDb();
-      if (dataUri === null) {
+      if (art === null) {
         await idbDelete(db, COVER_ART_STORE, fileId);
       } else {
-        await idbPut(db, COVER_ART_STORE, dataUri, fileId);
+        const blob = new Blob([art.data as Uint8Array<ArrayBuffer>], { type: art.mimeType });
+        await idbPut(db, COVER_ART_STORE, blob, fileId);
       }
     },
 

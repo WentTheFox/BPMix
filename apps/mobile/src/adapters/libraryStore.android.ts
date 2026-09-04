@@ -1,4 +1,13 @@
-import type { AnalysisResult, LibraryStore, PlaybackState, PlaylistRecord, TrackMetadata, TrackRecord } from '@bpmix/core';
+import {
+  encodeBase64,
+  type AnalysisResult,
+  type CoverArtBytes,
+  type LibraryStore,
+  type PlaybackState,
+  type PlaylistRecord,
+  type TrackMetadata,
+  type TrackRecord,
+} from '@bpmix/core';
 import SQLite, { type SQLError, type SQLResultSet, type SQLTransaction, type WebsqlDatabase } from 'react-native-sqlite-2';
 
 const db: WebsqlDatabase = SQLite.openDatabase('bpmix.db', '1.0', '', 1);
@@ -250,11 +259,16 @@ export function createLibraryStore(): LibraryStore {
       return rows[0]?.dataUri ?? null;
     },
 
-    async putCoverArt(fileId: string, dataUri: string | null): Promise<void> {
+    // Storage here is TEXT-only (react-native-sqlite-2 is a WebSQL polyfill
+    // - no real BLOB parameter binding), so this encodes to a data: URI
+    // itself - unlike web, which can store the raw bytes directly and skip
+    // base64 entirely (see libraryStore.ts's putCoverArt).
+    async putCoverArt(fileId: string, art: CoverArtBytes | null): Promise<void> {
       await ready;
-      if (dataUri === null) {
+      if (art === null) {
         await run('DELETE FROM cover_art WHERE fileId = ?', [fileId]);
       } else {
+        const dataUri = `data:${art.mimeType};base64,${encodeBase64(art.data)}`;
         await run(
           `INSERT INTO cover_art (fileId, dataUri) VALUES (?, ?)
            ON CONFLICT(fileId) DO UPDATE SET dataUri=excluded.dataUri`,

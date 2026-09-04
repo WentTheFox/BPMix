@@ -1,3 +1,9 @@
+/** Raw cover art bytes, not yet turned into any particular storage/display representation - each platform's LibraryStore adapter decides how to persist this and what kind of URI to hand back from getCoverArt (a data: URI on Android/Windows, a blob: object URL on web - see libraryStore.ts's putCoverArt/getCoverArt). */
+export interface CoverArtBytes {
+  mimeType: string;
+  data: Uint8Array;
+}
+
 /** ID3 (or other tag format) metadata read out of an audio file, tied to the file it was read from. */
 export interface TrackMetadata {
   fileId: string;

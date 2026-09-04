@@ -1,10 +1,12 @@
-import type {
-  AnalysisResult,
-  LibraryStore,
-  PlaybackState,
-  PlaylistRecord,
-  TrackMetadata,
-  TrackRecord,
+import {
+  encodeBase64,
+  type AnalysisResult,
+  type CoverArtBytes,
+  type LibraryStore,
+  type PlaybackState,
+  type PlaylistRecord,
+  type TrackMetadata,
+  type TrackRecord,
 } from '@bpmix/core';
 import { NativeModules } from 'react-native';
 
@@ -57,55 +59,77 @@ function emptyData(): StoredData {
 }
 
 export function createLibraryStore(): LibraryStore {
-  // Loaded lazily and cached; every mutating call writes the whole file
-  // back through. Simple - not designed for a library large enough that
-  // whole-file rewrites become a bottleneck.
+  // Reads are cheap to cache in memory (a small local file), but a mutation
+  // must NOT write that stale cached copy back out - see mutate()'s doc for
+  // why. The cache still gets kept up to date on every mutation (see
+  // mutate()), it's just never the thing actually written.
   let loaded: Promise<StoredData> | null = null;
+
+  async function readFresh(): Promise<StoredData> {
+    const text = await native.readText(STORAGE_FILE);
+    if (!text) {
+      return emptyData();
+    }
+    try {
+      const parsed = JSON.parse(text) as StoredData;
+      parsed.metadata ??= {}; // absent in files written before metadata scanning existed
+      return parsed;
+    } catch {
+      return emptyData();
+    }
+  }
 
   async function load(): Promise<StoredData> {
     if (!loaded) {
-      loaded = (async () => {
-        const text = await native.readText(STORAGE_FILE);
-        if (!text) {
-          return emptyData();
-        }
-        try {
-          const parsed = JSON.parse(text) as StoredData;
-          parsed.metadata ??= {}; // absent in files written before metadata scanning existed
-          return parsed;
-        } catch {
-          return emptyData();
-        }
-      })();
+      loaded = readFresh();
     }
     return loaded;
   }
 
-  async function save(data: StoredData): Promise<void> {
+  /**
+   * Re-reads the file fresh and applies `apply` to *that* copy, rather than
+   * mutating and re-saving whatever load() has cached - this module is a
+   * `const` at the top of App.tsx, so every Fast Refresh reload (edit any
+   * file it imports, even transitively) creates a brand new instance of
+   * this whole store with its own fresh `loaded` cache, while the OLD
+   * instance's in-flight async work (in practice, scanLibraryMetadata's
+   * background loop, which for a large library can still be running
+   * minutes later, well past several intervening reloads) keeps right on
+   * calling this. If that old instance's writes had gone on saving ITS
+   * OWN long-cached (now stale) snapshot, each one would silently wipe out
+   * everything written since - including, in practice, a playlist a rescan
+   * had just added on the newer instance. Reading fresh right before every
+   * write closes that window: even a very stale caller's write only ever
+   * layers its own specific change onto whatever is *currently* on disk.
+   */
+  async function mutate(apply: (data: StoredData) => void): Promise<void> {
+    const data = await readFresh();
+    apply(data);
     await native.writeText(STORAGE_FILE, JSON.stringify(data));
+    loaded = Promise.resolve(data); // keep the read cache consistent with what's now on disk
   }
 
   return {
     async upsertTrack(track: TrackRecord): Promise<void> {
-      const data = await load();
-      const index = data.tracks.findIndex((t) => t.fileId === track.fileId);
-      if (index === -1) {
-        data.tracks.push(track);
-      } else {
-        data.tracks[index] = track;
-      }
-      await save(data);
+      await mutate((data) => {
+        const index = data.tracks.findIndex((t) => t.fileId === track.fileId);
+        if (index === -1) {
+          data.tracks.push(track);
+        } else {
+          data.tracks[index] = track;
+        }
+      });
     },
 
     async upsertPlaylist(playlist: PlaylistRecord): Promise<void> {
-      const data = await load();
-      const index = data.playlists.findIndex((p) => p.id === playlist.id);
-      if (index === -1) {
-        data.playlists.push(playlist);
-      } else {
-        data.playlists[index] = playlist;
-      }
-      await save(data);
+      await mutate((data) => {
+        const index = data.playlists.findIndex((p) => p.id === playlist.id);
+        if (index === -1) {
+          data.playlists.push(playlist);
+        } else {
+          data.playlists[index] = playlist;
+        }
+      });
     },
 
     async listTracks(rootId: string): Promise<TrackRecord[]> {
@@ -124,9 +148,9 @@ export function createLibraryStore(): LibraryStore {
     },
 
     async putAnalysis(result: AnalysisResult): Promise<void> {
-      const data = await load();
-      data.analyses[result.fileId] = result;
-      await save(data);
+      await mutate((data) => {
+        data.analyses[result.fileId] = result;
+      });
     },
 
     async getMetadata(fileId: string): Promise<TrackMetadata | null> {
@@ -135,23 +159,28 @@ export function createLibraryStore(): LibraryStore {
     },
 
     async putMetadata(result: TrackMetadata): Promise<void> {
-      const data = await load();
-      data.metadata[result.fileId] = result;
-      await save(data);
+      await mutate((data) => {
+        data.metadata[result.fileId] = result;
+      });
     },
 
     // Deliberately its own small file per track rather than a field in
-    // StoredData: art is tens to hundreds of KB, and StoredData's save()
-    // rewrites the *entire* library-store.json on every mutation - folding
-    // art in there would make every unrelated write (e.g. a playback
-    // position update) drag the whole library's art along with it.
+    // StoredData: art is tens to hundreds of KB, and mutate() rewrites the
+    // *entire* library-store.json on every mutation - folding art in there
+    // would make every unrelated write (e.g. a playback position update)
+    // drag the whole library's art along with it.
     async getCoverArt(fileId: string): Promise<string | null> {
       const text = await native.readText(coverArtFileName(fileId));
       return text || null;
     },
 
-    async putCoverArt(fileId: string, dataUri: string | null): Promise<void> {
-      await native.writeText(coverArtFileName(fileId), dataUri ?? '');
+    // Storage here is text-only (see the module header comment), so this
+    // encodes to a data: URI itself - unlike web, which can store the raw
+    // bytes directly and skip base64 entirely (see libraryStore.ts's
+    // putCoverArt).
+    async putCoverArt(fileId: string, art: CoverArtBytes | null): Promise<void> {
+      const dataUri = art ? `data:${art.mimeType};base64,${encodeBase64(art.data)}` : '';
+      await native.writeText(coverArtFileName(fileId), dataUri);
     },
 
     async getPlaybackState(): Promise<PlaybackState | null> {
@@ -160,9 +189,9 @@ export function createLibraryStore(): LibraryStore {
     },
 
     async putPlaybackState(state: PlaybackState): Promise<void> {
-      const data = await load();
-      data.playbackState = state;
-      await save(data);
+      await mutate((data) => {
+        data.playbackState = state;
+      });
     },
   };
 }
