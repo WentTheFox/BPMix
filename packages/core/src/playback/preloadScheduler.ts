@@ -28,13 +28,17 @@ const DEEP_SLOT_RETRY_COOLDOWN_MS = 5000;
 
 /**
  * Decides when to start decoding upcoming tracks ahead of when they're
- * needed, per Stage 6. The *nearest* upcoming track gets the plan's
- * explicit retry/backoff sequence (attempt once remainingSeconds crosses
- * each threshold in turn, e.g. 60s/50s/40s/35s remaining); once every
- * threshold is exhausted, onGiveUp fires and that track is left to load
- * cold when actually reached. Deeper lookahead slots (2nd, 3rd track
- * ahead) aren't time-critical, so they're just attempted eagerly as soon
- * as they enter the lookahead window and retried on a fixed cooldown on
+ * needed, per Stage 6. The *nearest* upcoming track is attempted eagerly
+ * the moment it takes that slot (same as the deeper slots below) - a
+ * manual skip can reach it at any point during the current track, not
+ * just near the end, so there's no safe time to defer that first attempt
+ * to. If that attempt fails, retries follow the plan's explicit backoff
+ * sequence (remainingSeconds crossing each threshold in turn, e.g.
+ * 60s/50s/40s/35s remaining) rather than hammering it repeatedly; once
+ * every threshold is exhausted, onGiveUp fires and that track is left to
+ * load cold when actually reached. Deeper lookahead slots (2nd, 3rd track
+ * ahead) aren't as urgent, so they're just attempted eagerly as soon as
+ * they enter the lookahead window and retried on a fixed cooldown on
  * failure, no threshold sequence needed.
  */
 export class PreloadScheduler {
@@ -49,6 +53,7 @@ export class PreloadScheduler {
   private lastNearestFileId: string | null = null;
   private nearestThresholdIndex = 0;
   private nearestGaveUpFor: string | null = null;
+  private nearestAttempted = false;
 
   constructor(options: PreloadSchedulerOptions) {
     this.decode = options.decode;
@@ -90,6 +95,22 @@ export class PreloadScheduler {
     }
   }
 
+  /**
+   * The nearest slot is attempted immediately, the moment a fileId takes
+   * it - NOT gated on remainingSeconds crossing the first threshold, the
+   * way it used to be. That gate made sense for the natural end-of-track
+   * crossfade (there's no rush - it's not needed until close to the end),
+   * but a manual skip can reach this track at any point during the
+   * *current* track, at which point an ungated nearest slot is the only
+   * thing standing between the user and a fully cold decode (file read +
+   * audio decode + native buffer materialization) blocking the UI thread
+   * for multiple seconds right in the middle of the switch animation -
+   * confirmed on-device as a multi-second full freeze, not just the
+   * smaller one-off stall the buffer-materialization fix (see
+   * AudioEngine.prepareBuffer) addressed on its own. The threshold
+   * schedule still governs *retries* after a failed attempt, same backoff
+   * behavior as before, just no longer gating the very first one.
+   */
   private tickNearest(fileId: string, remainingSeconds: number): void {
     // A different track has taken the nearest slot (natural advance, manual
     // skip, or a shuffle re-order) - that track's retry history doesn't
@@ -98,14 +119,24 @@ export class PreloadScheduler {
       this.lastNearestFileId = fileId;
       this.nearestThresholdIndex = 0;
       this.nearestGaveUpFor = null;
+      this.nearestAttempted = false;
     }
 
     if (this.ready.has(fileId) || this.loadingFileIds.has(fileId)) return;
     if (this.nearestGaveUpFor === fileId) return;
 
+    if (!this.nearestAttempted) {
+      this.nearestAttempted = true;
+      this.startNearestAttempt(fileId);
+      return;
+    }
+
     const threshold = this.retryThresholdsSeconds[this.nearestThresholdIndex];
     if (threshold === undefined || remainingSeconds > threshold) return;
+    this.startNearestAttempt(fileId);
+  }
 
+  private startNearestAttempt(fileId: string): void {
     this.loadingFileIds.add(fileId);
     this.decode(fileId)
       .then((decoded) => {

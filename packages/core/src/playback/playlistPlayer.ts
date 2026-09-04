@@ -85,6 +85,23 @@ export class PlaylistPlayer {
    */
   private readonly onAdvance?: () => void;
   private readonly preloadScheduler: PreloadScheduler;
+  /**
+   * Caches resolveGain()'s result per fileId, warmed in the background by
+   * decodeAndNotify() (see its doc) rather than only ever being looked up
+   * live at the moment a track actually starts. resolveGain is normally a
+   * simple indexed lookup, but on a device backed by react-native-sqlite-2
+   * (Android), every query is a full serialized transaction, and a live
+   * lookup made right as a manual skip needs it can queue for *seconds*
+   * behind whatever concurrent analysis-write transactions the preload
+   * scheduler's own decodes are triggering (confirmed on-device: a skip's
+   * resolveGain() call took ~7s in exactly this situation - the actual
+   * cause of the multi-second freeze at track-switch time, not the decode/
+   * buffer-materialization cost prepareBuffer already addresses). Warming
+   * this during preload - well before the value is actually needed - moves
+   * that same queueing delay off the interactive path entirely, same
+   * principle as AudioEngine.prepareBuffer.
+   */
+  private readonly gainCache = new Map<string, number>();
 
   private trackFileIds: string[] = [];
   private order: number[] = [];
@@ -166,6 +183,10 @@ export class PlaylistPlayer {
     // for a cache-miss cold decode it's no worse (createSource would do the
     // identical work moments later regardless).
     this.engine.prepareBuffer?.(decoded);
+    // Warms this.gainCache in the background too - see its doc for why this
+    // (not just the audio buffer) needs to happen ahead of time as well.
+    // Fire-and-forget: nothing here needs to block returning `decoded`.
+    void this.resolveGainFor(fileId);
     try {
       // Fire-and-forget (never awaited here - decoded is returned to the
       // caller, e.g. for playback, immediately below regardless), but an
@@ -560,11 +581,15 @@ export class PlaylistPlayer {
     }
   }
 
-  /** Falls back to 1 (no change) if no resolveGain was given, or it fails - a missing/failed gain lookup shouldn't block playback. */
+  /** Falls back to 1 (no change) if no resolveGain was given, or it fails - a missing/failed gain lookup shouldn't block playback. Cached per fileId (see gainCache's doc) - a resolveGain call that already ran once (typically warmed by decodeAndNotify well ahead of time) never re-queries. */
   private async resolveGainFor(fileId: string): Promise<number> {
+    const cached = this.gainCache.get(fileId);
+    if (cached !== undefined) return cached;
     if (!this.resolveGain) return 1;
     try {
-      return await this.resolveGain(fileId);
+      const gain = await this.resolveGain(fileId);
+      this.gainCache.set(fileId, gain);
+      return gain;
     } catch {
       return 1;
     }

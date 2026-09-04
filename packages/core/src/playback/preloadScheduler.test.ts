@@ -41,14 +41,13 @@ describe('PreloadScheduler', () => {
     vi.useRealTimers();
   });
 
-  it('does not attempt the nearest track until the first retry threshold is crossed', () => {
+  it('attempts the nearest track immediately, not gated by remaining time', () => {
     const decoder = new ControllableDecoder();
     const scheduler = new PreloadScheduler({ decode: decoder.decode });
 
-    scheduler.tick({ remainingSeconds: 61, upcomingFileIds: ['a'] });
-    expect(decoder.calls).toEqual([]);
-
-    scheduler.tick({ remainingSeconds: 60, upcomingFileIds: ['a'] });
+    // Plenty of time left on the current track - a manual skip could still
+    // reach this track at any moment, so there's no safe time to defer to.
+    scheduler.tick({ remainingSeconds: 200, upcomingFileIds: ['a'] });
     expect(decoder.calls).toEqual(['a']);
   });
 
@@ -57,7 +56,9 @@ describe('PreloadScheduler', () => {
     const onGiveUp = vi.fn();
     const scheduler = new PreloadScheduler({ decode: decoder.decode, onGiveUp });
 
-    scheduler.tick({ remainingSeconds: 60, upcomingFileIds: ['a'] });
+    // The first attempt is immediate (ungated) - only retries after a
+    // failure follow the threshold backoff schedule.
+    scheduler.tick({ remainingSeconds: 200, upcomingFileIds: ['a'] });
     expect(decoder.calls).toEqual(['a']);
     decoder.rejectNext();
     await flush();
@@ -114,16 +115,15 @@ describe('PreloadScheduler', () => {
     const decoder = new ControllableDecoder();
     const scheduler = new PreloadScheduler({ decode: decoder.decode });
 
-    scheduler.tick({ remainingSeconds: 60, upcomingFileIds: ['a'] });
+    scheduler.tick({ remainingSeconds: 200, upcomingFileIds: ['a'] });
     decoder.rejectNext();
     await flush();
 
-    // A different track becomes nearest (e.g. manual skip) - its own retry
-    // sequence starts fresh at the first threshold, not wherever 'a' left off.
-    scheduler.tick({ remainingSeconds: 61, upcomingFileIds: ['b'] });
-    expect(decoder.calls).toEqual(['a']); // not yet - 61s hasn't crossed the first threshold for 'b'
-
-    scheduler.tick({ remainingSeconds: 60, upcomingFileIds: ['b'] });
+    // A different track becomes nearest (e.g. manual skip) - attempted
+    // immediately, same as 'a' was, not gated by remaining time; its own
+    // retry sequence (on a further failure) would start fresh at the first
+    // threshold too, not wherever 'a' left off.
+    scheduler.tick({ remainingSeconds: 200, upcomingFileIds: ['b'] });
     expect(decoder.calls).toEqual(['a', 'b']);
   });
 
@@ -131,11 +131,13 @@ describe('PreloadScheduler', () => {
     const decoder = new ControllableDecoder();
     const scheduler = new PreloadScheduler({ decode: decoder.decode });
 
-    // Plenty of time left on the current track - nearest slot isn't due yet,
-    // but a 2nd-lookahead slot should still start eagerly.
+    // Plenty of time left on the current track - the nearest slot ('a') is
+    // attempted eagerly too now (see tickNearest's doc), same as the deep
+    // slot ('b') always was; this test is really about 'b' not needing to
+    // wait for 'a' to be handled first.
     scheduler.tick({ remainingSeconds: 200, upcomingFileIds: ['a', 'b'] });
 
-    expect(decoder.calls).toEqual(['b']);
+    expect(decoder.calls).toEqual(['a', 'b']);
   });
 
   it('retries a failed deep slot after its cooldown, not on every tick', async () => {
@@ -144,16 +146,17 @@ describe('PreloadScheduler', () => {
     const scheduler = new PreloadScheduler({ decode: decoder.decode });
 
     scheduler.tick({ remainingSeconds: 200, upcomingFileIds: ['a', 'b'] });
-    expect(decoder.calls).toEqual(['b']);
-    decoder.rejectNext();
+    expect(decoder.calls).toEqual(['a', 'b']);
+    decoder.resolveNext(); // 'a' (nearest) succeeds - not the focus of this test
+    decoder.rejectNext(); // 'b' (deep) fails
     await vi.advanceTimersByTimeAsync(0);
 
     scheduler.tick({ remainingSeconds: 200, upcomingFileIds: ['a', 'b'] });
-    expect(decoder.calls).toEqual(['b']); // still within cooldown
+    expect(decoder.calls).toEqual(['a', 'b']); // 'b' still within cooldown, 'a' already ready
 
     await vi.advanceTimersByTimeAsync(6000);
     scheduler.tick({ remainingSeconds: 200, upcomingFileIds: ['a', 'b'] });
-    expect(decoder.calls).toEqual(['b', 'b']);
+    expect(decoder.calls).toEqual(['a', 'b', 'b']);
   });
 
   it('drops preloaded/in-progress state for tracks that fall out of the lookahead window', async () => {
@@ -161,7 +164,8 @@ describe('PreloadScheduler', () => {
     const scheduler = new PreloadScheduler({ decode: decoder.decode });
 
     scheduler.tick({ remainingSeconds: 200, upcomingFileIds: ['a', 'b'] });
-    decoder.resolveNext(); // resolves 'b'
+    decoder.resolveNext(); // 'a' (nearest)
+    decoder.resolveNext(); // 'b' (deep)
     await Promise.resolve();
     expect(scheduler.takePreloaded('b')).toBeDefined();
 
