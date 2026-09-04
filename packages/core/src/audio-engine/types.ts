@@ -34,6 +34,19 @@ export interface SourceNode {
   setRate(value: number): void;
   rampRate(ramp: RampSpec): void;
   stop(whenSeconds?: number): void;
+  /**
+   * Optional: current real-time loudness of the decoded signal, tapped
+   * *before* this source's own gain node - so it reflects the music itself
+   * (the raw file's dynamics) rather than whatever fade/crossfade/volume
+   * gain happens to be applied right now, which callers likely already
+   * have (e.g. the UI's own currentGain/nextGain crossfade fraction) and
+   * want to show as a separate signal. Linear RMS amplitude of the most
+   * recent analysis window, roughly [0,1] though rarely near 1 for actual
+   * music - callers map it to a display range themselves. Engines without
+   * a live analyser tap (Windows, currently) simply don't implement this;
+   * callers must treat it as always 0 when absent.
+   */
+  getLevel?(): number;
 }
 
 /** Structurally identical to analysis/analyzeTrack's TrackAnalysis - duplicated here (rather than imported) so audio-engine/types doesn't depend on the analysis module. */

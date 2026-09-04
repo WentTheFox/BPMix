@@ -22,7 +22,6 @@ import {
   useDoublePressHandler,
   useFadeInOnChange,
   usePlaybackPersistence,
-  useTrackAnalysis,
   useTrackMetadata,
   VolumeSlider,
 } from '@bpmix/ui';
@@ -258,6 +257,15 @@ function App() {
     }, 200);
     return () => clearInterval(interval);
   }, [persistPositionIfDue]);
+
+  // Separate, faster poll for CrossfadeArt's VU meters - 200ms (the state
+  // poll above) reads as visibly steppy for something meant to bounce with
+  // the music in real time; position/preload-checking don't need this rate.
+  const [levels, setLevels] = useState({ outgoing: 0, incoming: 0 });
+  useEffect(() => {
+    const interval = setInterval(() => setLevels(playlistPlayer.getLevels()), 80);
+    return () => clearInterval(interval);
+  }, []);
 
   const addFolder = useCallback(async () => {
     setError(null);
@@ -499,10 +507,6 @@ function App() {
   const incomingTrackMetadata = useTrackMetadata(libraryStore, incomingTrack?.fileId ?? null);
   const outgoingCoverArt = useCoverArt(libraryStore, outgoingTrack?.fileId ?? null, isMetadataCurrent(outgoingTrackMetadata));
   const incomingCoverArt = useCoverArt(libraryStore, incomingTrack?.fileId ?? null, isMetadataCurrent(incomingTrackMetadata));
-  // Feeds CrossfadeArt's VU meters - same normalizationGain the player
-  // itself applies via resolveGain above, just re-fetched here for display.
-  const outgoingAnalysis = useTrackAnalysis(libraryStore, outgoingTrack?.fileId ?? null);
-  const incomingAnalysis = useTrackAnalysis(libraryStore, incomingTrack?.fileId ?? null);
   // Same equalPowerGain() call SourceNode.rampGainCurve uses for the real
   // audio fade, sampled at the current progress instead of over a curve -
   // this is what makes the art dissolve at exactly the rate the audio
@@ -533,6 +537,13 @@ function App() {
   const incomingGain = crossfadeFraction == null ? 0 : equalPowerGain(crossfadeFraction, false, fadeDurationSeconds);
   const displayPositionSeconds = pendingIncoming ? pendingIncoming.positionSeconds : playerState.track.positionSeconds;
   const displayDurationSeconds = pendingIncoming ? pendingIncoming.durationSeconds : playerState.track.durationSeconds;
+  // Feeds CrossfadeArt's tonearm needle positions - the outgoing track's
+  // own position/duration regardless of any pending crossfade (it keeps
+  // playing/advancing independently of the incoming preview), and the
+  // incoming track's only once a crossfade is actually bringing it in
+  // (otherwise it hasn't started, so its needle stays parked at the edge).
+  const outgoingProgress = playerState.track.durationSeconds > 0 ? playerState.track.positionSeconds / playerState.track.durationSeconds : 0;
+  const incomingProgress = pendingIncoming && pendingIncoming.durationSeconds > 0 ? pendingIncoming.positionSeconds / pendingIncoming.durationSeconds : 0;
 
   // Title/"up next" text only actually changes CROSSFADE_ART_TRANSITION_MS
   // after outgoingTrack/incomingTrack do, not the instant playback state
@@ -608,11 +619,13 @@ function App() {
         currentTrackKey={outgoingTrack?.fileId ?? null}
         currentArtUri={outgoingCoverArt}
         currentGain={outgoingGain}
-        currentNormalizedGain={outgoingAnalysis?.normalizationGain}
+        currentAudioLevel={levels.outgoing}
+        currentProgress={outgoingProgress}
         nextTrackKey={incomingTrack?.fileId ?? null}
         nextArtUri={incomingCoverArt}
         nextGain={incomingGain}
-        nextNormalizedGain={incomingAnalysis?.normalizationGain}
+        nextAudioLevel={levels.incoming}
+        nextProgress={incomingProgress}
       />
       {playerState.track.status === 'loading' ? (
         <LoadingBar />

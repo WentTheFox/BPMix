@@ -64,8 +64,16 @@ export function createAudioEngine(fileAccess: FileAccess): AudioEngine {
       const buffer = getOrCreateBuffer(context, audio);
       const bufferSource = context.createBufferSource();
       bufferSource.buffer = buffer;
+      // Tapped BEFORE gainNode - see SourceNode.getLevel's doc, this needs
+      // to read the music's own dynamics, not whatever fade/volume gain is
+      // currently applied. A pass-through node (nothing else connects to
+      // it), so its presence doesn't change what's actually heard.
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 1024;
+      const levelBuffer = new Float32Array(analyser.fftSize);
       const gainNode = context.createGain();
-      bufferSource.connect(gainNode);
+      bufferSource.connect(analyser);
+      analyser.connect(gainNode);
       gainNode.connect(context.destination);
 
       // Browsers release a finished one-shot AudioBufferSourceNode on their
@@ -75,6 +83,7 @@ export function createAudioEngine(fileAccess: FileAccess): AudioEngine {
       // required, not just tidy.
       const disconnectNodes = () => {
         bufferSource.disconnect();
+        analyser.disconnect();
         gainNode.disconnect();
       };
 
@@ -123,6 +132,15 @@ export function createAudioEngine(fileAccess: FileAccess): AudioEngine {
           if (effectiveWhen <= context.currentTime) {
             disconnectNodes();
           }
+        },
+        getLevel() {
+          analyser.getFloatTimeDomainData(levelBuffer);
+          let sumSquares = 0;
+          for (let i = 0; i < levelBuffer.length; i++) {
+            const sample = levelBuffer[i] ?? 0;
+            sumSquares += sample * sample;
+          }
+          return Math.sqrt(sumSquares / levelBuffer.length);
         },
       };
 

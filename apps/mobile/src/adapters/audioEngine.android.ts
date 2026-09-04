@@ -71,8 +71,16 @@ export function createAudioEngine(fileAccess: FileAccess): AudioEngine {
       // artifact a naive playbackRate change produces.
       const bufferSource: AudioBufferSourceNode = context.createBufferSource({ pitchCorrection: true });
       bufferSource.buffer = buffer;
+      // Tapped BEFORE gainNode - see SourceNode.getLevel's doc, this needs
+      // to read the music's own dynamics, not whatever fade/volume gain is
+      // currently applied. A pass-through node (nothing else connects to
+      // it), so its presence doesn't change what's actually heard.
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 1024;
+      const levelBuffer = new Float32Array(analyser.fftSize);
       const gainNode = context.createGain();
-      bufferSource.connect(gainNode);
+      bufferSource.connect(analyser);
+      analyser.connect(gainNode);
       gainNode.connect(context.destination);
 
       // A Web-Audio-style graph keeps every connected node alive (a native,
@@ -87,6 +95,11 @@ export function createAudioEngine(fileAccess: FileAccess): AudioEngine {
       const disconnectNodes = () => {
         try {
           bufferSource.disconnect();
+        } catch {
+          // Already disconnected - fine.
+        }
+        try {
+          analyser.disconnect();
         } catch {
           // Already disconnected - fine.
         }
@@ -142,6 +155,15 @@ export function createAudioEngine(fileAccess: FileAccess): AudioEngine {
           if (effectiveWhen <= context.currentTime) {
             disconnectNodes();
           }
+        },
+        getLevel() {
+          analyser.getFloatTimeDomainData(levelBuffer);
+          let sumSquares = 0;
+          for (let i = 0; i < levelBuffer.length; i++) {
+            const sample = levelBuffer[i] ?? 0;
+            sumSquares += sample * sample;
+          }
+          return Math.sqrt(sumSquares / levelBuffer.length);
         },
       };
 

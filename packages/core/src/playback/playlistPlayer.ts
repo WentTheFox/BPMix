@@ -250,6 +250,11 @@ export class PlaylistPlayer {
     return this.trackPlayer.getVolume();
   }
 
+  /** See TrackPlayer.getLevels' doc. */
+  getLevels(): { outgoing: number; incoming: number } {
+    return this.trackPlayer.getLevels();
+  }
+
   /** Re-shuffles (or restores original order) without interrupting the currently playing track. */
   setShuffle(enabled: boolean): void {
     if (this.shuffleEnabled === enabled || this.trackFileIds.length === 0) {

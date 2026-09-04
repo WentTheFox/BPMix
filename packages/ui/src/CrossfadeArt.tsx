@@ -5,17 +5,21 @@ export interface CrossfadeArtProps {
   /** Identity (fileId) of whatever should be in the "current" slot right now. */
   currentTrackKey: string | null;
   currentArtUri: string | null;
-  /** [0,1] - how audible the current track is right now (its actual crossfade gain). Drives spin *speed*, not opacity - full speed near 1, slowing toward a near-stop as it fades out during an actual crossfade. */
+  /** [0,1] - how audible the current track is right now (its actual crossfade gain). Drives spin *speed* and the VU meter's knob (a fade indicator, not opacity) - full speed/knob at top near 1, slowing/dropping toward a near-stop as it fades out during an actual crossfade. */
   currentGain: number;
-  /** The current track's own loudness-normalization multiplier (@bpmix/core's computeNormalizationGain - 0.25-4, 1 = no adjustment needed). Drives the VU meter's *resting* level while audible - a quiet track sitting near the top of its meter (it's being boosted), a loud one sitting near the bottom (it's being pulled down) - as distinct from currentGain's crossfade envelope, which only accounts for fade progress. Defaults to 1 (meter rests at its center) if not yet known. */
-  currentNormalizedGain?: number;
+  /** Real-time loudness of the current track's own audio signal - @bpmix/core's SourceNode.getLevel(), tapped before any fade/volume gain is applied, so it reflects the music's actual dynamics rather than how loud we're currently choosing to play it. Linear RMS, roughly [0,1] though rarely near 1. Drives the VU meter's colored fill. Defaults to 0 (silent-looking fill) on an engine that doesn't support live metering. */
+  currentAudioLevel?: number;
+  /** [0,1] - how far into the current track playback has reached. Drives the tonearm's needle position (outer edge at 0, disc center at 1) - NOT reset or hidden by pausing, so a paused tonearm stays parked over wherever it actually stopped instead of jumping back to the edge. Defaults to 0. */
+  currentProgress?: number;
   /** Identity (fileId) of whatever should be in the "next" slot right now. */
   nextTrackKey: string | null;
   nextArtUri: string | null;
-  /** [0,1] - how audible the next track is right now. Drives spin speed the same way, ramping up from a slow idle turn as an actual crossfade into it progresses. */
+  /** [0,1] - how audible the next track is right now. Drives spin speed and the VU meter knob the same way, ramping up from a slow idle turn/bottom position as an actual crossfade into it progresses. */
   nextGain: number;
-  /** Same as currentNormalizedGain, for the next slot's meter. */
-  nextNormalizedGain?: number;
+  /** Same as currentAudioLevel, for the next slot's meter. */
+  nextAudioLevel?: number;
+  /** Same as currentProgress, for the next slot's tonearm - 0 whenever the next track hasn't actually started playing yet (i.e. outside an in-progress crossfade), which is most of the time, so its needle stays parked at the outer edge until a crossfade actually brings it in. */
+  nextProgress?: number;
   size?: number;
 }
 
@@ -39,36 +43,71 @@ export const CROSSFADE_ART_TRANSITION_MS = 450;
 const LABEL_FRACTION = 0.38;
 const HOLE_FRACTION = 0.09;
 const GROOVE_RING_COUNT = 3;
-/** How long the needle takes to lift off/drop onto a disc when that slot's audibility crosses the audible/silent boundary. */
+/** How long the needle takes to react to a progress/lift change. */
 const TONEARM_MOVE_MS = 220;
-/** Rotation (pivoting at its own top-right corner, arm body extending left from there) with the needle down, swung onto the disc. */
-const TONEARM_DOWN_DEG = -46;
-/** Rotation with the needle lifted clear of the disc - still angled toward it (reads as "parked over this slot, paused") rather than swung all the way back to resting flat. Small - there's very little clearance between the disc's top edge and the title/"up next" text sitting just above it, so the lifted position can't rise far before it'd overlap that text. */
-const TONEARM_UP_DEG = 3;
-const TONEARM_ARM_LENGTH_FRACTION = 0.34;
 /**
- * VU meter flanking each disc: a fixed green/yellow/red scale (a real
- * meter's markings don't move) with a knob that slides along it to the
- * track's current level - NOT pinned near the top just because a track is
- * playing at full crossfade audibility. The knob's resting position (while
- * audible) reflects the track's own normalizationGain relative to 1
- * (unity - no adjustment needed): a quiet track that's being boosted sits
- * higher, a loud one being pulled down sits lower. It still drops to the
- * bottom on pause or as an actual crossfade fades the slot out - that part
- * *is* currentGain/nextGain, same as the disc spin.
+ * Arm length as a fraction of the disc size, and the two rotation angles
+ * (pivoting at its own top-right corner, arm body extending left from
+ * there) that place the needle tip exactly at progress 0 and 1.
+ * Deliberately not independent numbers: with the pivot fixed at the disc's
+ * top-right corner, TONEARM_ANGLE_INNER_DEG=-45 and an arm length of
+ * size*√0.5 (the pivot-to-disc-center distance) makes the tip land exactly
+ * on the disc's center at progress 1. TONEARM_ANGLE_OUTER_DEG is the OTHER
+ * angle, on that same arm-length circle, where it crosses the disc's rim -
+ * i.e. the two angles are the two points where a single fixed-length
+ * swinging arm can reach both "the very edge" and "the very center", not
+ * two independently-chosen values.
  */
-const VU_METER_WIDTH = 10;
-const VU_METER_GAP = 8;
-/** gainDb range mapped onto the meter's full height - computeNormalizationGain clamps to ±12dB, so this covers its whole possible range; unity gain (0dB, no adjustment) lands at the vertical center. */
-const VU_GAIN_DB_RANGE = 12;
-const VU_KNOB_HEIGHT = 4;
+const TONEARM_ARM_LENGTH_FRACTION = Math.SQRT1_2;
+const TONEARM_ANGLE_OUTER_DEG = -3.6;
+const TONEARM_ANGLE_INNER_DEG = -45;
+/**
+ * Lifting is a small upward *translation* of the whole arm+pivot, not a
+ * rotation - rotating further "up" to lift would, at a shallow
+ * (near-progress-0) angle, swing the tip above the disc's top edge and
+ * into the title/"up next" text sitting right above it (confirmed
+ * on-device). A few px of translateY reads as "picked up" regardless of
+ * the current rotation, with no such risk.
+ */
+const TONEARM_LIFT_FRACTION = 0.06;
+/**
+ * VU meter flanking each disc, two independent pieces of information
+ * layered on the same scale:
+ * - A colored green/yellow/red LED-style fill (bottom-up, like a classic
+ *   hardware meter) showing currentAudioLevel/nextAudioLevel - the music's
+ *   actual real-time loudness, bouncing with the track regardless of
+ *   fade/crossfade state.
+ * - A bigger knob riding on top, a pure fade indicator: at the top while
+ *   currentGain/nextGain is ~1 (fully audible), sliding down to the bottom
+ *   as the slot pauses or an actual crossfade fades it out - the same
+ *   signal driving the disc's spin speed, just rendered as a marker
+ *   instead of a rotation rate.
+ */
+const VU_METER_WIDTH = 14;
+const VU_METER_GAP = 10;
+const VU_SEGMENT_COUNT = 12;
+const VU_SEGMENT_GAP = 2;
+/** Segment opacity when unlit - never fully invisible, so the meter's full scale reads even at level 0. */
+const VU_UNLIT_OPACITY = 0.16;
+const VU_KNOB_HEIGHT = 10;
+/** dB range the fill's real-time level is mapped onto - a raw (non-normalized) music signal's RMS swings roughly in this range between quiet and loud passages. */
+const VU_LEVEL_DB_FLOOR = -40;
+const VU_LEVEL_DB_CEILING = -6;
 /** Spring constants for the knob's motion - tuned to overshoot a little rather than move plainly like everything else driven straight off gain (the disc spin, the crossfade curve itself), since a VU meter's whole character is that physical bounce. */
 const VU_SPRING_CONFIG = { friction: 5, tension: 80 };
 
-/** Maps a normalizationGain multiplier (0.25-4, 1 = unity) to [0,1] - unity at the center, clamped at the meter's ±VU_GAIN_DB_RANGE edges. */
-function normalizedGainToLevel(normalizedGain: number): number {
-  const gainDb = 20 * Math.log10(Math.max(1e-6, normalizedGain));
-  return Math.max(0, Math.min(1, (gainDb + VU_GAIN_DB_RANGE) / (VU_GAIN_DB_RANGE * 2)));
+/** Maps a linear RMS amplitude to [0,1] against the fill's dB range. */
+function audioLevelToFraction(rms: number): number {
+  const db = 20 * Math.log10(Math.max(1e-6, rms));
+  return Math.max(0, Math.min(1, (db - VU_LEVEL_DB_FLOOR) / (VU_LEVEL_DB_CEILING - VU_LEVEL_DB_FLOOR)));
+}
+
+/** Green for most of the scale, yellow near the top, red at the very top - a classic LED VU meter's colors, applied by segment position rather than by the current level (the *count* of lit segments is what shows the level). */
+function vuSegmentColor(index: number, count: number): string {
+  const t = (index + 1) / count;
+  if (t > 0.92) return '#ef4444';
+  if (t > 0.75) return '#f59e0b';
+  return '#22c55e';
 }
 /** Spin rate is rounded to this granularity before restarting the loop animation - restarting on every ~200ms poll tick's tiny gain fluctuation would look jittery; only a genuinely audible speed change (mostly during an actual crossfade) should visibly re-time it. */
 const RATE_BUCKET = 0.2;
@@ -190,57 +229,84 @@ function VinylDisc({
  * NOT one per VinylDisc instance, so it doesn't spin with the record and
  * doesn't multiply into several arms while outgoing/incoming ghost discs
  * are mounted mid-transition. Pivots at its own top-right corner, flush
- * with the disc's edge - there's very little vertical clearance above the
- * disc (the title/"up next" text sits right there), so the mount can't
- * float above it the way a real tonearm's base would - and swings down
- * onto the disc when `down` is true, lifting clear (but staying angled
- * toward the slot, like a parked player rather than one swung fully away)
- * when false.
+ * with the disc's edge. Its rotation continuously tracks `progress` (see
+ * CrossfadeArtProps' doc) - starting near the rim, sweeping in toward the
+ * center as the track plays, same as a real record - independent of
+ * `down`, which only lifts the whole assembly a few px clear of the disc
+ * (see TONEARM_LIFT_FRACTION's doc) rather than resetting its position, so
+ * a paused tonearm stays parked over wherever it actually stopped.
  */
-function Tonearm({ down, size }: { down: boolean; size: number }) {
+function Tonearm({ down, progress, size }: { down: boolean; progress: number; size: number }) {
+  const clampedProgress = Math.max(0, Math.min(1, progress));
+  const targetDeg = TONEARM_ANGLE_OUTER_DEG + (TONEARM_ANGLE_INNER_DEG - TONEARM_ANGLE_OUTER_DEG) * clampedProgress;
+  const rotationDeg = useRef(new Animated.Value(targetDeg)).current;
+  useEffect(() => {
+    Animated.timing(rotationDeg, { toValue: targetDeg, duration: TONEARM_MOVE_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+  }, [targetDeg, rotationDeg]);
+  const rotate = rotationDeg.interpolate({ inputRange: [-180, 180], outputRange: ['-180deg', '180deg'] });
+
   const lift = useRef(new Animated.Value(down ? 0 : 1)).current;
   useEffect(() => {
     Animated.timing(lift, { toValue: down ? 0 : 1, duration: TONEARM_MOVE_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
   }, [down, lift]);
-  // Positive rotate() here swings the (left-extending, right-anchored) arm
-  // UP, not down - counterintuitive but confirmed on-device - hence
-  // TONEARM_DOWN_DEG being the negative one of the pair.
-  const rotate = lift.interpolate({ inputRange: [0, 1], outputRange: [`${TONEARM_DOWN_DEG}deg`, `${TONEARM_UP_DEG}deg`] });
+  const translateY = lift.interpolate({ inputRange: [0, 1], outputRange: [0, -size * TONEARM_LIFT_FRACTION] });
+
   const armLength = size * TONEARM_ARM_LENGTH_FRACTION;
   return (
-    <View style={styles.tonearmMount} pointerEvents="none">
+    <Animated.View style={[styles.tonearmMount, { transform: [{ translateY }] }]} pointerEvents="none">
       <View style={styles.tonearmPivot} />
       <Animated.View style={[styles.tonearmArm, { width: armLength, transform: [{ rotate }] }]}>
         <View style={styles.tonearmNeedle} />
       </Animated.View>
-    </View>
+    </Animated.View>
   );
 }
 
 /**
  * `gain` is the crossfade audibility fraction (currentGain/nextGain - 0
- * when paused/faded out, ~1 while fully audible), `normalizedGain` is the
- * track's own loudness multiplier. The displayed level is the latter
- * (mapped to [0,1], unity centered) scaled by the former, so pausing or an
- * actual crossfade still pulls the knob down to the bottom, but a fully
- * audible track's resting height reflects its own normalization instead of
- * always sitting at the top.
+ * when paused/faded out, ~1 while fully audible) - drives only the knob.
+ * `audioLevel` is the track's real-time raw RMS - drives only the colored
+ * fill. Two Animated.Values because they mean different things and move on
+ * different rhythms (the knob only really moves during a pause/crossfade;
+ * the fill is meant to bounce continuously with the music).
  */
-function VuMeter({ gain, normalizedGain, size, side }: { gain: number; normalizedGain: number; size: number; side: 'left' | 'right' }) {
-  const targetLevel = normalizedGainToLevel(normalizedGain) * Math.max(0, Math.min(1, gain));
-  const level = useRef(new Animated.Value(targetLevel)).current;
+function VuMeter({ gain, audioLevel, size, side }: { gain: number; audioLevel: number; size: number; side: 'left' | 'right' }) {
+  const knobTarget = Math.max(0, Math.min(1, gain));
+  const knobLevel = useRef(new Animated.Value(knobTarget)).current;
   useEffect(() => {
-    Animated.spring(level, { toValue: targetLevel, useNativeDriver: true, ...VU_SPRING_CONFIG }).start();
+    Animated.spring(knobLevel, { toValue: knobTarget, useNativeDriver: true, ...VU_SPRING_CONFIG }).start();
     // Only the computed target should retrigger this.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [targetLevel, level]);
-  // level=0 knob center sits at the very bottom, level=1 at the very top.
-  const translateY = level.interpolate({ inputRange: [0, 1], outputRange: [size - VU_KNOB_HEIGHT / 2, -VU_KNOB_HEIGHT / 2] });
+  }, [knobTarget, knobLevel]);
+  // knobLevel=0 knob center sits at the very bottom, 1 at the very top.
+  const translateY = knobLevel.interpolate({ inputRange: [0, 1], outputRange: [size - VU_KNOB_HEIGHT / 2, -VU_KNOB_HEIGHT / 2] });
+
+  const fillTarget = audioLevelToFraction(audioLevel);
+  const fillLevel = useRef(new Animated.Value(fillTarget)).current;
+  useEffect(() => {
+    Animated.spring(fillLevel, { toValue: fillTarget, useNativeDriver: true, ...VU_SPRING_CONFIG }).start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fillTarget, fillLevel]);
+  const segmentHeight = (size - VU_SEGMENT_GAP * (VU_SEGMENT_COUNT - 1)) / VU_SEGMENT_COUNT;
+
   return (
     <View style={[styles.vuMeter, { width: VU_METER_WIDTH, height: size }, side === 'left' ? { left: 0 } : { right: 0 }]} pointerEvents="none">
-      <View style={[styles.vuTrackBand, styles.vuTrackBandRed, { height: size * 0.15 }]} />
-      <View style={[styles.vuTrackBand, styles.vuTrackBandYellow, { height: size * 0.15, top: size * 0.15 }]} />
-      <View style={[styles.vuTrackBand, styles.vuTrackBandGreen, { height: size * 0.7, top: size * 0.3 }]} />
+      {/* Rendered top-to-bottom (index count-1 down to 0) so segment 0 - the bottom, first to light up - ends up at the bottom of the column. */}
+      {Array.from({ length: VU_SEGMENT_COUNT }, (_, fromTop) => {
+        const index = VU_SEGMENT_COUNT - 1 - fromTop;
+        const t0 = index / VU_SEGMENT_COUNT;
+        const t1 = (index + 1) / VU_SEGMENT_COUNT;
+        const opacity = fillLevel.interpolate({ inputRange: [t0, t1], outputRange: [VU_UNLIT_OPACITY, 1], extrapolate: 'clamp' });
+        return (
+          <Animated.View
+            key={index}
+            style={[
+              styles.vuSegment,
+              { height: segmentHeight, marginBottom: fromTop === VU_SEGMENT_COUNT - 1 ? 0 : VU_SEGMENT_GAP, backgroundColor: vuSegmentColor(index, VU_SEGMENT_COUNT), opacity },
+            ]}
+          />
+        );
+      })}
       <Animated.View style={[styles.vuKnob, { height: VU_KNOB_HEIGHT, transform: [{ translateY }] }]} />
     </View>
   );
@@ -268,10 +334,11 @@ interface DisplayedState {
  * equal-power gain curve powering the real audio fade (see App.tsx's
  * outgoingGain/incomingGain, sampled from the same equalPowerGain() call
  * SourceNode.rampGainCurve uses for real playback). The same two gain
- * values also drive a small VU meter flanking each disc (see VuMeter) -
- * used there as a multiplier on the track's own normalizationGain rather
- * than a spin rate, so pausing/fading still pulls the knob down the same
- * way the spin slows down.
+ * values also drive the fade-indicator knob on a small VU meter flanking
+ * each disc (see VuMeter) - same idea as the spin, rendered as a marker
+ * position instead of a rotation rate. That meter's colored fill is a
+ * separate signal (currentAudioLevel/nextAudioLevel - the music's actual
+ * real-time loudness), independent of fade state.
  *
  * What's actually on screen (`displayed`) only changes via one of two
  * animated transitions, never a silent prop-driven pop:
@@ -301,11 +368,13 @@ export function CrossfadeArt({
   currentTrackKey,
   currentArtUri,
   currentGain,
-  currentNormalizedGain = 1,
+  currentAudioLevel = 0,
+  currentProgress = 0,
   nextTrackKey,
   nextArtUri,
   nextGain,
-  nextNormalizedGain = 1,
+  nextAudioLevel = 0,
+  nextProgress = 0,
   size = DEFAULT_SIZE,
 }: CrossfadeArtProps): React.JSX.Element {
   const [displayed, setDisplayed] = useState<DisplayedState>({
@@ -411,18 +480,18 @@ export function CrossfadeArt({
 
   return (
     <View style={[styles.row, containerStyle]}>
-      <VuMeter gain={currentGain} normalizedGain={currentNormalizedGain} size={size} side="left" />
+      <VuMeter gain={currentGain} audioLevel={currentAudioLevel} size={size} side="left" />
       <View style={[styles.slot, boxStyle, { left: discsOffset }]}>
         {!transitioning && <VinylDisc artUri={displayed.currentArt} rate={currentGain} size={size} />}
         {outgoing && <VinylDisc artUri={outgoing.artUri} rate={1} size={size} opacity={outgoingOpacity} />}
         {incoming && <VinylDisc artUri={incoming.artUri} rate={currentGain} size={size} opacity={incomingOpacity} />}
-        <Tonearm down={currentGain > 0} size={size} />
+        <Tonearm down={currentGain > 0} progress={currentProgress} size={size} />
       </View>
       <View style={[styles.slot, boxStyle, { left: discsOffset + size + GAP }]}>
         <VinylDisc artUri={displayed.nextArt} rate={nextGain} size={size} opacity={nextOpacity} translateX={slideX} />
-        <Tonearm down={nextGain > 0} size={size} />
+        <Tonearm down={nextGain > 0} progress={nextProgress} size={size} />
       </View>
-      <VuMeter gain={nextGain} normalizedGain={nextNormalizedGain} size={size} side="right" />
+      <VuMeter gain={nextGain} audioLevel={nextAudioLevel} size={size} side="right" />
     </View>
   );
 }
@@ -498,29 +567,17 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
   },
-  vuTrackBand: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
+  vuSegment: {
+    width: '100%',
     borderRadius: 1.5,
-    opacity: 0.3,
-  },
-  vuTrackBandRed: {
-    backgroundColor: '#ef4444',
-  },
-  vuTrackBandYellow: {
-    backgroundColor: '#f59e0b',
-  },
-  vuTrackBandGreen: {
-    backgroundColor: '#22c55e',
   },
   vuKnob: {
     position: 'absolute',
-    left: -2,
-    right: -2,
-    borderRadius: 2,
+    left: -3,
+    right: -3,
+    borderRadius: 3,
     backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.4)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(0,0,0,0.45)',
   },
 });

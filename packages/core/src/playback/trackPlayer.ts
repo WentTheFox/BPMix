@@ -254,6 +254,19 @@ export class TrackPlayer {
   }
 
   /**
+   * Real-time loudness of whatever's actually got a live SourceNode right
+   * now - the current (outgoing) track, and the incoming one mid-crossfade,
+   * if any. 0 for a slot with no live source, or on an engine that doesn't
+   * implement SourceNode.getLevel (see its doc).
+   */
+  getLevels(): { outgoing: number; incoming: number } {
+    return {
+      outgoing: this.source?.getLevel?.() ?? 0,
+      incoming: this.pendingCrossfade?.source.getLevel?.() ?? 0,
+    };
+  }
+
+  /**
    * Nulls this.source BEFORE calling stop() on the old one, not after. Some
    * native engines invoke the source's onEnded callback synchronously from
    * within stop() (unlike the browser, where it's always async) - if
