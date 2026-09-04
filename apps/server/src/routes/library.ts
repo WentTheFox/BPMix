@@ -64,28 +64,6 @@ export function createLibraryRouter(baseDir: string): Router {
     }
   });
 
-  router.get('/roots/:rootId/file', async (req, res, next) => {
-    try {
-      const root = await findRootOrThrow(req.params.rootId);
-      const relativePath = typeof req.query.path === 'string' ? req.query.path : undefined;
-      const filePath = await resolveSafePath(root.absolutePath, relativePath);
-      res.sendFile(filePath);
-    } catch (err) {
-      next(err);
-    }
-  });
-
-  router.get('/roots/:rootId/text', async (req, res, next) => {
-    try {
-      const root = await findRootOrThrow(req.params.rootId);
-      const relativePath = typeof req.query.path === 'string' ? req.query.path : undefined;
-      const filePath = await resolveSafePath(root.absolutePath, relativePath);
-      res.type('text/plain').sendFile(filePath);
-    } catch (err) {
-      next(err);
-    }
-  });
-
   const handleError: ErrorRequestHandler = (err, _req, res, _next) => {
     if (err instanceof UnsafePathError) {
       res.status(400).json({ error: err.message });

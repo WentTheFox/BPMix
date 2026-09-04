@@ -78,9 +78,14 @@ adding or removing its volume mount and restarting the container.
 implementations behind one interface:
 
 - `fileAccess.ts` — the browser picker, unchanged from before this existed.
-- `fileAccess.server.ts` — talks to this server's `/api/roots`,
-  `/api/roots/:rootId/entries`, `/api/roots/:rootId/file`, and
-  `/api/roots/:rootId/text` endpoints.
+- `fileAccess.server.ts` — lists directories via this server's
+  `/api/roots` and `/api/roots/:rootId/entries` endpoints (structured
+  JSON, since a browser needs name/type/size/mtime to build the library
+  UI), and reads file bytes/text directly from `/library/:rootId/...`,
+  a plain `express.static` mount over the library directory - no
+  proxying route in between, so Range requests, conditional GETs, and
+  MIME types all come from Express's static file serving instead of
+  a hand-rolled equivalent.
 
 On first use the composite adapter probes `/api/roots` once. If it
 succeeds, server-exposed roots show up in the library list alongside any
