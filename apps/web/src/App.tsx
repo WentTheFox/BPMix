@@ -259,14 +259,12 @@ function App() {
     return () => clearInterval(interval);
   }, [persistPositionIfDue]);
 
-  // Separate, faster poll for CrossfadeArt's VU meters - 200ms (the state
-  // poll above) reads as visibly steppy for something meant to bounce with
-  // the music in real time; position/preload-checking don't need this rate.
-  const [bands, setBands] = useState<{ outgoing: number[]; incoming: number[] }>({ outgoing: [], incoming: [] });
-  useEffect(() => {
-    const interval = setInterval(() => setBands(playlistPlayer.getFrequencyBands(VU_METER_BAND_COUNT)), 60);
-    return () => clearInterval(interval);
-  }, []);
+  // CrossfadeArt polls this itself (its own interval, straight into its
+  // own Animated.Values, no setState) - see its getAudioBands prop's doc.
+  // A stable ref, not an inline closure, so CrossfadeArt's own effect
+  // dependencies don't need to care that this function's identity changes
+  // every render.
+  const getAudioBands = useCallback(() => playlistPlayer.getFrequencyBands(VU_METER_BAND_COUNT), []);
 
   const addFolder = useCallback(async () => {
     setError(null);
@@ -620,13 +618,12 @@ function App() {
         currentTrackKey={outgoingTrack?.fileId ?? null}
         currentArtUri={outgoingCoverArt}
         currentGain={outgoingGain}
-        currentAudioBands={bands.outgoing}
         currentProgress={outgoingProgress}
         nextTrackKey={incomingTrack?.fileId ?? null}
         nextArtUri={incomingCoverArt}
         nextGain={incomingGain}
-        nextAudioBands={bands.incoming}
         nextProgress={incomingProgress}
+        getAudioBands={getAudioBands}
       />
       {playerState.track.status === 'loading' ? (
         <LoadingBar />
