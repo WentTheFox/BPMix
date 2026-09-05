@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AudioEngine, DecodedAudio, SourceNode } from '../audio-engine/types';
 import type { FileRef } from '../file-access/types';
-import type { AnalysisResult, LibraryStore, PlaybackState, PlaylistRecord, TrackRecord } from '../library-store/types';
+import type { AnalysisResult, LibraryStore, PlaybackState, PlaylistRecord, RootKind, TrackRecord } from '../library-store/types';
 import type { TrackMetadata } from '../metadata/types';
 import { analyzeLibrary } from './analyzeLibrary';
 import { ANALYSIS_ALGORITHM_VERSION } from './analyzeTrack';
@@ -71,6 +71,14 @@ class FakeLibraryStore implements LibraryStore {
   async putPlaybackState(state: PlaybackState): Promise<void> {
     this.playbackState = state;
   }
+  async getRootKind(): Promise<RootKind> {
+    return 'music';
+  }
+  async setRootKind(): Promise<void> {}
+  async getLyricsAssignment(): Promise<string | null> {
+    return null;
+  }
+  async putLyricsAssignment(): Promise<void> {}
 }
 
 function track(overrides: Partial<TrackRecord> & { fileId: string }): TrackRecord {

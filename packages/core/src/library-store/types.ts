@@ -37,6 +37,14 @@ export interface AnalysisResult {
 
 export type LoopMode = 'off' | 'all' | 'one';
 
+/**
+ * What a granted root is used for. Every root FileAccess.listGrantedRoots()
+ * returns used to be auto-scanned as a music library on load - a lyrics
+ * folder needs to opt out of that (see getRootKind's default), rather than
+ * showing up in the library screen as an always-empty playlist root.
+ */
+export type RootKind = 'music' | 'lyrics';
+
 export interface PlaybackState {
   playlistId: string | null;
   currentTrackFileId: string | null;
@@ -75,4 +83,12 @@ export interface LibraryStore {
 
   getPlaybackState(): Promise<PlaybackState | null>;
   putPlaybackState(state: PlaybackState): Promise<void>;
+
+  /** 'music' for a root that's never had a kind recorded - covers every root granted before lyrics folders existed. */
+  getRootKind(rootId: string): Promise<RootKind>;
+  setRootKind(rootId: string, kind: RootKind): Promise<void>;
+
+  /** The .lrc file (FileRef.id, from a lyrics root) assigned to this track - null if none. Set either by auto-match (see findAutoLyricsMatch) or a manual override; both go through this same call. */
+  getLyricsAssignment(fileId: string): Promise<string | null>;
+  putLyricsAssignment(fileId: string, lrcFileId: string | null): Promise<void>;
 }

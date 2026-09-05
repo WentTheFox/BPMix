@@ -9,11 +9,13 @@ import {
   computeTransitionPlan,
   ensureTrackAnalyzed,
   equalPowerGain,
+  findAutoLyricsMatch,
   formatTrackTitle,
   isMetadataCurrent,
   PlaylistPlayer,
   realTimeForOutgoingPosition,
   scanLibraryMetadata,
+  scanLyricsRoot,
   scanRoot,
 } from '@bpmix/core';
 import {
@@ -23,6 +25,7 @@ import {
   IconLabel,
   LibraryScreen,
   LoopButton,
+  LyricsFolderSection,
   NowPlayingBar,
   ShuffleButton,
   TrackList,
@@ -143,6 +146,8 @@ function AppContent() {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const [rootsWithLibrary, setRootsWithLibrary] = useState<RootWithLibrary[]>([]);
+  const [lyricsRoots, setLyricsRoots] = useState<GrantedRoot[]>([]);
+  const [matchedLyricsCount, setMatchedLyricsCount] = useState<number | null>(null);
   const [busyRootId, setBusyRootId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [screen, setScreen] = useState<Screen>({ kind: 'library' });
@@ -172,8 +177,13 @@ function AppContent() {
 
   const refresh = useCallback(async () => {
     const roots = await fileAccess.listGrantedRoots();
+    const rootsByKind = await Promise.all(roots.map(async (root) => ({ root, kind: await libraryStore.getRootKind(root.id) })));
+    const musicRoots = rootsByKind.filter(({ kind }) => kind === 'music').map(({ root }) => root);
+    const lyricsRootList = rootsByKind.filter(({ kind }) => kind === 'lyrics').map(({ root }) => root);
+    setLyricsRoots(lyricsRootList);
+
     const withLibrary = await Promise.all(
-      roots.map(async (root) => {
+      musicRoots.map(async (root) => {
         let [playlists, tracks] = await Promise.all([
           libraryStore.listPlaylists(root.id),
           libraryStore.listTracks(root.id),
@@ -196,6 +206,34 @@ function AppContent() {
       }),
     );
     setRootsWithLibrary(withLibrary);
+
+    // Auto-assign any track that doesn't already have a lyrics match - see
+    // apps/web/src/App.tsx's refresh() for the identical logic/reasoning.
+    if (lyricsRootList.length > 0) {
+      setMatchedLyricsCount(null);
+      const allTracks = withLibrary.flatMap(({ tracksById }) => [...tracksById.values()]);
+      const lrcFiles = (await Promise.all(lyricsRootList.map((root) => scanLyricsRoot(fileAccess, root.id)))).flat();
+      const candidates = lrcFiles.map((file) => ({ fileId: file.id, name: file.name }));
+      let matched = 0;
+      await Promise.all(
+        allTracks.map(async (track) => {
+          const existing = await libraryStore.getLyricsAssignment(track.fileId);
+          if (existing) {
+            matched++;
+            return;
+          }
+          const trackName = track.relativePath.split('/').pop() ?? track.relativePath;
+          const match = findAutoLyricsMatch(trackName, candidates);
+          if (match) {
+            await libraryStore.putLyricsAssignment(track.fileId, match.fileId);
+            matched++;
+          }
+        }),
+      );
+      setMatchedLyricsCount(matched);
+    } else {
+      setMatchedLyricsCount(null);
+    }
     // Fire-and-forget: fills in real titles/artists as it goes (each row's
     // useTrackMetadata retry-polls the store), rather than blocking the
     // library screen on reading every file's tag bytes up front. Cheap to
@@ -281,7 +319,11 @@ function AppContent() {
       setError(null);
       setBusyRootId(rootId);
       try {
-        await scanRoot(fileAccess, libraryStore, rootId);
+        // Lyrics roots have nothing to scan into scanRoot's playlist/track
+        // tables - refresh() below does their .lrc rescan+rematch itself.
+        if ((await libraryStore.getRootKind(rootId)) === 'music') {
+          await scanRoot(fileAccess, libraryStore, rootId);
+        }
         await refresh();
       } catch (err) {
         setError(String(err));
@@ -291,6 +333,21 @@ function AppContent() {
     },
     [refresh],
   );
+
+  const addLyricsFolder = useCallback(async () => {
+    setError(null);
+    try {
+      const root = await fileAccess.requestRoot();
+      if (!root) return; // user cancelled the picker
+      await libraryStore.setRootKind(root.id, 'lyrics');
+      setBusyRootId(root.id);
+      await refresh();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setBusyRootId(null);
+    }
+  }, [refresh]);
 
   const playFromTrack = useCallback(
     async (playlist: PlaylistRecord, tracksById: Map<string, TrackRecord>, track: TrackRecord) => {
@@ -641,8 +698,14 @@ function AppContent() {
   // busyRootId is also set for a brand-new root while it's being scanned,
   // before it exists in rootsWithLibrary - the "Scanning…" link next to an
   // already-listed root's name doesn't cover that case, so this is the only
-  // signal available while a first-time Add Folder scan is running.
-  const isAddingFolder = busyRootId !== null && !rootsWithLibrary.some(({ root }) => root.id === busyRootId);
+  // signal available while a first-time Add Folder scan is running. Also
+  // excludes a brand-new lyrics root (addLyricsFolder sets busyRootId too,
+  // and it never appears in rootsWithLibrary at all) - otherwise adding a
+  // lyrics folder would show the Add Folder button's own spinner.
+  const isAddingFolder =
+    busyRootId !== null &&
+    !rootsWithLibrary.some(({ root }) => root.id === busyRootId) &&
+    !lyricsRoots.some((root) => root.id === busyRootId);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top, backgroundColor: colors.background }]}>
@@ -657,6 +720,17 @@ function AppContent() {
         onSelectPlaylist={(root, playlist, tracksById) => setScreen({ kind: 'playlist', root, playlist, tracksById })}
         error={error}
         nowPlayingBar={nowPlayingBar}
+        lyricsSection={
+          <LyricsFolderSection
+            colors={colors}
+            lyricsRoots={lyricsRoots}
+            matchedTrackCount={matchedLyricsCount}
+            totalTrackCount={rootsWithLibrary.reduce((sum, { tracksById }) => sum + tracksById.size, 0)}
+            busyRootId={busyRootId}
+            onAddLyricsFolder={addLyricsFolder}
+            onRescan={rescan}
+          />
+        }
       />
     </View>
   );

@@ -5,6 +5,7 @@ import type {
   LibraryStore,
   PlaybackState,
   PlaylistRecord,
+  RootKind,
   TrackRecord,
 } from '../library-store/types';
 import type { TrackMetadata } from '../metadata/types';
@@ -105,6 +106,14 @@ class FakeLibraryStore implements LibraryStore {
   async putPlaybackState(state: PlaybackState): Promise<void> {
     this.playbackState = state;
   }
+  async getRootKind(): Promise<RootKind> {
+    return 'music';
+  }
+  async setRootKind(): Promise<void> {}
+  async getLyricsAssignment(): Promise<string | null> {
+    return null;
+  }
+  async putLyricsAssignment(): Promise<void> {}
 }
 
 describe('scanRoot', () => {

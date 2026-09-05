@@ -5,6 +5,7 @@ import {
   type LibraryStore,
   type PlaybackState,
   type PlaylistRecord,
+  type RootKind,
   type TrackMetadata,
   type TrackRecord,
 } from '@bpmix/core';
@@ -122,6 +123,20 @@ const ready = (async () => {
       loopMode TEXT NOT NULL,
       shuffleEnabled INTEGER NOT NULL,
       volume REAL NOT NULL
+    )`,
+  );
+
+  await run(
+    `CREATE TABLE IF NOT EXISTS root_kind (
+      rootId TEXT PRIMARY KEY,
+      kind TEXT NOT NULL
+    )`,
+  );
+
+  await run(
+    `CREATE TABLE IF NOT EXISTS lyrics_assignment (
+      fileId TEXT PRIMARY KEY,
+      lrcFileId TEXT NOT NULL
     )`,
   );
 })();
@@ -310,6 +325,42 @@ export function createLibraryStore(): LibraryStore {
           state.volume,
         ],
       );
+    },
+
+    async getRootKind(rootId: string): Promise<RootKind> {
+      await ready;
+      const result = await run('SELECT kind FROM root_kind WHERE rootId = ?', [rootId]);
+      const rows = rowsToArray<{ kind: RootKind }>(result);
+      return rows[0]?.kind ?? 'music';
+    },
+
+    async setRootKind(rootId: string, kind: RootKind): Promise<void> {
+      await ready;
+      await run(
+        `INSERT INTO root_kind (rootId, kind) VALUES (?, ?)
+         ON CONFLICT(rootId) DO UPDATE SET kind=excluded.kind`,
+        [rootId, kind],
+      );
+    },
+
+    async getLyricsAssignment(fileId: string): Promise<string | null> {
+      await ready;
+      const result = await run('SELECT lrcFileId FROM lyrics_assignment WHERE fileId = ?', [fileId]);
+      const rows = rowsToArray<{ lrcFileId: string }>(result);
+      return rows[0]?.lrcFileId ?? null;
+    },
+
+    async putLyricsAssignment(fileId: string, lrcFileId: string | null): Promise<void> {
+      await ready;
+      if (lrcFileId === null) {
+        await run('DELETE FROM lyrics_assignment WHERE fileId = ?', [fileId]);
+      } else {
+        await run(
+          `INSERT INTO lyrics_assignment (fileId, lrcFileId) VALUES (?, ?)
+           ON CONFLICT(fileId) DO UPDATE SET lrcFileId=excluded.lrcFileId`,
+          [fileId, lrcFileId],
+        );
+      }
     },
   };
 }

@@ -31,6 +31,8 @@ export interface LibraryScreenProps {
   nowPlayingBar?: ReactNode;
   /** Web-only directory-picker-unsupported warning, rendered right after the Add Folder button. */
   bannerContent?: ReactNode;
+  /** The lyrics-folder section (see LyricsFolderSection), rendered right after bannerContent. */
+  lyricsSection?: ReactNode;
   /**
    * Merged onto the roots FlatList's own style - web adds flex:1 here so it
    * has a bounded-height ancestor to actually virtualize against (see web
@@ -58,6 +60,7 @@ export function LibraryScreen({
   error,
   nowPlayingBar,
   bannerContent,
+  lyricsSection,
   listStyle,
 }: LibraryScreenProps) {
   return (
@@ -74,6 +77,7 @@ export function LibraryScreen({
         )}
       </Pressable>
       {bannerContent}
+      {lyricsSection}
       {error && <Text style={styles.error}>{error}</Text>}
       {nowPlayingBar}
       <FlatList

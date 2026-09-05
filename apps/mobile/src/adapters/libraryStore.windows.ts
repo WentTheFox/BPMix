@@ -5,6 +5,7 @@ import {
   type LibraryStore,
   type PlaybackState,
   type PlaylistRecord,
+  type RootKind,
   type TrackMetadata,
   type TrackRecord,
 } from '@bpmix/core';
@@ -52,10 +53,12 @@ interface StoredData {
   analyses: Record<string, AnalysisResult>;
   metadata: Record<string, TrackMetadata>;
   playbackState: PlaybackState | null;
+  rootKinds: Record<string, RootKind>;
+  lyricsAssignments: Record<string, string>;
 }
 
 function emptyData(): StoredData {
-  return { tracks: [], playlists: [], analyses: {}, metadata: {}, playbackState: null };
+  return { tracks: [], playlists: [], analyses: {}, metadata: {}, playbackState: null, rootKinds: {}, lyricsAssignments: {} };
 }
 
 export function createLibraryStore(): LibraryStore {
@@ -73,6 +76,8 @@ export function createLibraryStore(): LibraryStore {
     try {
       const parsed = JSON.parse(text) as StoredData;
       parsed.metadata ??= {}; // absent in files written before metadata scanning existed
+      parsed.rootKinds ??= {}; // absent in files written before lyrics folders existed
+      parsed.lyricsAssignments ??= {};
       return parsed;
     } catch {
       return emptyData();
@@ -191,6 +196,32 @@ export function createLibraryStore(): LibraryStore {
     async putPlaybackState(state: PlaybackState): Promise<void> {
       await mutate((data) => {
         data.playbackState = state;
+      });
+    },
+
+    async getRootKind(rootId: string): Promise<RootKind> {
+      const data = await load();
+      return data.rootKinds[rootId] ?? 'music';
+    },
+
+    async setRootKind(rootId: string, kind: RootKind): Promise<void> {
+      await mutate((data) => {
+        data.rootKinds[rootId] = kind;
+      });
+    },
+
+    async getLyricsAssignment(fileId: string): Promise<string | null> {
+      const data = await load();
+      return data.lyricsAssignments[fileId] ?? null;
+    },
+
+    async putLyricsAssignment(fileId: string, lrcFileId: string | null): Promise<void> {
+      await mutate((data) => {
+        if (lrcFileId === null) {
+          delete data.lyricsAssignments[fileId];
+        } else {
+          data.lyricsAssignments[fileId] = lrcFileId;
+        }
       });
     },
   };

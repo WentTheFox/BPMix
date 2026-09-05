@@ -5,6 +5,7 @@ export * from './IconLabel';
 export * from './LibraryScreen';
 export * from './LoadingBar';
 export { LoopButton, ShuffleButton } from './LoopShuffleButtons';
+export * from './LyricsFolderSection';
 export * from './NowPlayingBar';
 export * from './SeekBar';
 export * from './Skeleton';

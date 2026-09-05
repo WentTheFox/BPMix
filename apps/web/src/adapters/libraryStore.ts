@@ -1,12 +1,19 @@
-import type { AnalysisResult, CoverArtBytes, LibraryStore, PlaybackState, PlaylistRecord, TrackMetadata, TrackRecord } from '@bpmix/core';
+import type {
+  AnalysisResult,
+  CoverArtBytes,
+  LibraryStore,
+  PlaybackState,
+  PlaylistRecord,
+  RootKind,
+  TrackMetadata,
+  TrackRecord,
+} from '@bpmix/core';
 import { idbDelete, idbGet, idbGetAll, idbPut, openDb } from './indexedDb';
 
 const DB_NAME = 'bpmix-library';
-// v4: coverArt now stores a real Blob instead of a base64 data URI string
-// (see putCoverArt/getCoverArt) - the object store is dropped and
-// recreated below rather than migrated, since art is fully re-derivable
-// by rescanning and the two versions' values aren't even the same type.
-const DB_VERSION = 4;
+// v5: added rootKind/lyricsAssignment object stores for the lyrics-folder
+// feature - both created fresh below, nothing to migrate from v4.
+const DB_VERSION = 5;
 const TRACKS_STORE = 'tracks';
 const PLAYLISTS_STORE = 'playlists';
 const ANALYSIS_STORE = 'analysis';
@@ -14,6 +21,9 @@ const METADATA_STORE = 'metadata';
 const COVER_ART_STORE = 'coverArt';
 const PLAYBACK_STATE_STORE = 'playbackState';
 const PLAYBACK_STATE_KEY = 'current';
+const ROOT_KIND_STORE = 'rootKind';
+const LYRICS_ASSIGNMENT_STORE = 'lyricsAssignment';
+const DEFAULT_ROOT_KIND: RootKind = 'music';
 
 function getDb(): Promise<IDBDatabase> {
   return openDb(DB_NAME, DB_VERSION, (db) => {
@@ -39,6 +49,12 @@ function getDb(): Promise<IDBDatabase> {
     db.createObjectStore(COVER_ART_STORE);
     if (!db.objectStoreNames.contains(PLAYBACK_STATE_STORE)) {
       db.createObjectStore(PLAYBACK_STATE_STORE);
+    }
+    if (!db.objectStoreNames.contains(ROOT_KIND_STORE)) {
+      db.createObjectStore(ROOT_KIND_STORE);
+    }
+    if (!db.objectStoreNames.contains(LYRICS_ASSIGNMENT_STORE)) {
+      db.createObjectStore(LYRICS_ASSIGNMENT_STORE);
     }
   });
 }
@@ -129,6 +145,30 @@ export function createLibraryStore(): LibraryStore {
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
       });
+    },
+
+    async getRootKind(rootId: string): Promise<RootKind> {
+      const db = await getDb();
+      const kind = await idbGet<RootKind>(db, ROOT_KIND_STORE, rootId);
+      return kind ?? DEFAULT_ROOT_KIND;
+    },
+    async setRootKind(rootId: string, kind: RootKind): Promise<void> {
+      const db = await getDb();
+      await idbPut(db, ROOT_KIND_STORE, kind, rootId);
+    },
+
+    async getLyricsAssignment(fileId: string): Promise<string | null> {
+      const db = await getDb();
+      const lrcFileId = await idbGet<string>(db, LYRICS_ASSIGNMENT_STORE, fileId);
+      return lrcFileId ?? null;
+    },
+    async putLyricsAssignment(fileId: string, lrcFileId: string | null): Promise<void> {
+      const db = await getDb();
+      if (lrcFileId === null) {
+        await idbDelete(db, LYRICS_ASSIGNMENT_STORE, fileId);
+      } else {
+        await idbPut(db, LYRICS_ASSIGNMENT_STORE, lrcFileId, fileId);
+      }
     },
   };
 }
