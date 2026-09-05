@@ -65,6 +65,25 @@ inline IAsyncOperation<StorageFolder> ResolveFolder(StorageFolder root, std::str
   co_return current;
 }
 
+// A StorageFolder obtained from StorageApplicationPermissions::FutureAccessList
+// (via either the typed GetFolderAsync(token) or GetItemAsync(token)+cast) is
+// broker-backed: identity-only operations on it (Path(), Name(), DisplayName())
+// work fine, but any real content operation - GetItemsAsync() in either its
+// parameterless or (startIndex, count) overload - throws a bare WinRT
+// E_INVALIDARG ("The parameter is incorrect."). Reproduced on every root this
+// app can grant: a %TEMP% test folder and a real drive folder, added via the
+// ordinary "Add Folder"/"Add Lyrics Folder" flow. Root cause not fully nailed
+// down, but this app declares rescap:runFullTrust (Desktop Bridge, not an
+// AppContainer sandbox) and already has unrestricted real filesystem access -
+// re-resolving through the confirmed-good Path() via GetFolderFromPathAsync
+// gives back a plain local StorageFolder with no broker involved, and that
+// one's GetItemsAsync() works normally.
+inline IAsyncOperation<StorageFolder> GetGrantedFolder(winrt::hstring token) {
+  auto item = co_await StorageApplicationPermissions::FutureAccessList().GetItemAsync(token);
+  auto brokerFolder = item.as<StorageFolder>();
+  co_return co_await StorageFolder::GetFolderFromPathAsync(brokerFolder.Path());
+}
+
 // Splits "<token>|<relativePath>" (see file header comment) into its parts.
 inline std::pair<std::string, std::string> ParseFileId(std::string const &id) {
   auto sep = id.find('|');
@@ -144,8 +163,7 @@ struct FileAccessModule {
   winrt::fire_and_forget ListDirectory(std::string rootId, std::string relativePath, ReactPromise<JSValue> result)
       noexcept {
     try {
-      auto root = co_await StorageApplicationPermissions::FutureAccessList().GetFolderAsync(
-          winrt::to_hstring(rootId));
+      auto root = co_await GetGrantedFolder(winrt::to_hstring(rootId));
       auto dir = co_await ResolveFolder(root, relativePath);
       auto items = co_await dir.GetItemsAsync();
 
@@ -215,8 +233,7 @@ struct FileAccessModule {
   winrt::fire_and_forget ReadFileBytesBase64(std::string fileId, ReactPromise<std::string> result) noexcept {
     try {
       auto [rootId, relativePath] = ParseFileId(fileId);
-      auto root = co_await StorageApplicationPermissions::FutureAccessList().GetFolderAsync(
-          winrt::to_hstring(rootId));
+      auto root = co_await GetGrantedFolder(winrt::to_hstring(rootId));
 
       auto segments = SplitPath(relativePath);
       if (segments.empty()) {
@@ -246,8 +263,7 @@ struct FileAccessModule {
   winrt::fire_and_forget ReadFileText(std::string fileId, ReactPromise<std::string> result) noexcept {
     try {
       auto [rootId, relativePath] = ParseFileId(fileId);
-      auto root = co_await StorageApplicationPermissions::FutureAccessList().GetFolderAsync(
-          winrt::to_hstring(rootId));
+      auto root = co_await GetGrantedFolder(winrt::to_hstring(rootId));
 
       auto segments = SplitPath(relativePath);
       if (segments.empty()) {
