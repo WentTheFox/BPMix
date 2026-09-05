@@ -14,6 +14,7 @@ import {
   mdiSkipNext,
   mdiSkipPrevious,
   mdiSubtitles,
+  mdiTrashCanOutline,
 } from '@mdi/js';
 import React from 'react';
 import { Text } from 'react-native';
@@ -71,6 +72,7 @@ const CODEPOINTS: Record<string, number> = {
   [mdiRefresh]: 0xe72c,
   [mdiArrowLeft]: 0xe72b, // "Back"
   [mdiSubtitles]: 0xed1e, // "Subtitles" - a rounded box with horizontal text lines
+  [mdiTrashCanOutline]: 0xe74d, // "Delete" - a trash can
 };
 
 const FALLBACK_CODEPOINT = 0xe11b; // "StatusErrorFull" (a "?" in a circle) - visible placeholder for an unmapped icon, not a silent blank.
