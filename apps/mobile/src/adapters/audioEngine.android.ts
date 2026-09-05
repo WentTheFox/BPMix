@@ -117,7 +117,22 @@ export function createAudioEngine(fileAccess: FileAccess): AudioEngine {
       const node: SourceNode = {
         id: `android-source-${nextId++}`,
         setGain(value) {
-          gainNode.gain.value = value;
+          // AudioParam.value = ... is spec'd to behave like setValueAtTime()
+          // at the current time, which throws NotSupportedError if it lands
+          // inside an already-scheduled setValueCurveAtTime() window - and
+          // rampGainCurve() below (a crossfade's fade curve) schedules
+          // exactly that, several seconds ahead of when it actually starts.
+          // A volume-slider tweak or normalization-gain update landing
+          // inside that window is routine, not exceptional - previously
+          // uncaught, this crashed the whole app. Dropping the update is
+          // safe: the curve already governs gain until it finishes, so the
+          // dropped value has no audible effect anyway; the next call after
+          // the curve completes goes through normally.
+          try {
+            gainNode.gain.value = value;
+          } catch {
+            // Conflicted with an in-flight crossfade curve - see above.
+          }
         },
         rampGain(ramp: RampSpec) {
           const endTime = ramp.atTimeSeconds + ramp.durationSeconds;
