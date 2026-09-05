@@ -93,7 +93,16 @@ export function LibraryScreen({
         renderItem={({ item: { root, playlists, tracksById } }) => (
           <View style={styles.rootSection}>
             <View style={styles.rootHeader}>
-              <IconLabel path={mdiFolder} text={root.displayName} color={colors.text} iconSize={18} textStyle={styles.rootName} />
+              <IconLabel
+                path={mdiFolder}
+                text={root.displayName}
+                color={colors.text}
+                iconSize={18}
+                textStyle={styles.rootName}
+                containerStyle={styles.rootNameContainer}
+                numberOfLines={1}
+                ellipsizeMode="middle"
+              />
               <View style={styles.rootActions}>
                 <Pressable onPress={() => onRescan(root.id)} disabled={busyRootId === root.id}>
                   {busyRootId === root.id ? (
@@ -147,8 +156,16 @@ const styles = StyleSheet.create({
   },
   rootActions: {
     flexDirection: 'row',
+    flexShrink: 0,
     alignItems: 'center',
     gap: 12,
+  },
+  // minWidth: 0 - see LyricsFolderSection's scopeNameContainer for why this
+  // (not flexShrink on the text alone) is what actually lets a long root
+  // name truncate instead of overflowing past Rescan/Remove.
+  rootNameContainer: {
+    flex: 1,
+    minWidth: 0,
   },
   rootName: {
     fontSize: 18,

@@ -65,7 +65,16 @@ export function LyricsFolderSection({
         const label = scope.relativePath ? `${rootDisplayName(scope.rootId)}/${scope.relativePath}` : rootDisplayName(scope.rootId);
         return (
           <View key={key} style={styles.scopeRow}>
-            <IconLabel path={mdiFolder} text={label} color={colors.text} iconSize={16} textStyle={styles.scopeName} />
+            <IconLabel
+              path={mdiFolder}
+              text={label}
+              color={colors.text}
+              iconSize={16}
+              textStyle={styles.scopeName}
+              containerStyle={styles.scopeNameContainer}
+              numberOfLines={1}
+              ellipsizeMode="middle"
+            />
             <View style={styles.scopeActions}>
               <Pressable onPress={() => onRescan(scope.rootId, scope.relativePath)} disabled={busyScopeKey === key}>
                 {busyScopeKey === key ? (
@@ -91,6 +100,10 @@ export function LyricsFolderSection({
 const styles = StyleSheet.create({
   container: {
     marginTop: 16,
+    // Matches LibraryScreen's rootSection - this sits in the same unpadded
+    // outer container, so without its own inset a scope row's Rescan/Remove
+    // actions run flush to (and clip against) the physical screen edge.
+    paddingHorizontal: 16,
     paddingBottom: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: 'rgba(128,128,128,0.3)',
@@ -104,9 +117,16 @@ const styles = StyleSheet.create({
     marginTop: 10,
     gap: 12,
   },
+  // minWidth: 0 is the actual fix - a row-flex child won't shrink below its
+  // content's natural width without it, no matter what flexShrink says on
+  // the child itself, so numberOfLines/ellipsizeMode above had nothing to
+  // truncate against and the row just overflowed past Rescan/Remove.
+  scopeNameContainer: {
+    flex: 1,
+    minWidth: 0,
+  },
   scopeName: {
     fontSize: 14,
-    flexShrink: 1,
   },
   scopeActions: {
     flexDirection: 'row',
