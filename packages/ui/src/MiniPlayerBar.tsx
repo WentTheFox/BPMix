@@ -5,8 +5,10 @@ import type { Colors } from './theme';
 
 export interface MiniPlayerBarProps {
   colors: Colors;
-  /** Already-formatted title text (or a bare fileId fallback) - callers own formatTrackTitle/useTrackMetadata, this just renders the result. */
+  /** Track title (or a bare fileId/filename fallback) - callers own useTrackMetadata, this just renders the result. */
   title: string;
+  /** Artist(s), already joined - null hides the second line entirely rather than rendering it empty. */
+  artist?: string | null;
   artUri: string | null;
   isPlaying: boolean;
   positionSeconds: number;
@@ -29,6 +31,7 @@ export interface MiniPlayerBarProps {
 export function MiniPlayerBar({
   colors,
   title,
+  artist,
   artUri,
   isPlaying,
   positionSeconds,
@@ -52,9 +55,16 @@ export function MiniPlayerBar({
           ) : (
             <View style={[styles.art, styles.artPlaceholder]} />
           )}
-          <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
-            {title}
-          </Text>
+          <View style={styles.textColumn}>
+            <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
+              {title}
+            </Text>
+            {artist && (
+              <Text style={[styles.artist, { color: colors.subtleText }]} numberOfLines={1}>
+                {artist}
+              </Text>
+            )}
+          </View>
         </Pressable>
         <View style={styles.controls}>
           <Pressable style={styles.controlButton} onPress={onPrevious}>
@@ -109,10 +119,17 @@ const styles = StyleSheet.create({
   artPlaceholder: {
     backgroundColor: 'rgba(128,128,128,0.15)',
   },
-  title: {
+  textColumn: {
     flexShrink: 1,
+    minWidth: 0,
+  },
+  title: {
     fontSize: 14,
     fontWeight: '600',
+  },
+  artist: {
+    fontSize: 12,
+    marginTop: 1,
   },
   controls: {
     flexDirection: 'row',

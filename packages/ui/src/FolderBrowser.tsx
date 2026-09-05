@@ -25,6 +25,27 @@ export interface FolderBrowserProps {
   /** Fired with the relativePath the user landed on and confirmed - '' means the root itself. */
   onSelect: (relativePath: string) => void;
   onCancel: () => void;
+  /**
+   * Already-granted roots, as absolute paths in the same namespace as
+   * `rootId` (Android's MANAGE_EXTERNAL_STORAGE whole-device browse only -
+   * that's the one flow where a folder outside any existing grant can
+   * still turn out to sit inside one on disk). A listed entry that's equal
+   * to or nested inside one of these is greyed out and un-selectable, with
+   * a note naming which root already covers it - picking it anyway would
+   * scan the same files twice under two different library roots.
+   */
+  existingRoots?: { path: string; displayName: string }[];
+}
+
+function joinPath(base: string, relative: string): string {
+  return `${base.replace(/\/+$/, '')}/${relative.replace(/^\/+/, '')}`;
+}
+
+function findCoveringRoot(
+  entryPath: string,
+  existingRoots: { path: string; displayName: string }[],
+): { path: string; displayName: string } | undefined {
+  return existingRoots.find((root) => entryPath === root.path || entryPath.startsWith(`${root.path.replace(/\/+$/, '')}/`));
 }
 
 /**
@@ -38,7 +59,7 @@ export interface FolderBrowserProps {
  * never goes through that picker at all, sidestepping the bug entirely
  * rather than working around it.
  */
-export function FolderBrowser({ colors, fileAccess, rootId, rootDisplayName, initialPath, onSelect, onCancel }: FolderBrowserProps) {
+export function FolderBrowser({ colors, fileAccess, rootId, rootDisplayName, initialPath, onSelect, onCancel, existingRoots }: FolderBrowserProps) {
   const [path, setPath] = useState(initialPath ?? '');
   const [entries, setEntries] = useState<DirectoryEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -64,8 +85,16 @@ export function FolderBrowser({ colors, fileAccess, rootId, rootDisplayName, ini
 
   // Never removed from `entries` below - this is just a quick-jump shortcut
   // to whatever in the current directory looks likely to be it, not a
-  // filter on the real listing.
-  const suggested = useMemo(() => entries?.filter((entry) => isSuggestedFolder(entry.name)) ?? [], [entries]);
+  // filter on the real listing. Already-covered folders are dropped here
+  // (rather than shown greyed out like a normal row) since jumping into
+  // one only leads somewhere every entry is disabled anyway.
+  const suggested = useMemo(
+    () =>
+      entries?.filter(
+        (entry) => isSuggestedFolder(entry.name) && !(existingRoots?.length && findCoveringRoot(joinPath(rootId, entry.relativePath), existingRoots)),
+      ) ?? [],
+    [entries, existingRoots, rootId],
+  );
 
   // rootDisplayName plus each non-empty path segment, each carrying the
   // relativePath a tap on it should jump back to.
@@ -76,6 +105,7 @@ export function FolderBrowser({ colors, fileAccess, rootId, rootDisplayName, ini
   ];
 
   const parentPath = segments.length > 0 ? segments.slice(0, -1).join('/') : null;
+  const currentPathCovered = existingRoots?.length ? findCoveringRoot(joinPath(rootId, path), existingRoots) : undefined;
 
   return (
     <View style={styles.container}>
@@ -128,11 +158,23 @@ export function FolderBrowser({ colors, fileAccess, rootId, rootDisplayName, ini
           data={entries}
           keyExtractor={(entry) => entry.relativePath}
           ListEmptyComponent={<Text style={[styles.empty, { color: colors.subtleText }]}>No subfolders here.</Text>}
-          renderItem={({ item }) => (
-            <Pressable style={styles.row} onPress={() => setPath(item.relativePath)}>
-              <IconLabel path={mdiFolder} text={item.name} color={colors.text} iconSize={18} textStyle={styles.rowText} />
-            </Pressable>
-          )}
+          renderItem={({ item }) => {
+            const covering = existingRoots?.length ? findCoveringRoot(joinPath(rootId, item.relativePath), existingRoots) : undefined;
+            return (
+              <Pressable style={styles.row} onPress={() => setPath(item.relativePath)} disabled={!!covering}>
+                <IconLabel
+                  path={mdiFolder}
+                  text={item.name}
+                  color={covering ? colors.subtleText : colors.text}
+                  iconSize={18}
+                  textStyle={styles.rowText}
+                />
+                {covering && (
+                  <Text style={[styles.coveredNote, { color: colors.subtleText }]}>Already scanned by {covering.displayName}</Text>
+                )}
+              </Pressable>
+            );
+          }}
         />
       )}
 
@@ -140,7 +182,11 @@ export function FolderBrowser({ colors, fileAccess, rootId, rootDisplayName, ini
         <Pressable style={styles.cancelButton} onPress={onCancel}>
           <Text style={styles.cancelButtonText}>Cancel</Text>
         </Pressable>
-        <Pressable style={styles.selectButton} onPress={() => onSelect(path)}>
+        <Pressable
+          style={[styles.selectButton, currentPathCovered && styles.selectButtonDisabled]}
+          onPress={() => onSelect(path)}
+          disabled={!!currentPathCovered}
+        >
           <Text style={styles.selectButtonText}>Select This Folder</Text>
         </Pressable>
       </View>
@@ -234,6 +280,11 @@ const styles = StyleSheet.create({
   rowText: {
     fontSize: 15,
   },
+  coveredNote: {
+    fontSize: 12,
+    marginTop: 2,
+    marginLeft: 26,
+  },
   actionsRow: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
@@ -256,6 +307,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 8,
+  },
+  selectButtonDisabled: {
+    opacity: 0.4,
   },
   selectButtonText: {
     color: 'white',

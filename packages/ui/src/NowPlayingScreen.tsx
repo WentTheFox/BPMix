@@ -8,7 +8,7 @@ import { SeekBar } from './SeekBar';
 import type { Colors } from './theme';
 import { VolumeSlider } from './VolumeSlider';
 
-const ART_SIZE = 220;
+const ART_SIZE = 130;
 
 function formatSeconds(seconds: number): string {
   if (!Number.isFinite(seconds)) return '0:00';
@@ -82,42 +82,46 @@ export function NowPlayingScreen({
         <IconLabel path={mdiArrowLeft} text="Now Playing" color={colors.text} iconSize={18} textStyle={styles.backLink} />
       </Pressable>
       <View style={styles.content}>
-        <Animated.View style={{ opacity: nowPlayingOpacity }}>
-          <Text style={[styles.nowPlayingName, { color: colors.text }]} numberOfLines={2}>
-            {title}
-          </Text>
-        </Animated.View>
-        {upNextTitle && (
-          <Animated.View style={[styles.upNext, { opacity: upNextOpacity }]}>
-            <Text style={[styles.upNextText, { color: colors.subtleText }]} numberOfLines={1}>
-              Up next: {upNextTitle}
+        <View>
+          <Animated.View style={{ opacity: nowPlayingOpacity }}>
+            <Text style={[styles.nowPlayingName, { color: colors.text }]} numberOfLines={2}>
+              {title}
             </Text>
           </Animated.View>
-        )}
-        <View style={styles.artRow}>
-          <CrossfadeArt
-            currentTrackKey={currentTrackKey}
-            currentArtUri={currentArtUri}
-            currentGain={currentGain}
-            currentProgress={currentProgress}
-            nextTrackKey={nextTrackKey}
-            nextArtUri={nextArtUri}
-            nextGain={nextGain}
-            nextProgress={nextProgress}
-            size={ART_SIZE}
-          />
+          {upNextTitle && (
+            <Animated.View style={[styles.upNext, { opacity: upNextOpacity }]}>
+              <Text style={[styles.upNextText, { color: colors.subtleText }]} numberOfLines={1}>
+                Up next: {upNextTitle}
+              </Text>
+            </Animated.View>
+          )}
+          <View style={styles.artRow}>
+            <CrossfadeArt
+              currentTrackKey={currentTrackKey}
+              currentArtUri={currentArtUri}
+              currentGain={currentGain}
+              currentProgress={currentProgress}
+              nextTrackKey={nextTrackKey}
+              nextArtUri={nextArtUri}
+              nextGain={nextGain}
+              nextProgress={nextProgress}
+              size={ART_SIZE}
+            />
+          </View>
+          {isLoading ? (
+            <LoadingBar />
+          ) : (
+            <SeekBar positionSeconds={positionSeconds} durationSeconds={durationSeconds} onSeekTo={onSeekTo} />
+          )}
+          <View style={styles.seekTimesRow}>
+            <Text style={[styles.seekTimeText, { color: colors.subtleText }]}>{formatSeconds(positionSeconds)}</Text>
+            <Text style={[styles.seekTimeText, { color: colors.subtleText }]}>{formatSeconds(durationSeconds)}</Text>
+          </View>
         </View>
-        {isLoading ? (
-          <LoadingBar />
-        ) : (
-          <SeekBar positionSeconds={positionSeconds} durationSeconds={durationSeconds} onSeekTo={onSeekTo} />
-        )}
-        <View style={styles.seekTimesRow}>
-          <Text style={[styles.seekTimeText, { color: colors.subtleText }]}>{formatSeconds(positionSeconds)}</Text>
-          <Text style={[styles.seekTimeText, { color: colors.subtleText }]}>{formatSeconds(durationSeconds)}</Text>
+        <View style={styles.footer}>
+          {controls}
+          <VolumeSlider volume={volume} onChangeVolume={onChangeVolume} />
         </View>
-        {controls}
-        <VolumeSlider volume={volume} onChangeVolume={onChangeVolume} />
       </View>
     </View>
   );
@@ -140,6 +144,7 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 480,
     alignSelf: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 24,
     paddingTop: 16,
   },
@@ -164,5 +169,12 @@ const styles = StyleSheet.create({
   },
   seekTimeText: {
     fontSize: 12,
+  },
+  // Pushed to the bottom of `content` (flex:1, space-between) rather than
+  // flowing right after the seek bar, so the transport controls land at a
+  // consistent, reachable spot regardless of how much space the art/title
+  // block above ends up taking.
+  footer: {
+    paddingBottom: 24,
   },
 });

@@ -12,6 +12,7 @@ import {
   scanLibraryMetadata,
   scanLyricsRoot,
   scanRoot,
+  trackDisplayName,
 } from '@bpmix/core';
 import {
   AddFolderButton,
@@ -712,11 +713,14 @@ function App() {
   const upNextOpacity = useFadeInOnChange(settledNextKey);
 
   const currentTitle = settledCurrentTrack ? formatTrackTitle(settledCurrentMetadata, settledCurrentTrack) : playerState.currentFileId;
+  const currentName = settledCurrentTrack ? settledCurrentMetadata?.title || trackDisplayName(settledCurrentTrack) : (playerState.currentFileId ?? '');
+  const currentArtist = settledCurrentMetadata?.artists.join(', ') || null;
 
   const miniPlayerBar = playerState.currentFileId && (
     <MiniPlayerBar
       colors={colors}
-      title={currentTitle ?? ''}
+      title={currentName}
+      artist={currentArtist}
       artUri={outgoingCoverArt}
       isPlaying={playerState.track.status === 'playing'}
       positionSeconds={displayPositionSeconds}
@@ -818,7 +822,7 @@ function App() {
     screenContent = (
       <>
         <Pressable onPress={() => setScreen({ kind: 'library' })} style={styles.backRow}>
-          <IconLabel path={mdiArrowLeft} text={playlist.name} color={colors.text} iconSize={18} textStyle={styles.backLink} />
+          <IconLabel path={mdiArrowLeft} text={`Playlist: ${playlist.name}`} color={colors.text} iconSize={18} textStyle={styles.backLink} />
         </Pressable>
         {error && <Text style={styles.error}>{error}</Text>}
         <TrackList

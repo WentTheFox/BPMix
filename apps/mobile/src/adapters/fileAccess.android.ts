@@ -106,7 +106,14 @@ export async function browseDeviceStorage(): Promise<{ path: string; displayName
   const relativePath = await browseForRoot(storageRoot, storageRootDisplayName);
   if (relativePath === null) return null; // user cancelled
   const path = joinPath(storageRoot, relativePath);
-  const displayName = relativePath.split('/').filter(Boolean).pop() || storageRootDisplayName;
+  // The full absolute path rather than just its last segment - matches how
+  // a lyrics scope with no matching granted root ends up displaying (see
+  // LyricsFolderSection's rootDisplayName fallback), and stays useful even
+  // once a user has more than one root that happens to share a name. Also
+  // what listGrantedRoots() shows for every root regardless of what's
+  // persisted here, so this only actually matters for the very first
+  // render right after picking a brand-new root.
+  const displayName = relativePath ? path : storageRootDisplayName;
   return { path, displayName };
 }
 
@@ -131,7 +138,11 @@ export function createFileAccess(): FileAccess {
 
     async listGrantedRoots(): Promise<GrantedRoot[]> {
       const roots = await readRootPaths();
-      return roots.map((r) => ({ id: r.path, displayName: r.displayName }));
+      // Always the full path (not whatever was persisted at grant time) -
+      // otherwise a root added before displayName started storing the full
+      // path (see browseDeviceStorage's doc) would keep showing just its
+      // last segment until re-added.
+      return roots.map((r) => ({ id: r.path, displayName: r.path }));
     },
 
     async revokeRoot(rootId: string): Promise<void> {
