@@ -1,4 +1,5 @@
 export * from './file-access/types';
+export * from './errorMessage';
 export * from './audio-engine/types';
 export * from './library-store/types';
 export * from './library-store/trackDisplayName';

@@ -51,3 +51,7 @@ Notes for tasks that still have to be done/investigated are left here, grouped b
 * Support browsing for a dedicated lyrics folder with .lrc files + auto-assigning to tracks with manual override possibility, one lrc file may be assigned to multiple tracks (e.g. different qualities/files for the same song)
 * add an lrc syncing UI for songs with nt synced plaintext lyrics, or a resyn option that reconstructs the plain lyrics from the lrc file (tap to advance sync, swipe up to go bac to previous entry/start on first entry, swipe left to remove a line, swipe right to insert a break) with onscreen controls and instructions, as well as step 5-10seconds buttons forwards/backwards
 * advanced: sound recognition-based automatic pre-syncing with manual review (requires large R&D effort, needs eternal library maybe)
+
+## Bugs
+
+* Windows: adding a folder (music or lyrics) via the picker can fail with a bare WinRT E_INVALIDARG ("The parameter is incorrect.") on the walkDirectory/listDirectory call into FileAccessModule.h - see scanLyricsRoot.ts's doc comment for the repro. Needs native-side debugging on a real Windows box. Also fix while there: refresh()'s Promise.all over every music root (apps/mobile/App.tsx and apps/web/src/App.tsx) has no per-root error isolation, so one bad root's scan failure currently blanks the *entire* library listing instead of just that root.

@@ -9,6 +9,7 @@ import {
   computeTransitionPlan,
   ensureTrackAnalyzed,
   equalPowerGain,
+  errorMessage,
   findAutoLyricsMatch,
   formatTrackTitle,
   isMetadataCurrent,
@@ -169,7 +170,7 @@ function AppContent() {
   };
 
   useEffect(() => {
-    reportError = (err) => setError(String(err));
+    reportError = (err) => setError(errorMessage(err));
     return () => {
       reportError = () => {};
     };
@@ -270,7 +271,7 @@ function AppContent() {
       activeTracksById = tracksById;
     },
     onRestoreScreen: (root, playlist, tracksById) => setScreen({ kind: 'playlist', root, playlist, tracksById }),
-    onError: (err) => setError(String(err)),
+    onError: (err) => setError(errorMessage(err)),
   });
 
   useEffect(() => {
@@ -308,7 +309,7 @@ function AppContent() {
       await scanRoot(fileAccess, libraryStore, root.id);
       await refresh();
     } catch (err) {
-      setError(String(err));
+      setError(errorMessage(err));
     } finally {
       setBusyRootId(null);
     }
@@ -326,7 +327,7 @@ function AppContent() {
         }
         await refresh();
       } catch (err) {
-        setError(String(err));
+        setError(errorMessage(err));
       } finally {
         setBusyRootId(null);
       }
@@ -343,7 +344,7 @@ function AppContent() {
       setBusyRootId(root.id);
       await refresh();
     } catch (err) {
-      setError(String(err));
+      setError(errorMessage(err));
     } finally {
       setBusyRootId(null);
     }
