@@ -33,8 +33,6 @@ export interface LibraryScreenProps {
   error?: string | null;
   /** Rendered right after the error text - e.g. a "Grant Access" button for Android's AllFilesAccessRequiredError, so the user doesn't have to find Settings on their own. */
   errorAction?: ReactNode;
-  /** Rendered where each app's now-playing bar goes - still owned by the caller, just slotted in at the right point in the layout. */
-  nowPlayingBar?: ReactNode;
   /** Rendered in a row right next to the Add Folder button - the "Add Lyrics Folder" AddFolderButton, so the two sit side by side instead of stacked. */
   secondaryAddButton?: ReactNode;
   /** Web-only directory-picker-unsupported warning, rendered right after the button row. */
@@ -68,7 +66,6 @@ export function LibraryScreen({
   onSelectPlaylist,
   error,
   errorAction,
-  nowPlayingBar,
   secondaryAddButton,
   bannerContent,
   lyricsSection,
@@ -85,7 +82,6 @@ export function LibraryScreen({
       {lyricsSection}
       {error && <Text style={styles.error}>{error}</Text>}
       {errorAction}
-      {nowPlayingBar}
       <FlatList
         style={[styles.list, listStyle]}
         data={rootsWithLibrary}

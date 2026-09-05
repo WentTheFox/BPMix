@@ -24,7 +24,8 @@ import {
   LoopButton,
   LyricsFolderSection,
   lyricsScopeKey,
-  NowPlayingBar,
+  MiniPlayerBar,
+  NowPlayingScreen,
   ShuffleButton,
   TrackList,
   useCoverArt,
@@ -45,7 +46,7 @@ import {
   mdiSkipPrevious,
   mdiSubtitles,
 } from '@mdi/js';
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DimensionValue } from 'react-native';
 import { InteractionManager, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -146,6 +147,9 @@ function App() {
   const [busyRootId, setBusyRootId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [screen, setScreen] = useState<Screen>({ kind: 'library' });
+  // Opened by tapping MiniPlayerBar's art/title area - closes back to
+  // whichever screen (library or playlist) was already showing underneath.
+  const [nowPlayingScreenOpen, setNowPlayingScreenOpen] = useState(false);
   const [playerState, setPlayerState] = useState<PlaylistPlayerState>(playlistPlayer.getState());
 
   // Shared cooldown across every action that creates/destroys a native audio
@@ -707,57 +711,77 @@ function App() {
   const nowPlayingOpacity = useFadeInOnChange(settledCurrentKey);
   const upNextOpacity = useFadeInOnChange(settledNextKey);
 
-  const nowPlayingBar = playerState.currentFileId && (
-    <NowPlayingBar
+  const currentTitle = settledCurrentTrack ? formatTrackTitle(settledCurrentMetadata, settledCurrentTrack) : playerState.currentFileId;
+
+  const miniPlayerBar = playerState.currentFileId && (
+    <MiniPlayerBar
       colors={colors}
-      title={settledCurrentTrack ? formatTrackTitle(settledCurrentMetadata, settledCurrentTrack) : playerState.currentFileId}
-      upNextTitle={settledNextTrack ? formatTrackTitle(settledNextMetadata, settledNextTrack) : null}
-      nowPlayingOpacity={nowPlayingOpacity}
-      upNextOpacity={upNextOpacity}
-      currentTrackKey={outgoingTrack?.fileId ?? null}
-      currentArtUri={outgoingCoverArt}
-      currentGain={outgoingGain}
-      currentProgress={outgoingProgress}
-      nextTrackKey={incomingTrack?.fileId ?? null}
-      nextArtUri={incomingCoverArt}
-      nextGain={incomingGain}
-      nextProgress={incomingProgress}
-      isLoading={playerState.track.status === 'loading'}
+      title={currentTitle ?? ''}
+      artUri={outgoingCoverArt}
+      isPlaying={playerState.track.status === 'playing'}
       positionSeconds={displayPositionSeconds}
       durationSeconds={displayDurationSeconds}
-      // Disabled mid-crossfade: seekTo() still only affects the actual
-      // (outgoing) source, which no longer matches what the bar is showing
-      // (the incoming track's position/duration) - a tap here would compute
-      // a fraction against the wrong track's duration.
-      onSeekTo={pendingIncoming ? () => {} : seekTo}
-      volume={volume}
-      onChangeVolume={handleVolumeChange}
-      controls={
-        <>
-          <View style={styles.playerControlsRow}>
-            <Pressable style={styles.controlButton} onPress={handlePreviousPress}>
-              <Icon path={mdiSkipPrevious} size={20} color="white" />
-            </Pressable>
-            <Pressable style={styles.controlButtonWide} onPress={() => seekBy(-10)}>
-              <Icon path={mdiRewind10} size={22} color="white" />
-            </Pressable>
-            <Pressable style={[styles.controlButton, styles.controlButtonPrimary]} onPress={togglePause}>
-              <Icon path={playerState.track.status === 'playing' ? mdiPause : mdiPlay} size={30} color="white" />
-            </Pressable>
-            <Pressable style={styles.controlButtonWide} onPress={() => seekBy(10)}>
-              <Icon path={mdiFastForward10} size={22} color="white" />
-            </Pressable>
-            <Pressable style={styles.controlButton} onPress={handleNextPress}>
-              <Icon path={mdiSkipNext} size={20} color="white" />
-            </Pressable>
-          </View>
-          <View style={styles.transportRow}>
-            <LoopButton loopMode={playerState.loopMode} onPress={cycleLoopMode} />
-            <ShuffleButton shuffleEnabled={playerState.shuffleEnabled} onPress={toggleShuffle} />
-          </View>
-        </>
-      }
+      onPress={() => setNowPlayingScreenOpen(true)}
+      onPlayPause={togglePause}
+      onNext={handleNextPress}
+      onPrevious={handlePreviousPress}
     />
+  );
+
+  const nowPlayingScreen = nowPlayingScreenOpen && playerState.currentFileId && (
+    <View style={StyleSheet.absoluteFill}>
+      <NowPlayingScreen
+        colors={colors}
+        onClose={() => setNowPlayingScreenOpen(false)}
+        title={currentTitle ?? ''}
+        upNextTitle={settledNextTrack ? formatTrackTitle(settledNextMetadata, settledNextTrack) : null}
+        nowPlayingOpacity={nowPlayingOpacity}
+        upNextOpacity={upNextOpacity}
+        currentTrackKey={outgoingTrack?.fileId ?? null}
+        currentArtUri={outgoingCoverArt}
+        currentGain={outgoingGain}
+        currentProgress={outgoingProgress}
+        nextTrackKey={incomingTrack?.fileId ?? null}
+        nextArtUri={incomingCoverArt}
+        nextGain={incomingGain}
+        nextProgress={incomingProgress}
+        isLoading={playerState.track.status === 'loading'}
+        positionSeconds={displayPositionSeconds}
+        durationSeconds={displayDurationSeconds}
+        // Disabled mid-crossfade: seekTo() still only affects the actual
+        // (outgoing) source, which no longer matches what the screen is
+        // showing (the incoming track's position/duration) - a tap here
+        // would compute a fraction against the wrong track's duration.
+        onSeekTo={pendingIncoming ? () => {} : seekTo}
+        volume={volume}
+        onChangeVolume={handleVolumeChange}
+        controls={
+          <>
+            <View style={styles.playerControlsRow}>
+              <Pressable style={styles.controlButton} onPress={handlePreviousPress}>
+                <Icon path={mdiSkipPrevious} size={20} color="white" />
+              </Pressable>
+              <Pressable style={styles.controlButtonWide} onPress={() => seekBy(-10)}>
+                <Icon path={mdiRewind10} size={22} color="white" />
+              </Pressable>
+              <Pressable style={[styles.controlButton, styles.controlButtonPrimary]} onPress={togglePause}>
+                <Icon path={playerState.track.status === 'playing' ? mdiPause : mdiPlay} size={30} color="white" />
+              </Pressable>
+              <Pressable style={styles.controlButtonWide} onPress={() => seekBy(10)}>
+                <Icon path={mdiFastForward10} size={22} color="white" />
+              </Pressable>
+              <Pressable style={styles.controlButton} onPress={handleNextPress}>
+                <Icon path={mdiSkipNext} size={20} color="white" />
+              </Pressable>
+            </View>
+            <View style={styles.transportRow}>
+              <LoopButton loopMode={playerState.loopMode} onPress={cycleLoopMode} />
+              <ShuffleButton shuffleEnabled={playerState.shuffleEnabled} onPress={toggleShuffle} />
+            </View>
+          </>
+        }
+      />
+    </View>
   );
 
   // Covers the library scan + playback-state restore's own async window -
@@ -769,29 +793,6 @@ function App() {
     return (
       <View style={[styles.container, styles.restoringContainer, { backgroundColor: colors.background }]}>
         <AppTitle color={colors.text} />
-      </View>
-    );
-  }
-
-  if (screen.kind === 'playlist') {
-    const { playlist, tracksById } = screen;
-    return (
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <Pressable onPress={() => setScreen({ kind: 'library' })} style={styles.backRow}>
-          <IconLabel path={mdiArrowLeft} text={playlist.name} color={colors.text} iconSize={18} textStyle={styles.backLink} />
-        </Pressable>
-        {error && <Text style={styles.error}>{error}</Text>}
-        {nowPlayingBar}
-        <TrackList
-          trackFileIds={playlist.trackFileIds}
-          tracksById={tracksById}
-          currentFileId={playerState.currentFileId}
-          isPlaying={playerState.track.status === 'playing'}
-          textColor={colors.text}
-          onPressTrack={(t) => void playFromTrack(playlist, tracksById, t)}
-          libraryStore={libraryStore}
-          initialNumToRender={30}
-        />
       </View>
     );
   }
@@ -811,8 +812,29 @@ function App() {
     );
   }
 
-  return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+  let screenContent: ReactNode;
+  if (screen.kind === 'playlist') {
+    const { playlist, tracksById } = screen;
+    screenContent = (
+      <>
+        <Pressable onPress={() => setScreen({ kind: 'library' })} style={styles.backRow}>
+          <IconLabel path={mdiArrowLeft} text={playlist.name} color={colors.text} iconSize={18} textStyle={styles.backLink} />
+        </Pressable>
+        {error && <Text style={styles.error}>{error}</Text>}
+        <TrackList
+          trackFileIds={playlist.trackFileIds}
+          tracksById={tracksById}
+          currentFileId={playerState.currentFileId}
+          isPlaying={playerState.track.status === 'playing'}
+          textColor={colors.text}
+          onPressTrack={(t) => void playFromTrack(playlist, tracksById, t)}
+          libraryStore={libraryStore}
+          initialNumToRender={30}
+        />
+      </>
+    );
+  } else {
+    screenContent = (
       <LibraryScreen
         colors={colors}
         rootsWithLibrary={rootsWithLibrary}
@@ -822,7 +844,6 @@ function App() {
         onRemoveRoot={(rootId) => void removeRoot(rootId)}
         onSelectPlaylist={(root, playlist, tracksById) => setScreen({ kind: 'playlist', root, playlist, tracksById })}
         error={error}
-        nowPlayingBar={nowPlayingBar}
         listStyle={styles.list}
         secondaryAddButton={<AddFolderButton icon={mdiSubtitles} text="Add Lyrics Folder" onPress={addLyricsFolder} />}
         bannerContent={
@@ -850,6 +871,14 @@ function App() {
           />
         }
       />
+    );
+  }
+
+  return (
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={styles.screenArea}>{screenContent}</View>
+      {miniPlayerBar}
+      {nowPlayingScreen}
     </View>
   );
 }
@@ -870,6 +899,16 @@ const styles = StyleSheet.create({
   restoringContainer: {
     justifyContent: 'center',
     opacity: 0.8,
+  },
+  // Wraps the library/playlist content so it can flex to fill the space
+  // above MiniPlayerBar/NowPlayingScreen instead of the two overlapping -
+  // container itself can't grow the content because it also hosts those
+  // siblings. flex:1 here (not just on list) keeps FlatList's bounded-height
+  // ancestor chain intact - see list's own comment.
+  screenArea: {
+    flex: 1,
+    width: '100%',
+    alignItems: 'center',
   },
   error: {
     color: '#dc2626',
