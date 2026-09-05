@@ -183,29 +183,40 @@ function AppContent() {
     const lyricsRootList = rootsByKind.filter(({ kind }) => kind === 'lyrics').map(({ root }) => root);
     setLyricsRoots(lyricsRootList);
 
-    const withLibrary = await Promise.all(
-      musicRoots.map(async (root) => {
-        let [playlists, tracks] = await Promise.all([
-          libraryStore.listPlaylists(root.id),
-          libraryStore.listTracks(root.id),
-        ]);
-        if (playlists.length === 0 && tracks.length === 0) {
-          // A root can reach listGrantedRoots() without ever going through
-          // addFolder's explicit requestRoot+scanRoot flow - e.g. a
-          // composite-adapter root the self-hosted server exposes just by
-          // having a volume mounted (web-only today, but this keeps the
-          // two refresh()s in sync rather than letting them drift). Scan
-          // it now instead of silently showing an empty library until the
-          // user notices and clicks Rescan themselves.
-          await scanRoot(fileAccess, libraryStore, root.id);
-          [playlists, tracks] = await Promise.all([
-            libraryStore.listPlaylists(root.id),
-            libraryStore.listTracks(root.id),
-          ]);
-        }
-        return { root, playlists, tracksById: new Map(tracks.map((t) => [t.fileId, t])) };
-      }),
-    );
+    // Each root's scan is isolated in its own try/catch - see
+    // apps/web/src/App.tsx's refresh() for why (one bad root used to blank
+    // the entire library, including every other perfectly fine root, on
+    // every refresh/relaunch until removed).
+    const withLibrary = (
+      await Promise.all(
+        musicRoots.map(async (root) => {
+          try {
+            let [playlists, tracks] = await Promise.all([
+              libraryStore.listPlaylists(root.id),
+              libraryStore.listTracks(root.id),
+            ]);
+            if (playlists.length === 0 && tracks.length === 0) {
+              // A root can reach listGrantedRoots() without ever going through
+              // addFolder's explicit requestRoot+scanRoot flow - e.g. a
+              // composite-adapter root the self-hosted server exposes just by
+              // having a volume mounted (web-only today, but this keeps the
+              // two refresh()s in sync rather than letting them drift). Scan
+              // it now instead of silently showing an empty library until the
+              // user notices and clicks Rescan themselves.
+              await scanRoot(fileAccess, libraryStore, root.id);
+              [playlists, tracks] = await Promise.all([
+                libraryStore.listPlaylists(root.id),
+                libraryStore.listTracks(root.id),
+              ]);
+            }
+            return { root, playlists, tracksById: new Map(tracks.map((t) => [t.fileId, t])) };
+          } catch (err) {
+            setError(errorMessage(err));
+            return null;
+          }
+        }),
+      )
+    ).filter((entry): entry is RootWithLibrary => entry !== null);
     setRootsWithLibrary(withLibrary);
 
     // Auto-assign any track that doesn't already have a lyrics match - see
@@ -213,7 +224,19 @@ function AppContent() {
     if (lyricsRootList.length > 0) {
       setMatchedLyricsCount(null);
       const allTracks = withLibrary.flatMap(({ tracksById }) => [...tracksById.values()]);
-      const lrcFiles = (await Promise.all(lyricsRootList.map((root) => scanLyricsRoot(fileAccess, root.id)))).flat();
+      // Same per-root isolation as the music roots above.
+      const lrcFiles = (
+        await Promise.all(
+          lyricsRootList.map(async (root) => {
+            try {
+              return await scanLyricsRoot(fileAccess, root.id);
+            } catch (err) {
+              setError(errorMessage(err));
+              return [];
+            }
+          }),
+        )
+      ).flat();
       const candidates = lrcFiles.map((file) => ({ fileId: file.id, name: file.name }));
       let matched = 0;
       await Promise.all(

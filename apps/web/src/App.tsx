@@ -161,28 +161,42 @@ function App() {
     const lyricsRootList = rootsByKind.filter(({ kind }) => kind === 'lyrics').map(({ root }) => root);
     setLyricsRoots(lyricsRootList);
 
-    const withLibrary = await Promise.all(
-      musicRoots.map(async (root) => {
-        let [playlists, tracks] = await Promise.all([
-          libraryStore.listPlaylists(root.id),
-          libraryStore.listTracks(root.id),
-        ]);
-        if (playlists.length === 0 && tracks.length === 0) {
-          // A root can reach listGrantedRoots() without ever going through
-          // addFolder's explicit requestRoot+scanRoot flow - e.g. a
-          // composite-adapter root the self-hosted server exposes just by
-          // having a volume mounted. Scan it now instead of silently
-          // showing an empty library until the user notices and clicks
-          // Rescan themselves.
-          await scanRoot(fileAccess, libraryStore, root.id);
-          [playlists, tracks] = await Promise.all([
-            libraryStore.listPlaylists(root.id),
-            libraryStore.listTracks(root.id),
-          ]);
-        }
-        return { root, playlists, tracksById: new Map(tracks.map((t) => [t.fileId, t])) };
-      }),
-    );
+    // Each root's scan is isolated in its own try/catch - one bad root
+    // (a moved/deleted folder, a native file-access error) used to reject
+    // this whole Promise.all before setRootsWithLibrary ever ran, which
+    // blanked the ENTIRE library (every other, perfectly fine root included)
+    // on every refresh/relaunch until the bad root was manually removed.
+    // Now a failing root just reports its own error and drops out, leaving
+    // the rest of the library visible.
+    const withLibrary = (
+      await Promise.all(
+        musicRoots.map(async (root) => {
+          try {
+            let [playlists, tracks] = await Promise.all([
+              libraryStore.listPlaylists(root.id),
+              libraryStore.listTracks(root.id),
+            ]);
+            if (playlists.length === 0 && tracks.length === 0) {
+              // A root can reach listGrantedRoots() without ever going through
+              // addFolder's explicit requestRoot+scanRoot flow - e.g. a
+              // composite-adapter root the self-hosted server exposes just by
+              // having a volume mounted. Scan it now instead of silently
+              // showing an empty library until the user notices and clicks
+              // Rescan themselves.
+              await scanRoot(fileAccess, libraryStore, root.id);
+              [playlists, tracks] = await Promise.all([
+                libraryStore.listPlaylists(root.id),
+                libraryStore.listTracks(root.id),
+              ]);
+            }
+            return { root, playlists, tracksById: new Map(tracks.map((t) => [t.fileId, t])) };
+          } catch (err) {
+            setError(errorMessage(err));
+            return null;
+          }
+        }),
+      )
+    ).filter((entry): entry is RootWithLibrary => entry !== null);
     setRootsWithLibrary(withLibrary);
 
     // Auto-assign any track that doesn't already have a lyrics match (an
@@ -193,7 +207,20 @@ function App() {
     if (lyricsRootList.length > 0) {
       setMatchedLyricsCount(null);
       const allTracks = withLibrary.flatMap(({ tracksById }) => [...tracksById.values()]);
-      const lrcFiles = (await Promise.all(lyricsRootList.map((root) => scanLyricsRoot(fileAccess, root.id)))).flat();
+      // Same per-root isolation as the music roots above - one lyrics root
+      // failing to scan shouldn't block matching against the ones that work.
+      const lrcFiles = (
+        await Promise.all(
+          lyricsRootList.map(async (root) => {
+            try {
+              return await scanLyricsRoot(fileAccess, root.id);
+            } catch (err) {
+              setError(errorMessage(err));
+              return [];
+            }
+          }),
+        )
+      ).flat();
       const candidates = lrcFiles.map((file) => ({ fileId: file.id, name: file.name }));
       let matched = 0;
       await Promise.all(
