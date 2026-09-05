@@ -1,7 +1,8 @@
 import type { LyricsScope } from '@bpmix/core';
-import { mdiFolder, mdiFolderPlus, mdiRefresh } from '@mdi/js';
+import { mdiFolder, mdiRefresh } from '@mdi/js';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { IconLabel } from './IconLabel';
+import { RemoveButton } from './RemoveButton';
 import type { Colors } from './theme';
 
 /** Stable key for a scope - used for React keys and to track which one a busy/rescan indicator applies to. */
@@ -19,8 +20,6 @@ export interface LyricsFolderSectionProps {
   totalTrackCount: number;
   /** lyricsScopeKey() of whichever scope is currently rescanning, if any. */
   busyScopeKey: string | null;
-  /** Starts the pick flow (choosing a root, then browsing to a subfolder within it) - owned by the caller since it needs a modal/screen, not just this section. */
-  onAddLyricsFolder: () => void;
   onRemoveScope: (rootId: string, relativePath: string) => void;
   onRescan: (rootId: string, relativePath: string) => void;
 }
@@ -34,7 +33,12 @@ export interface LyricsFolderSectionProps {
  * fine. Picking a scope (via FolderBrowser, over a root the user already
  * granted for music) never goes through that picker at all.
  *
- * Shared between mobile and web since this exact shape - button, per-scope
+ * The "Add Lyrics Folder" button itself isn't rendered here - it's an
+ * AddFolderButton the caller places in LibraryScreen's secondaryAddButton
+ * slot instead, so it sits in a row next to "Add Folder" rather than
+ * stacked below it. This component is just the resulting scopes list.
+ *
+ * Shared between mobile and web since this exact shape - per-scope
  * remove/rescan, a match-count summary - would otherwise drift into two
  * copies the way LibraryScreen's own roots list once did (see CLAUDE.md's
  * convention note on each app's App.tsx).
@@ -49,15 +53,13 @@ export function LyricsFolderSection({
   matchedTrackCount,
   totalTrackCount,
   busyScopeKey,
-  onAddLyricsFolder,
   onRemoveScope,
   onRescan,
 }: LyricsFolderSectionProps) {
+  if (scopes.length === 0) return null;
+
   return (
     <View style={styles.container}>
-      <Pressable style={styles.button} onPress={onAddLyricsFolder}>
-        <IconLabel path={mdiFolderPlus} text="Add Lyrics Folder" color="white" iconSize={18} textStyle={styles.buttonText} />
-      </Pressable>
       {scopes.map((scope) => {
         const key = lyricsScopeKey(scope);
         const label = scope.relativePath ? `${rootDisplayName(scope.rootId)}/${scope.relativePath}` : rootDisplayName(scope.rootId);
@@ -72,14 +74,12 @@ export function LyricsFolderSection({
                   <IconLabel path={mdiRefresh} text="Rescan" color="#3b82f6" iconSize={14} textStyle={styles.actionLink} />
                 )}
               </Pressable>
-              <Pressable onPress={() => onRemoveScope(scope.rootId, scope.relativePath)}>
-                <Text style={styles.removeLink}>Remove</Text>
-              </Pressable>
+              <RemoveButton onConfirm={() => onRemoveScope(scope.rootId, scope.relativePath)} />
             </View>
           </View>
         );
       })}
-      {scopes.length > 0 && totalTrackCount > 0 && (
+      {totalTrackCount > 0 && (
         <Text style={[styles.summary, { color: colors.subtleText }]}>
           {matchedTrackCount == null ? 'Matching lyrics…' : `${matchedTrackCount} of ${totalTrackCount} track(s) have lyrics`}
         </Text>
@@ -90,26 +90,19 @@ export function LyricsFolderSection({
 
 const styles = StyleSheet.create({
   container: {
-    marginTop: 12,
+    marginTop: 16,
+    paddingBottom: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(128,128,128,0.3)',
     width: '100%',
     maxWidth: 480,
-  },
-  button: {
-    backgroundColor: '#3b82f6',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignSelf: 'flex-start',
-  },
-  buttonText: {
-    color: 'white',
-    fontWeight: '600',
   },
   scopeRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: 10,
+    gap: 12,
   },
   scopeName: {
     fontSize: 14,
@@ -117,19 +110,16 @@ const styles = StyleSheet.create({
   },
   scopeActions: {
     flexDirection: 'row',
+    flexShrink: 0,
     gap: 12,
   },
   actionLink: {
     color: '#3b82f6',
     fontSize: 12,
   },
-  removeLink: {
-    color: '#dc2626',
-    fontSize: 12,
-  },
   summary: {
     fontSize: 12,
-    marginTop: 6,
+    marginTop: 10,
     opacity: 0.8,
   },
 });

@@ -27,6 +27,33 @@ interface NativeFileAccess {
 
 const native = NativeModules.BPMixFileAccess as NativeFileAccess;
 
+/** Never thrown here - Windows has no MANAGE_EXTERNAL_STORAGE equivalent to gate on. Exported only for the same shared-App.tsx-import reason as registerRootBrowser below. */
+export class AllFilesAccessRequiredError extends Error {}
+
+/** No-op here - Windows's requestRoot() (pickFolder above) has nothing to re-open. */
+export function openAllFilesAccessSettings(): void {}
+
+/**
+ * Always null here - Windows has no unrestricted-storage equivalent to
+ * MANAGE_EXTERNAL_STORAGE, so a location outside an already-granted root
+ * always needs a real FolderPicker prompt (pickFolder above), same as
+ * adding a whole new root does. Callers fall back to picking a subfolder
+ * of an existing root instead - see addLyricsFolder in apps/mobile/App.tsx.
+ */
+export async function browseDeviceStorage(): Promise<{ path: string; displayName: string } | null> {
+  return null;
+}
+
+/**
+ * No-op here - Windows still grants roots via its own native FolderPicker
+ * (pickFolder above), not FolderBrowser. Exported only so App.tsx's shared
+ * registration call (needed for Android's MANAGE_EXTERNAL_STORAGE-based
+ * requestRoot - see fileAccess.android.ts) resolves on this platform too.
+ */
+export function registerRootBrowser(
+  _browser: ((storageRootPath: string, storageRootDisplayName: string) => Promise<string | null>) | null,
+): void {}
+
 export function createFileAccess(): FileAccess {
   return {
     async requestRoot(): Promise<GrantedRoot | null> {

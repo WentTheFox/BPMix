@@ -14,6 +14,7 @@ import {
   scanRoot,
 } from '@bpmix/core';
 import {
+  AddFolderButton,
   AppTitle,
   CROSSFADE_ART_TRANSITION_MS,
   FolderBrowser,
@@ -34,7 +35,16 @@ import {
   useTrackMetadata,
 } from '@bpmix/ui';
 import type { RootWithLibrary } from '@bpmix/ui';
-import { mdiArrowLeft, mdiFastForward10, mdiPause, mdiPlay, mdiRewind10, mdiSkipNext, mdiSkipPrevious } from '@mdi/js';
+import {
+  mdiArrowLeft,
+  mdiFastForward10,
+  mdiPause,
+  mdiPlay,
+  mdiRewind10,
+  mdiSkipNext,
+  mdiSkipPrevious,
+  mdiSubtitles,
+} from '@mdi/js';
 import type { CSSProperties } from 'react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DimensionValue } from 'react-native';
@@ -343,6 +353,19 @@ function App() {
         setError(errorMessage(err));
       } finally {
         setBusyRootId(null);
+      }
+    },
+    [refresh],
+  );
+
+  const removeRoot = useCallback(
+    async (rootId: string) => {
+      setError(null);
+      try {
+        await fileAccess.revokeRoot(rootId);
+        await refresh();
+      } catch (err) {
+        setError(errorMessage(err));
       }
     },
     [refresh],
@@ -796,10 +819,12 @@ function App() {
         busyRootId={busyRootId}
         onAddFolder={addFolder}
         onRescan={rescan}
+        onRemoveRoot={(rootId) => void removeRoot(rootId)}
         onSelectPlaylist={(root, playlist, tracksById) => setScreen({ kind: 'playlist', root, playlist, tracksById })}
         error={error}
         nowPlayingBar={nowPlayingBar}
         listStyle={styles.list}
+        secondaryAddButton={<AddFolderButton icon={mdiSubtitles} text="Add Lyrics Folder" onPress={addLyricsFolder} />}
         bannerContent={
           !SUPPORTS_DIRECTORY_PICKER && (
             <Text style={styles.warning}>
@@ -820,7 +845,6 @@ function App() {
             matchedTrackCount={matchedLyricsCount}
             totalTrackCount={rootsWithLibrary.reduce((sum, { tracksById }) => sum + tracksById.size, 0)}
             busyScopeKey={busyLyricsScopeKey}
-            onAddLyricsFolder={addLyricsFolder}
             onRemoveScope={(rootId, relativePath) => void removeLyricsScope(rootId, relativePath)}
             onRescan={(rootId, relativePath) => void rescanLyricsScope(rootId, relativePath)}
           />

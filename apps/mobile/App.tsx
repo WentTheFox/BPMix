@@ -20,6 +20,7 @@ import {
   scanRoot,
 } from '@bpmix/core';
 import {
+  AddFolderButton,
   AppTitle,
   CROSSFADE_ART_TRANSITION_MS,
   FolderBrowser,
@@ -40,7 +41,7 @@ import {
   useTrackMetadata,
 } from '@bpmix/ui';
 import type { RootWithLibrary } from '@bpmix/ui';
-import { mdiArrowLeft, mdiPause, mdiPlay, mdiSkipNext, mdiSkipPrevious } from '@mdi/js';
+import { mdiArrowLeft, mdiPause, mdiPlay, mdiSkipNext, mdiSkipPrevious, mdiSubtitles } from '@mdi/js';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, InteractionManager, Pressable, StatusBar, StyleSheet, Text, useColorScheme, View } from 'react-native';
 import {
@@ -49,7 +50,13 @@ import {
 } from 'react-native-safe-area-context';
 import { createAudioEngine } from './src/adapters/audioEngine';
 import { createCoverArtResizer } from './src/adapters/coverArtResizer';
-import { createFileAccess } from './src/adapters/fileAccess';
+import {
+  AllFilesAccessRequiredError,
+  browseDeviceStorage,
+  createFileAccess,
+  openAllFilesAccessSettings,
+  registerRootBrowser,
+} from './src/adapters/fileAccess';
 import { createLibraryStore } from './src/adapters/libraryStore';
 import { MemoryOverlay } from './src/debug/MemoryOverlay';
 
@@ -153,8 +160,19 @@ function AppContent() {
   const [lyricsScopes, setLyricsScopes] = useState<LyricsScope[]>([]);
   const [matchedLyricsCount, setMatchedLyricsCount] = useState<number | null>(null);
   const [busyLyricsScopeKey, setBusyLyricsScopeKey] = useState<string | null>(null);
+  // Android only - true after requestRoot() throws AllFilesAccessRequiredError, so the error banner can offer a direct "Open Settings" retry instead of just describing the problem.
+  const [needsAllFilesAccess, setNeedsAllFilesAccess] = useState(false);
   // Set while FolderBrowser is open, picking a lyrics scope within this root.
   const [lyricsFolderPickerRoot, setLyricsFolderPickerRoot] = useState<GrantedRoot | null>(null);
+  // Set while FolderBrowser is open picking a brand-new root (Android's
+  // MANAGE_EXTERNAL_STORAGE flow only - see registerRootBrowser's doc in
+  // fileAccess.android.ts; a no-op registration on Windows means this never
+  // gets set there, since requestRoot() uses its own native FolderPicker).
+  const [rootBrowserRequest, setRootBrowserRequest] = useState<{
+    storageRootPath: string;
+    storageRootDisplayName: string;
+    resolve: (relativePath: string | null) => void;
+  } | null>(null);
   const [busyRootId, setBusyRootId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [screen, setScreen] = useState<Screen>({ kind: 'library' });
@@ -180,6 +198,16 @@ function AppContent() {
     return () => {
       reportError = () => {};
     };
+  }, []);
+
+  useEffect(() => {
+    registerRootBrowser(
+      (storageRootPath, storageRootDisplayName) =>
+        new Promise((resolve) => {
+          setRootBrowserRequest({ storageRootPath, storageRootDisplayName, resolve });
+        }),
+    );
+    return () => registerRootBrowser(null);
   }, []);
 
   const refresh = useCallback(async () => {
@@ -332,6 +360,7 @@ function AppContent() {
 
   const addFolder = useCallback(async () => {
     setError(null);
+    setNeedsAllFilesAccess(false);
     try {
       const root = await fileAccess.requestRoot();
       if (!root) return; // user cancelled the picker
@@ -340,6 +369,9 @@ function AppContent() {
       await refresh();
     } catch (err) {
       setError(errorMessage(err));
+      if (err instanceof AllFilesAccessRequiredError) {
+        setNeedsAllFilesAccess(true);
+      }
     } finally {
       setBusyRootId(null);
     }
@@ -361,19 +393,48 @@ function AppContent() {
     [refresh],
   );
 
-  // Opens FolderBrowser over an already-granted root instead of requesting a
-  // brand-new one - see LyricsScope's doc for why, and
-  // apps/web/src/App.tsx's addLyricsFolder for the identical reasoning/v1
-  // scope note (first granted root only, no chooser yet).
-  const addLyricsFolder = useCallback(() => {
+  const removeRoot = useCallback(
+    async (rootId: string) => {
+      setError(null);
+      try {
+        await fileAccess.revokeRoot(rootId);
+        await refresh();
+      } catch (err) {
+        setError(errorMessage(err));
+      }
+    },
+    [refresh],
+  );
+
+  // Android (MANAGE_EXTERNAL_STORAGE): browses the whole of external storage,
+  // same as Add Folder does - there's no per-folder OS grant to confine a
+  // lyrics location to a subfolder of an already-added root, so a lyrics
+  // folder can sit right next to (not just inside) a music one.
+  // Windows/web: browseDeviceStorage() always resolves null there (no
+  // unrestricted-storage equivalent), so this falls back to FolderBrowser
+  // over an already-granted root instead of requesting a brand-new one -
+  // see LyricsScope's doc for why, and apps/web/src/App.tsx's
+  // addLyricsFolder for the identical fallback reasoning/v1 scope note
+  // (first granted root only, no chooser yet).
+  const addLyricsFolder = useCallback(async () => {
     setError(null);
+    const browsed = await browseDeviceStorage();
+    if (browsed) {
+      try {
+        await libraryStore.addLyricsScope({ rootId: browsed.path, relativePath: '' });
+        await refresh();
+      } catch (err) {
+        setError(errorMessage(err));
+      }
+      return;
+    }
     const root = grantedRoots[0];
     if (!root) {
       setError('Add a music folder first - a lyrics folder is picked as a subfolder of one you already granted.');
       return;
     }
     setLyricsFolderPickerRoot(root);
-  }, [grantedRoots]);
+  }, [grantedRoots, refresh]);
 
   const handleLyricsFolderPicked = useCallback(
     async (relativePath: string) => {
@@ -771,9 +832,30 @@ function AppContent() {
   // signal available while a first-time Add Folder scan is running.
   const isAddingFolder = busyRootId !== null && !rootsWithLibrary.some(({ root }) => root.id === busyRootId);
 
+  if (rootBrowserRequest) {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom, backgroundColor: colors.background }]}>
+        <FolderBrowser
+          colors={colors}
+          fileAccess={fileAccess}
+          rootId={rootBrowserRequest.storageRootPath}
+          rootDisplayName={rootBrowserRequest.storageRootDisplayName}
+          onSelect={(relativePath) => {
+            rootBrowserRequest.resolve(relativePath);
+            setRootBrowserRequest(null);
+          }}
+          onCancel={() => {
+            rootBrowserRequest.resolve(null);
+            setRootBrowserRequest(null);
+          }}
+        />
+      </View>
+    );
+  }
+
   if (lyricsFolderPickerRoot) {
     return (
-      <View style={[styles.container, { paddingTop: insets.top, backgroundColor: colors.background }]}>
+      <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom, backgroundColor: colors.background }]}>
         <FolderBrowser
           colors={colors}
           fileAccess={fileAccess}
@@ -796,9 +878,18 @@ function AppContent() {
         isAddingFolder={isAddingFolder}
         onAddFolder={addFolder}
         onRescan={rescan}
+        onRemoveRoot={(rootId) => void removeRoot(rootId)}
         onSelectPlaylist={(root, playlist, tracksById) => setScreen({ kind: 'playlist', root, playlist, tracksById })}
         error={error}
+        errorAction={
+          needsAllFilesAccess && (
+            <Pressable style={styles.grantAccessButton} onPress={openAllFilesAccessSettings}>
+              <Text style={styles.grantAccessButtonText}>Open Settings</Text>
+            </Pressable>
+          )
+        }
         nowPlayingBar={nowPlayingBar}
+        secondaryAddButton={<AddFolderButton icon={mdiSubtitles} text="Add Lyrics Folder" onPress={addLyricsFolder} />}
         lyricsSection={
           <LyricsFolderSection
             colors={colors}
@@ -807,7 +898,6 @@ function AppContent() {
             matchedTrackCount={matchedLyricsCount}
             totalTrackCount={rootsWithLibrary.reduce((sum, { tracksById }) => sum + tracksById.size, 0)}
             busyScopeKey={busyLyricsScopeKey}
-            onAddLyricsFolder={addLyricsFolder}
             onRemoveScope={(rootId, relativePath) => void removeLyricsScope(rootId, relativePath)}
             onRescan={(rootId, relativePath) => void rescanLyricsScope(rootId, relativePath)}
           />
@@ -826,6 +916,17 @@ const styles = StyleSheet.create({
   restoringContainer: {
     justifyContent: 'center',
     gap: 16,
+  },
+  grantAccessButton: {
+    marginTop: 8,
+    backgroundColor: '#3b82f6',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  grantAccessButtonText: {
+    color: 'white',
+    fontWeight: '600',
   },
   error: {
     color: '#dc2626',

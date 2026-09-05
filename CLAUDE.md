@@ -50,4 +50,5 @@ Notes for tasks that still have to be done/investigated are left here, grouped b
 * Support for embedded track id3 lyrics/syncedlyrics
 * Support browsing for a dedicated lyrics folder with .lrc files + auto-assigning to tracks with manual override possibility, one lrc file may be assigned to multiple tracks (e.g. different qualities/files for the same song)
 * add an lrc syncing UI for songs with nt synced plaintext lyrics, or a resyn option that reconstructs the plain lyrics from the lrc file (tap to advance sync, swipe up to go bac to previous entry/start on first entry, swipe left to remove a line, swipe right to insert a break) with onscreen controls and instructions, as well as step 5-10seconds buttons forwards/backwards
+* let the user create a playlist directly from a folder (e.g. via FolderBrowser) instead of requiring an existing .m3u8 - probably a new action alongside "Select This Folder" that generates a playlist from the audio files found in that folder (recursively or not - TBD)
 * advanced: sound recognition-based automatic pre-syncing with manual review (requires large R&D effort, needs eternal library maybe)

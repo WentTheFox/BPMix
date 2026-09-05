@@ -1,9 +1,19 @@
 import type { DirectoryEntry, FileAccess } from '@bpmix/core';
-import { mdiFolder } from '@mdi/js';
-import { useCallback, useEffect, useState } from 'react';
+import { mdiArrowLeft, mdiFolder, mdiRefresh } from '@mdi/js';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Icon } from './Icon';
 import { IconLabel } from './IconLabel';
 import type { Colors } from './theme';
+
+// Substrings (not whole words) so "Playlists", "Songs", "Music", "Lyrics"
+// etc. all match their singular/plural forms via a plain .includes() check.
+const SUGGESTED_KEYWORDS = ['playlist', 'song', 'music', 'audio', 'media', 'lyric'];
+
+function isSuggestedFolder(name: string): boolean {
+  const lower = name.toLowerCase();
+  return SUGGESTED_KEYWORDS.some((keyword) => lower.includes(keyword));
+}
 
 export interface FolderBrowserProps {
   colors: Colors;
@@ -52,6 +62,11 @@ export function FolderBrowser({ colors, fileAccess, rootId, rootDisplayName, ini
     void load(path);
   }, [load, path]);
 
+  // Never removed from `entries` below - this is just a quick-jump shortcut
+  // to whatever in the current directory looks likely to be it, not a
+  // filter on the real listing.
+  const suggested = useMemo(() => entries?.filter((entry) => isSuggestedFolder(entry.name)) ?? [], [entries]);
+
   // rootDisplayName plus each non-empty path segment, each carrying the
   // relativePath a tap on it should jump back to.
   const segments = path ? path.split('/').filter(Boolean) : [];
@@ -60,25 +75,50 @@ export function FolderBrowser({ colors, fileAccess, rootId, rootDisplayName, ini
     ...segments.map((segment, index) => ({ label: segment, path: segments.slice(0, index + 1).join('/') })),
   ];
 
+  const parentPath = segments.length > 0 ? segments.slice(0, -1).join('/') : null;
+
   return (
     <View style={styles.container}>
-      <View style={styles.breadcrumbRow}>
-        {crumbs.map((crumb, index) => (
-          <View key={crumb.path} style={styles.breadcrumbItem}>
-            {index > 0 && <Text style={[styles.breadcrumbSeparator, { color: colors.subtleText }]}>/</Text>}
-            <Pressable onPress={() => setPath(crumb.path)} disabled={crumb.path === path}>
-              <Text
-                style={[styles.breadcrumbText, { color: crumb.path === path ? colors.text : '#3b82f6' }]}
-                numberOfLines={1}
-              >
-                {crumb.label}
-              </Text>
-            </Pressable>
-          </View>
-        ))}
+      <View style={styles.headerRow}>
+        {parentPath !== null && (
+          <Pressable style={styles.upButton} onPress={() => setPath(parentPath)}>
+            <Icon path={mdiArrowLeft} size={20} color={colors.text} />
+          </Pressable>
+        )}
+        <View style={styles.breadcrumbRow}>
+          {crumbs.map((crumb, index) => (
+            <View key={crumb.path} style={styles.breadcrumbItem}>
+              {index > 0 && <Text style={[styles.breadcrumbSeparator, { color: colors.subtleText }]}>/</Text>}
+              <Pressable onPress={() => setPath(crumb.path)} disabled={crumb.path === path}>
+                <Text
+                  style={[styles.breadcrumbText, { color: crumb.path === path ? colors.text : '#3b82f6' }]}
+                  numberOfLines={1}
+                >
+                  {crumb.label}
+                </Text>
+              </Pressable>
+            </View>
+          ))}
+        </View>
+        <Pressable style={styles.refreshButton} onPress={() => load(path)}>
+          <Icon path={mdiRefresh} size={20} color={colors.text} />
+        </Pressable>
       </View>
 
       {error && <Text style={styles.error}>{error}</Text>}
+
+      {suggested.length > 0 && (
+        <View style={styles.suggestedBox}>
+          <Text style={[styles.suggestedHeading, { color: colors.subtleText }]}>Suggested folders</Text>
+          <View style={styles.suggestedRow}>
+            {suggested.map((entry) => (
+              <Pressable key={entry.relativePath} style={styles.suggestedChip} onPress={() => setPath(entry.relativePath)}>
+                <IconLabel path={mdiFolder} text={entry.name} color="#3b82f6" iconSize={15} textStyle={styles.suggestedChipText} />
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      )}
 
       {entries === null ? (
         <ActivityIndicator style={styles.loading} color={colors.text} />
@@ -116,7 +156,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  upButton: {
+    marginRight: 8,
+    padding: 4,
+  },
+  refreshButton: {
+    marginLeft: 8,
+    padding: 4,
+  },
   breadcrumbRow: {
+    flex: 1,
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
@@ -135,6 +188,34 @@ const styles = StyleSheet.create({
   error: {
     color: '#dc2626',
     marginTop: 12,
+  },
+  suggestedBox: {
+    marginTop: 12,
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+  },
+  suggestedHeading: {
+    fontSize: 11,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  suggestedRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 6,
+  },
+  suggestedChip: {
+    backgroundColor: 'rgba(59, 130, 246, 0.15)',
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  suggestedChipText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
   loading: {
     marginTop: 24,

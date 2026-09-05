@@ -1,10 +1,12 @@
 import type { GrantedRoot, PlaylistRecord, TrackRecord } from '@bpmix/core';
-import { mdiFolder, mdiFolderPlus, mdiPlaylistMusic, mdiRefresh } from '@mdi/js';
+import { mdiFolder, mdiFolderMusic, mdiPlaylistMusic, mdiRefresh } from '@mdi/js';
 import type { ReactNode } from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AddFolderButton } from './AddFolderButton';
 import { AppTitle } from './AppTitle';
 import { IconLabel } from './IconLabel';
+import { RemoveButton } from './RemoveButton';
 import type { Colors } from './theme';
 // Same shape usePlaybackPersistence's refresh() already returns - reused
 // rather than redeclared (and re-exported from there, not here, to avoid
@@ -25,13 +27,19 @@ export interface LibraryScreenProps {
   isAddingFolder?: boolean;
   onAddFolder: () => void;
   onRescan: (rootId: string) => void;
+  /** Revokes the root's grant and drops it from the library screen - if omitted, no Remove action is shown for roots. */
+  onRemoveRoot?: (rootId: string) => void;
   onSelectPlaylist: (root: GrantedRoot, playlist: PlaylistRecord, tracksById: Map<string, TrackRecord>) => void;
   error?: string | null;
+  /** Rendered right after the error text - e.g. a "Grant Access" button for Android's AllFilesAccessRequiredError, so the user doesn't have to find Settings on their own. */
+  errorAction?: ReactNode;
   /** Rendered where each app's now-playing bar goes - still owned by the caller, just slotted in at the right point in the layout. */
   nowPlayingBar?: ReactNode;
-  /** Web-only directory-picker-unsupported warning, rendered right after the Add Folder button. */
+  /** Rendered in a row right next to the Add Folder button - the "Add Lyrics Folder" AddFolderButton, so the two sit side by side instead of stacked. */
+  secondaryAddButton?: ReactNode;
+  /** Web-only directory-picker-unsupported warning, rendered right after the button row. */
   bannerContent?: ReactNode;
-  /** The lyrics-folder section (see LyricsFolderSection), rendered right after bannerContent. */
+  /** The lyrics-folder scopes list (see LyricsFolderSection), rendered right after bannerContent. */
   lyricsSection?: ReactNode;
   /**
    * Merged onto the roots FlatList's own style - web adds flex:1 here so it
@@ -56,9 +64,12 @@ export function LibraryScreen({
   isAddingFolder = false,
   onAddFolder,
   onRescan,
+  onRemoveRoot,
   onSelectPlaylist,
   error,
+  errorAction,
   nowPlayingBar,
+  secondaryAddButton,
   bannerContent,
   lyricsSection,
   listStyle,
@@ -66,19 +77,14 @@ export function LibraryScreen({
   return (
     <>
       <AppTitle color={colors.text} />
-      <Pressable style={[styles.button, isAddingFolder && styles.buttonDisabled]} onPress={onAddFolder} disabled={isAddingFolder}>
-        {isAddingFolder ? (
-          <View style={styles.buttonRow}>
-            <ActivityIndicator color="#fff" style={styles.buttonSpinner} />
-            <Text style={styles.buttonText}>Scanning folder…</Text>
-          </View>
-        ) : (
-          <IconLabel path={mdiFolderPlus} text="Add Folder" color="white" iconSize={18} textStyle={styles.buttonText} />
-        )}
-      </Pressable>
+      <View style={styles.addButtonRow}>
+        <AddFolderButton icon={mdiFolderMusic} text="Add Folder" onPress={onAddFolder} busy={isAddingFolder} busyText="Scanning folder…" />
+        {secondaryAddButton}
+      </View>
       {bannerContent}
       {lyricsSection}
       {error && <Text style={styles.error}>{error}</Text>}
+      {errorAction}
       {nowPlayingBar}
       <FlatList
         style={[styles.list, listStyle]}
@@ -88,13 +94,16 @@ export function LibraryScreen({
           <View style={styles.rootSection}>
             <View style={styles.rootHeader}>
               <IconLabel path={mdiFolder} text={root.displayName} color={colors.text} iconSize={18} textStyle={styles.rootName} />
-              <Pressable onPress={() => onRescan(root.id)} disabled={busyRootId === root.id}>
-                {busyRootId === root.id ? (
-                  <Text style={styles.rescanLink}>Scanning…</Text>
-                ) : (
-                  <IconLabel path={mdiRefresh} text="Rescan" color="#3b82f6" iconSize={16} textStyle={styles.rescanLink} />
-                )}
-              </Pressable>
+              <View style={styles.rootActions}>
+                <Pressable onPress={() => onRescan(root.id)} disabled={busyRootId === root.id}>
+                  {busyRootId === root.id ? (
+                    <Text style={styles.rescanLink}>Scanning…</Text>
+                  ) : (
+                    <IconLabel path={mdiRefresh} text="Rescan" color="#3b82f6" iconSize={16} textStyle={styles.rescanLink} />
+                  )}
+                </Pressable>
+                {onRemoveRoot && <RemoveButton onConfirm={() => onRemoveRoot(root.id)} />}
+              </View>
             </View>
             {playlists.length === 0 && <Text style={[styles.empty, { color: colors.subtleText }]}>No playlists found yet.</Text>}
             {playlists.map((playlist) => (
@@ -111,25 +120,10 @@ export function LibraryScreen({
 }
 
 const styles = StyleSheet.create({
-  button: {
-    backgroundColor: '#3b82f6',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  buttonText: {
-    color: 'white',
-    fontWeight: '600',
-  },
-  buttonDisabled: {
-    opacity: 0.7,
-  },
-  buttonRow: {
+  addButtonRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-  },
-  buttonSpinner: {
-    marginRight: 8,
+    flexWrap: 'wrap',
+    gap: 12,
   },
   error: {
     color: '#dc2626',
@@ -150,6 +144,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  rootActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
   rootName: {
     fontSize: 18,

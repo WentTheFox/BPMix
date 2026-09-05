@@ -1,3 +1,4 @@
+export * from './AddFolderButton';
 export * from './AppTitle';
 export * from './CrossfadeArt';
 export * from './Icon';
@@ -8,6 +9,7 @@ export * from './LoadingBar';
 export { LoopButton, ShuffleButton } from './LoopShuffleButtons';
 export * from './LyricsFolderSection';
 export * from './NowPlayingBar';
+export * from './RemoveButton';
 export * from './SeekBar';
 export * from './Skeleton';
 export * from './theme';
