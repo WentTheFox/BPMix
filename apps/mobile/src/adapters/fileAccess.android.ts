@@ -23,6 +23,34 @@ interface NativeFileAccess {
 const native = NativeModules.BPMixFileAccess as NativeFileAccess;
 const ROOTS_FILE = 'granted-roots.json';
 
+// Populated the first time anything here needs it (requestRoot(),
+// listGrantedRoots(), or browseDeviceStorage() - whichever runs first) and
+// reused after that, so toRelativeDisplay() below can strip it
+// synchronously without every caller having to be async. The value itself
+// never changes for the life of the process.
+let cachedStorageRoot: string | null = null;
+async function getStorageRoot(): Promise<string> {
+  if (cachedStorageRoot === null) {
+    cachedStorageRoot = await native.getExternalStorageRoot();
+  }
+  return cachedStorageRoot;
+}
+
+/**
+ * Strips the device's external storage root (e.g. "/storage/emulated/0" -
+ * numbered per Android user profile, so not the same on every device) off
+ * an absolute path for display, leaving just the part a user would
+ * recognize (e.g. "Music/Lyrics"). Falls back to the raw path if the
+ * storage root hasn't been resolved yet (see cachedStorageRoot's doc) or
+ * doesn't actually prefix it - both cases stay correct, just less tidy.
+ */
+export function toRelativeDisplay(path: string): string {
+  if (!cachedStorageRoot) return path;
+  if (path === cachedStorageRoot) return 'Internal storage';
+  const prefix = `${cachedStorageRoot}/`;
+  return path.startsWith(prefix) ? path.slice(prefix.length) : path;
+}
+
 /**
  * Plain java.io.File paths, gated on MANAGE_EXTERNAL_STORAGE, instead of
  * Storage Access Framework tree URIs - see BPMixFileAccessModule.kt's
@@ -98,7 +126,7 @@ export async function browseDeviceStorage(): Promise<{ path: string; displayName
   if (!browseForRoot) {
     return null;
   }
-  const storageRoot = await native.getExternalStorageRoot();
+  const storageRoot = await getStorageRoot();
   // Not storageRoot's own last path segment - that's always the numeric
   // Android user-profile id (e.g. "0" from "/storage/emulated/0"), not
   // anything a user would recognize as their device's storage.
@@ -106,14 +134,13 @@ export async function browseDeviceStorage(): Promise<{ path: string; displayName
   const relativePath = await browseForRoot(storageRoot, storageRootDisplayName);
   if (relativePath === null) return null; // user cancelled
   const path = joinPath(storageRoot, relativePath);
-  // The full absolute path rather than just its last segment - matches how
-  // a lyrics scope with no matching granted root ends up displaying (see
-  // LyricsFolderSection's rootDisplayName fallback), and stays useful even
-  // once a user has more than one root that happens to share a name. Also
-  // what listGrantedRoots() shows for every root regardless of what's
-  // persisted here, so this only actually matters for the very first
-  // render right after picking a brand-new root.
-  const displayName = relativePath ? path : storageRootDisplayName;
+  // relativePath is already relative to storageRoot, so it doubles as the
+  // display name - full nested path (not just its last segment), but
+  // without the device-specific absolute prefix a user wouldn't recognize
+  // anyway. Also what listGrantedRoots() shows for every root regardless
+  // of what's persisted here, so this only actually matters for the very
+  // first render right after picking a brand-new root.
+  const displayName = relativePath || storageRootDisplayName;
   return { path, displayName };
 }
 
@@ -138,11 +165,12 @@ export function createFileAccess(): FileAccess {
 
     async listGrantedRoots(): Promise<GrantedRoot[]> {
       const roots = await readRootPaths();
-      // Always the full path (not whatever was persisted at grant time) -
+      await getStorageRoot(); // warms the cache toRelativeDisplay() reads from
+      // Always recomputed (not whatever was persisted at grant time) -
       // otherwise a root added before displayName started storing the full
       // path (see browseDeviceStorage's doc) would keep showing just its
       // last segment until re-added.
-      return roots.map((r) => ({ id: r.path, displayName: r.path }));
+      return roots.map((r) => ({ id: r.path, displayName: toRelativeDisplay(r.path) }));
     },
 
     async revokeRoot(rootId: string): Promise<void> {

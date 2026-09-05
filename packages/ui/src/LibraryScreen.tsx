@@ -93,7 +93,7 @@ export function LibraryScreen({
                 path={mdiFolder}
                 text={root.displayName}
                 color={colors.text}
-                iconSize={18}
+                iconSize={16}
                 textStyle={styles.rootName}
                 containerStyle={styles.rootNameContainer}
                 numberOfLines={1}
@@ -163,9 +163,13 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  // Matches LyricsFolderSection's scopeName (14px, regular) - both rows
+  // show a folder path now (trimmed of the device's absolute storage
+  // prefix - see fileAccess.android.ts's toRelativeDisplay - but still
+  // long enough on a narrow screen that the previous 18px/600 here used to
+  // clip against Rescan/Remove).
   rootName: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 14,
   },
   rescanLink: {
     color: '#3b82f6',

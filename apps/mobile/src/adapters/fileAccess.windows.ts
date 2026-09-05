@@ -45,6 +45,19 @@ export async function browseDeviceStorage(): Promise<{ path: string; displayName
 }
 
 /**
+ * Identity here - Windows has no MANAGE_EXTERNAL_STORAGE-style whole-device
+ * browsing (see browseDeviceStorage above), so every LyricsScope's rootId
+ * is always a real granted root's id, which already has a proper
+ * displayName from listGrantedRoots(). Exported only so App.tsx's shared
+ * rootDisplayName fallback (for Android's lyrics-scope-as-its-own-root
+ * case - see fileAccess.android.ts's toRelativeDisplay) resolves on this
+ * platform too, where that fallback is never actually reached.
+ */
+export function toRelativeDisplay(path: string): string {
+  return path;
+}
+
+/**
  * No-op here - Windows still grants roots via its own native FolderPicker
  * (pickFolder above), not FolderBrowser. Exported only so App.tsx's shared
  * registration call (needed for Android's MANAGE_EXTERNAL_STORAGE-based

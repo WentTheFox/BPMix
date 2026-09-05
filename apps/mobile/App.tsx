@@ -59,6 +59,7 @@ import {
   createFileAccess,
   openAllFilesAccessSettings,
   registerRootBrowser,
+  toRelativeDisplay,
 } from './src/adapters/fileAccess';
 import { createLibraryStore } from './src/adapters/libraryStore';
 import { MemoryOverlay } from './src/debug/MemoryOverlay';
@@ -919,7 +920,7 @@ function AppContent() {
           <LyricsFolderSection
             colors={colors}
             scopes={lyricsScopes}
-            rootDisplayName={(rootId) => grantedRoots.find((r) => r.id === rootId)?.displayName ?? rootId}
+            rootDisplayName={(rootId) => grantedRoots.find((r) => r.id === rootId)?.displayName ?? toRelativeDisplay(rootId)}
             matchedTrackCount={matchedLyricsCount}
             totalTrackCount={rootsWithLibrary.reduce((sum, { tracksById }) => sum + tracksById.size, 0)}
             busyScopeKey={busyLyricsScopeKey}
