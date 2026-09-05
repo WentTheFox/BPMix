@@ -2,6 +2,7 @@ export * from './AppTitle';
 export * from './CrossfadeArt';
 export * from './Icon';
 export * from './IconLabel';
+export * from './FolderBrowser';
 export * from './LibraryScreen';
 export * from './LoadingBar';
 export { LoopButton, ShuffleButton } from './LoopShuffleButtons';

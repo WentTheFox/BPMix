@@ -38,12 +38,21 @@ export interface AnalysisResult {
 export type LoopMode = 'off' | 'all' | 'one';
 
 /**
- * What a granted root is used for. Every root FileAccess.listGrantedRoots()
- * returns used to be auto-scanned as a music library on load - a lyrics
- * folder needs to opt out of that (see getRootKind's default), rather than
- * showing up in the library screen as an always-empty playlist root.
+ * A folder to scan for .lrc lyrics files, expressed as a subfolder of an
+ * ALREADY-granted root rather than a root of its own - `relativePath: ''`
+ * means the whole root. This is deliberate: requesting a brand-new top-level
+ * OS grant just for lyrics hit a real-world wall (a broken Samsung "My
+ * Files" SAF picker rejected every folder, including freshly-created ones,
+ * while the picker's own normal browse mode saw them fine) - scoping to a
+ * subfolder of a root the user already granted for music sidesteps that
+ * picker entirely, since listing within an existing grant never needed it
+ * in the first place. See FolderBrowser (packages/ui) for how a user picks
+ * the relativePath without any new OS-level prompt.
  */
-export type RootKind = 'music' | 'lyrics';
+export interface LyricsScope {
+  rootId: string;
+  relativePath: string;
+}
 
 export interface PlaybackState {
   playlistId: string | null;
@@ -84,11 +93,13 @@ export interface LibraryStore {
   getPlaybackState(): Promise<PlaybackState | null>;
   putPlaybackState(state: PlaybackState): Promise<void>;
 
-  /** 'music' for a root that's never had a kind recorded - covers every root granted before lyrics folders existed. */
-  getRootKind(rootId: string): Promise<RootKind>;
-  setRootKind(rootId: string, kind: RootKind): Promise<void>;
+  /** Every configured lyrics scope, across every root - see LyricsScope's doc. */
+  getLyricsScopes(): Promise<LyricsScope[]>;
+  /** No-ops if this exact (rootId, relativePath) pair is already present. */
+  addLyricsScope(scope: LyricsScope): Promise<void>;
+  removeLyricsScope(rootId: string, relativePath: string): Promise<void>;
 
-  /** The .lrc file (FileRef.id, from a lyrics root) assigned to this track - null if none. Set either by auto-match (see findAutoLyricsMatch) or a manual override; both go through this same call. */
+  /** The .lrc file (FileRef.id, from a lyrics scope) assigned to this track - null if none. Set either by auto-match (see findAutoLyricsMatch) or a manual override; both go through this same call. */
   getLyricsAssignment(fileId: string): Promise<string | null>;
   putLyricsAssignment(fileId: string, lrcFileId: string | null): Promise<void>;
 }

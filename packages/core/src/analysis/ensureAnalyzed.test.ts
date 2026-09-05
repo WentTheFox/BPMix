@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { DecodedAudio } from '../audio-engine/types';
 import type { FileRef } from '../file-access/types';
-import type { AnalysisResult, LibraryStore, PlaybackState, PlaylistRecord, RootKind, TrackRecord } from '../library-store/types';
+import type { AnalysisResult, LibraryStore, LyricsScope, PlaybackState, PlaylistRecord, TrackRecord } from '../library-store/types';
 import type { TrackMetadata } from '../metadata/types';
 import { ANALYSIS_ALGORITHM_VERSION } from './analyzeTrack';
 import { ensureTrackAnalyzed } from './ensureAnalyzed';
@@ -35,10 +35,11 @@ class FakeLibraryStore implements LibraryStore {
     return null;
   }
   async putPlaybackState(): Promise<void> {}
-  async getRootKind(): Promise<RootKind> {
-    return 'music';
+  async getLyricsScopes(): Promise<LyricsScope[]> {
+    return [];
   }
-  async setRootKind(): Promise<void> {}
+  async addLyricsScope(): Promise<void> {}
+  async removeLyricsScope(): Promise<void> {}
   async getLyricsAssignment(): Promise<string | null> {
     return null;
   }

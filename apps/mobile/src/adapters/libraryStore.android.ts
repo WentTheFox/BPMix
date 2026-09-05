@@ -3,9 +3,9 @@ import {
   type AnalysisResult,
   type CoverArtBytes,
   type LibraryStore,
+  type LyricsScope,
   type PlaybackState,
   type PlaylistRecord,
-  type RootKind,
   type TrackMetadata,
   type TrackRecord,
 } from '@bpmix/core';
@@ -126,10 +126,16 @@ const ready = (async () => {
     )`,
   );
 
+  // root_kind was a short-lived whole-root "this is a lyrics folder" tag,
+  // replaced by lyrics_scope (rootId + relativePath) - see LyricsScope's
+  // doc. Dropped rather than migrated: never shipped with real user data.
+  await run('DROP TABLE IF EXISTS root_kind');
+
   await run(
-    `CREATE TABLE IF NOT EXISTS root_kind (
-      rootId TEXT PRIMARY KEY,
-      kind TEXT NOT NULL
+    `CREATE TABLE IF NOT EXISTS lyrics_scope (
+      rootId TEXT NOT NULL,
+      relativePath TEXT NOT NULL,
+      PRIMARY KEY (rootId, relativePath)
     )`,
   );
 
@@ -327,20 +333,24 @@ export function createLibraryStore(): LibraryStore {
       );
     },
 
-    async getRootKind(rootId: string): Promise<RootKind> {
+    async getLyricsScopes(): Promise<LyricsScope[]> {
       await ready;
-      const result = await run('SELECT kind FROM root_kind WHERE rootId = ?', [rootId]);
-      const rows = rowsToArray<{ kind: RootKind }>(result);
-      return rows[0]?.kind ?? 'music';
+      const result = await run('SELECT rootId, relativePath FROM lyrics_scope');
+      return rowsToArray<LyricsScope>(result);
     },
 
-    async setRootKind(rootId: string, kind: RootKind): Promise<void> {
+    async addLyricsScope(scope: LyricsScope): Promise<void> {
       await ready;
       await run(
-        `INSERT INTO root_kind (rootId, kind) VALUES (?, ?)
-         ON CONFLICT(rootId) DO UPDATE SET kind=excluded.kind`,
-        [rootId, kind],
+        `INSERT INTO lyrics_scope (rootId, relativePath) VALUES (?, ?)
+         ON CONFLICT(rootId, relativePath) DO NOTHING`,
+        [scope.rootId, scope.relativePath],
       );
+    },
+
+    async removeLyricsScope(rootId: string, relativePath: string): Promise<void> {
+      await ready;
+      await run('DELETE FROM lyrics_scope WHERE rootId = ? AND relativePath = ?', [rootId, relativePath]);
     },
 
     async getLyricsAssignment(fileId: string): Promise<string | null> {

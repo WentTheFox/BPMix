@@ -3,9 +3,9 @@ import type { DirectoryEntry, FileAccess, FileRef, GrantedRoot } from '../file-a
 import type {
   AnalysisResult,
   LibraryStore,
+  LyricsScope,
   PlaybackState,
   PlaylistRecord,
-  RootKind,
   TrackRecord,
 } from '../library-store/types';
 import type { TrackMetadata } from '../metadata/types';
@@ -106,10 +106,11 @@ class FakeLibraryStore implements LibraryStore {
   async putPlaybackState(state: PlaybackState): Promise<void> {
     this.playbackState = state;
   }
-  async getRootKind(): Promise<RootKind> {
-    return 'music';
+  async getLyricsScopes(): Promise<LyricsScope[]> {
+    return [];
   }
-  async setRootKind(): Promise<void> {}
+  async addLyricsScope(): Promise<void> {}
+  async removeLyricsScope(): Promise<void> {}
   async getLyricsAssignment(): Promise<string | null> {
     return null;
   }

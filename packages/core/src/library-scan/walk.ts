@@ -27,7 +27,7 @@ function isPlaylistFile(name: string): boolean {
  * nothing downstream (scanRoot builds a Map keyed by relativePath) relies
  * on it.
  */
-export async function walkDirectory(fileAccess: FileAccess, rootId: string): Promise<WalkResult> {
+export async function walkDirectory(fileAccess: FileAccess, rootId: string, startPath?: string): Promise<WalkResult> {
   const files: FileRef[] = [];
   const playlistFiles: FileRef[] = [];
 
@@ -47,6 +47,10 @@ export async function walkDirectory(fileAccess: FileAccess, rootId: string): Pro
     await Promise.all(subdirectories.map((dir) => recurse(dir)));
   }
 
-  await recurse();
+  // Undefined (not '') so a root-level scan's listDirectory(rootId, undefined)
+  // call is identical to before this parameter existed - some adapters key
+  // their root entry by undefined specifically (see fileAccess.android.ts's
+  // dirUriByRoot cache), not by ''.
+  await recurse(startPath || undefined);
   return { files, playlistFiles };
 }

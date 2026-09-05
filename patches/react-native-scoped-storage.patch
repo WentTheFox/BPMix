@@ -27,3 +27,24 @@ index 9a59b700caecb2e3d2b81b52c9c4378f73295b84..4b7f3762896b4e2c21657c758e8f9e1c
    compileSdkVersion safeExtGet('compileSdkVersion', 28)
    buildToolsVersion safeExtGet('buildToolsVersion', '28.0.3')
    defaultConfig {
+diff --git a/android/src/main/java/com/ammarahmed/scopedstorage/RNScopedStorageModule.java b/android/src/main/java/com/ammarahmed/scopedstorage/RNScopedStorageModule.java
+index 94712877627ad675488fc98902c6ffae463ce680..631897b5801ffe7634d642a93a883875d811b102 100644
+--- a/android/src/main/java/com/ammarahmed/scopedstorage/RNScopedStorageModule.java
++++ b/android/src/main/java/com/ammarahmed/scopedstorage/RNScopedStorageModule.java
+@@ -212,9 +212,13 @@ public class RNScopedStorageModule extends ReactContextBaseJavaModule {
+                         if (data != null) {
+                             Uri uri = data.getData();
+                             if (persist) {
+-                                final int takeFlags = data.getFlags()
+-                                        & (Intent.FLAG_GRANT_READ_URI_PERMISSION
+-                                        | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
++                                // BPMix only ever reads - masked to read-only rather than
++                                // the read+write ACTION_OPEN_DOCUMENT_TREE grants by
++                                // default, so a persisted grant can't outlive the app's
++                                // actual need for it. See BPMix's FileAccess interface
++                                // (packages/core/src/file-access/types.ts), which exposes
++                                // no write operation at all.
++                                final int takeFlags = data.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION;
+ 
+                                 reactContext.getContentResolver().takePersistableUriPermission(uri, takeFlags);
+                             }

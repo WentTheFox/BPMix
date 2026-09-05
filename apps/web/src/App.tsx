@@ -1,4 +1,4 @@
-import type { FileRef, GrantedRoot, LoopMode, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '@bpmix/core';
+import type { FileRef, GrantedRoot, LoopMode, LyricsScope, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '@bpmix/core';
 import {
   computeTransitionPlan,
   ensureTrackAnalyzed,
@@ -16,11 +16,13 @@ import {
 import {
   AppTitle,
   CROSSFADE_ART_TRANSITION_MS,
+  FolderBrowser,
   Icon,
   IconLabel,
   LibraryScreen,
   LoopButton,
   LyricsFolderSection,
+  lyricsScopeKey,
   NowPlayingBar,
   ShuffleButton,
   TrackList,
@@ -125,8 +127,12 @@ type Screen =
 function App() {
   const colors = useThemeColors();
   const [rootsWithLibrary, setRootsWithLibrary] = useState<RootWithLibrary[]>([]);
-  const [lyricsRoots, setLyricsRoots] = useState<GrantedRoot[]>([]);
+  const [grantedRoots, setGrantedRoots] = useState<GrantedRoot[]>([]);
+  const [lyricsScopes, setLyricsScopes] = useState<LyricsScope[]>([]);
   const [matchedLyricsCount, setMatchedLyricsCount] = useState<number | null>(null);
+  const [busyLyricsScopeKey, setBusyLyricsScopeKey] = useState<string | null>(null);
+  // Set while FolderBrowser is open, picking a lyrics scope within this root.
+  const [lyricsFolderPickerRoot, setLyricsFolderPickerRoot] = useState<GrantedRoot | null>(null);
   const [busyRootId, setBusyRootId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [screen, setScreen] = useState<Screen>({ kind: 'library' });
@@ -156,10 +162,7 @@ function App() {
 
   const refresh = useCallback(async () => {
     const roots = await fileAccess.listGrantedRoots();
-    const rootsByKind = await Promise.all(roots.map(async (root) => ({ root, kind: await libraryStore.getRootKind(root.id) })));
-    const musicRoots = rootsByKind.filter(({ kind }) => kind === 'music').map(({ root }) => root);
-    const lyricsRootList = rootsByKind.filter(({ kind }) => kind === 'lyrics').map(({ root }) => root);
-    setLyricsRoots(lyricsRootList);
+    setGrantedRoots(roots);
 
     // Each root's scan is isolated in its own try/catch - one bad root
     // (a moved/deleted folder, a native file-access error) used to reject
@@ -170,7 +173,7 @@ function App() {
     // the rest of the library visible.
     const withLibrary = (
       await Promise.all(
-        musicRoots.map(async (root) => {
+        roots.map(async (root) => {
           try {
             let [playlists, tracks] = await Promise.all([
               libraryStore.listPlaylists(root.id),
@@ -199,21 +202,27 @@ function App() {
     ).filter((entry): entry is RootWithLibrary => entry !== null);
     setRootsWithLibrary(withLibrary);
 
+    // Lyrics scopes are subfolders of an already-granted root (see
+    // LyricsScope's doc), so this doesn't need its own root list at all -
+    // just walk each configured scope for .lrc files.
+    const scopes = await libraryStore.getLyricsScopes();
+    setLyricsScopes(scopes);
+
     // Auto-assign any track that doesn't already have a lyrics match (an
     // existing manual override is never overwritten here - getLyricsAssignment
     // returning non-null short-circuits before findAutoLyricsMatch runs).
-    // Recomputed on every refresh rather than cached, since a lyrics folder's
+    // Recomputed on every refresh rather than cached, since a lyrics scope's
     // contents can change between scans same as a music root's can.
-    if (lyricsRootList.length > 0) {
+    if (scopes.length > 0) {
       setMatchedLyricsCount(null);
       const allTracks = withLibrary.flatMap(({ tracksById }) => [...tracksById.values()]);
-      // Same per-root isolation as the music roots above - one lyrics root
+      // Same per-root isolation as the music roots above - one lyrics scope
       // failing to scan shouldn't block matching against the ones that work.
       const lrcFiles = (
         await Promise.all(
-          lyricsRootList.map(async (root) => {
+          scopes.map(async (scope) => {
             try {
-              return await scanLyricsRoot(fileAccess, root.id);
+              return await scanLyricsRoot(fileAccess, scope.rootId, scope.relativePath);
             } catch (err) {
               setError(errorMessage(err));
               return [];
@@ -328,11 +337,7 @@ function App() {
       setError(null);
       setBusyRootId(rootId);
       try {
-        // Lyrics roots have nothing to scan into scanRoot's playlist/track
-        // tables - refresh() below does their .lrc rescan+rematch itself.
-        if ((await libraryStore.getRootKind(rootId)) === 'music') {
-          await scanRoot(fileAccess, libraryStore, rootId);
-        }
+        await scanRoot(fileAccess, libraryStore, rootId);
         await refresh();
       } catch (err) {
         setError(errorMessage(err));
@@ -343,20 +348,68 @@ function App() {
     [refresh],
   );
 
-  const addLyricsFolder = useCallback(async () => {
+  // Opens FolderBrowser over an already-granted root instead of requesting a
+  // brand-new one - see LyricsScope's doc for why: a fresh top-level SAF
+  // grant hit a real Samsung "My Files" picker bug that rejected every
+  // folder, including freshly-created ones. Picking a subfolder of a root
+  // already granted for music never goes through that picker at all.
+  //
+  // v1 scope: just uses the first granted root rather than showing a
+  // chooser when several exist - fine for the common single-root case, but
+  // worth a real picker if/when multi-root libraries are common.
+  const addLyricsFolder = useCallback(() => {
     setError(null);
-    try {
-      const root = await fileAccess.requestRoot();
-      if (!root) return; // user cancelled the picker
-      await libraryStore.setRootKind(root.id, 'lyrics');
-      setBusyRootId(root.id);
-      await refresh();
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setBusyRootId(null);
+    const root = grantedRoots[0];
+    if (!root) {
+      setError('Add a music folder first - a lyrics folder is picked as a subfolder of one you already granted.');
+      return;
     }
-  }, [refresh]);
+    setLyricsFolderPickerRoot(root);
+  }, [grantedRoots]);
+
+  const handleLyricsFolderPicked = useCallback(
+    async (relativePath: string) => {
+      const root = lyricsFolderPickerRoot;
+      setLyricsFolderPickerRoot(null);
+      if (!root) return;
+      setError(null);
+      try {
+        await libraryStore.addLyricsScope({ rootId: root.id, relativePath });
+        await refresh();
+      } catch (err) {
+        setError(errorMessage(err));
+      }
+    },
+    [lyricsFolderPickerRoot, refresh],
+  );
+
+  const rescanLyricsScope = useCallback(
+    async (rootId: string, relativePath: string) => {
+      setError(null);
+      setBusyLyricsScopeKey(lyricsScopeKey({ rootId, relativePath }));
+      try {
+        await refresh();
+      } catch (err) {
+        setError(errorMessage(err));
+      } finally {
+        setBusyLyricsScopeKey(null);
+      }
+    },
+    [refresh],
+  );
+
+  const removeLyricsScope = useCallback(
+    async (rootId: string, relativePath: string) => {
+      setError(null);
+      try {
+        await libraryStore.removeLyricsScope(rootId, relativePath);
+        await refresh();
+      } catch (err) {
+        setError(errorMessage(err));
+      }
+    },
+    [refresh],
+  );
 
   const playFromTrack = useCallback(
     async (playlist: PlaylistRecord, tracksById: Map<string, TrackRecord>, track: TrackRecord) => {
@@ -720,6 +773,21 @@ function App() {
     );
   }
 
+  if (lyricsFolderPickerRoot) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <FolderBrowser
+          colors={colors}
+          fileAccess={fileAccess}
+          rootId={lyricsFolderPickerRoot.id}
+          rootDisplayName={lyricsFolderPickerRoot.displayName}
+          onSelect={(relativePath) => void handleLyricsFolderPicked(relativePath)}
+          onCancel={() => setLyricsFolderPickerRoot(null)}
+        />
+      </View>
+    );
+  }
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <LibraryScreen
@@ -747,12 +815,14 @@ function App() {
         lyricsSection={
           <LyricsFolderSection
             colors={colors}
-            lyricsRoots={lyricsRoots}
+            scopes={lyricsScopes}
+            rootDisplayName={(rootId) => grantedRoots.find((r) => r.id === rootId)?.displayName ?? rootId}
             matchedTrackCount={matchedLyricsCount}
             totalTrackCount={rootsWithLibrary.reduce((sum, { tracksById }) => sum + tracksById.size, 0)}
-            busyRootId={busyRootId}
+            busyScopeKey={busyLyricsScopeKey}
             onAddLyricsFolder={addLyricsFolder}
-            onRescan={rescan}
+            onRemoveScope={(rootId, relativePath) => void removeLyricsScope(rootId, relativePath)}
+            onRescan={(rootId, relativePath) => void rescanLyricsScope(rootId, relativePath)}
           />
         }
       />

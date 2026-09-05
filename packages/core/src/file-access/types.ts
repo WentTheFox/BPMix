@@ -31,6 +31,23 @@ export interface GrantedRoot {
   displayName: string;
 }
 
+/**
+ * The single, centralized point of contact for touching a user's files on
+ * every platform (web, Android, Windows, and the self-hosted server) -
+ * every concrete adapter (fileAccess.ts, fileAccess.android.ts,
+ * fileAccess.windows.ts, fileAccess.server.ts) implements exactly this
+ * surface and nothing more. Deliberately read-only, for now: there is no
+ * write/delete/create/rename method here at all, matching what BPMix
+ * actually needs (playing back an existing library, never modifying it).
+ * Each adapter's underlying permission request is scoped to match - see
+ * e.g. fileAccess.android.ts's requestRoot(), which persists a read-only
+ * URI grant (patches/react-native-scoped-storage.patch masks out
+ * FLAG_GRANT_WRITE_URI_PERMISSION) even though the OS grants read+write by
+ * default, and fileAccess.ts's showDirectoryPicker({ mode: 'read' }). If a
+ * future feature genuinely needs to write (e.g. editing tags, generating
+ * .lrc files), that's a deliberate, separate expansion of this interface -
+ * not something to bolt on ad hoc in one adapter.
+ */
 export interface FileAccess {
   /** Prompts the platform's directory picker and persists the grant. */
   requestRoot(): Promise<GrantedRoot | null>;

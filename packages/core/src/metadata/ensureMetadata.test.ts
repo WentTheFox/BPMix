@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FileAccess, FileRef, GrantedRoot, DirectoryEntry } from '../file-access/types';
-import type { AnalysisResult, LibraryStore, PlaybackState, PlaylistRecord, RootKind, TrackRecord } from '../library-store/types';
+import type { AnalysisResult, LibraryStore, LyricsScope, PlaybackState, PlaylistRecord, TrackRecord } from '../library-store/types';
 import type { CoverArtBytes, TrackMetadata } from './types';
 import type { CoverArtResizer } from './coverArtResizer';
 import { encodeBase64 } from './base64';
@@ -43,10 +43,11 @@ class FakeLibraryStore implements LibraryStore {
     return null;
   }
   async putPlaybackState(): Promise<void> {}
-  async getRootKind(): Promise<RootKind> {
-    return 'music';
+  async getLyricsScopes(): Promise<LyricsScope[]> {
+    return [];
   }
-  async setRootKind(): Promise<void> {}
+  async addLyricsScope(): Promise<void> {}
+  async removeLyricsScope(): Promise<void> {}
   async getLyricsAssignment(): Promise<string | null> {
     return null;
   }

@@ -2,18 +2,21 @@ import type {
   AnalysisResult,
   CoverArtBytes,
   LibraryStore,
+  LyricsScope,
   PlaybackState,
   PlaylistRecord,
-  RootKind,
   TrackMetadata,
   TrackRecord,
 } from '@bpmix/core';
 import { idbDelete, idbGet, idbGetAll, idbPut, openDb } from './indexedDb';
 
 const DB_NAME = 'bpmix-library';
-// v5: added rootKind/lyricsAssignment object stores for the lyrics-folder
-// feature - both created fresh below, nothing to migrate from v4.
-const DB_VERSION = 5;
+// v6: dropped the short-lived rootKind store (a whole-root "this is a
+// lyrics folder" tag) in favor of lyricsScope, keyed by rootId+relativePath -
+// see LyricsScope's doc for why lyrics moved to a subfolder-of-an-existing-
+// root model. Nothing to migrate: rootKind never shipped with real user data
+// depending on it.
+const DB_VERSION = 6;
 const TRACKS_STORE = 'tracks';
 const PLAYLISTS_STORE = 'playlists';
 const ANALYSIS_STORE = 'analysis';
@@ -21,9 +24,15 @@ const METADATA_STORE = 'metadata';
 const COVER_ART_STORE = 'coverArt';
 const PLAYBACK_STATE_STORE = 'playbackState';
 const PLAYBACK_STATE_KEY = 'current';
-const ROOT_KIND_STORE = 'rootKind';
+const LYRICS_SCOPE_STORE = 'lyricsScope';
 const LYRICS_ASSIGNMENT_STORE = 'lyricsAssignment';
-const DEFAULT_ROOT_KIND: RootKind = 'music';
+
+// JSON-encoded tuple rather than a joined string - rootId (a URI or path)
+// and relativePath can both contain arbitrary characters, so there's no
+// separator that's guaranteed not to collide.
+function lyricsScopeKey(scope: Pick<LyricsScope, 'rootId' | 'relativePath'>): string {
+  return JSON.stringify([scope.rootId, scope.relativePath]);
+}
 
 function getDb(): Promise<IDBDatabase> {
   return openDb(DB_NAME, DB_VERSION, (db) => {
@@ -50,8 +59,13 @@ function getDb(): Promise<IDBDatabase> {
     if (!db.objectStoreNames.contains(PLAYBACK_STATE_STORE)) {
       db.createObjectStore(PLAYBACK_STATE_STORE);
     }
-    if (!db.objectStoreNames.contains(ROOT_KIND_STORE)) {
-      db.createObjectStore(ROOT_KIND_STORE);
+    // v6 dropped the old rootKind store outright rather than migrating it -
+    // see DB_VERSION's doc comment.
+    if (db.objectStoreNames.contains('rootKind')) {
+      db.deleteObjectStore('rootKind');
+    }
+    if (!db.objectStoreNames.contains(LYRICS_SCOPE_STORE)) {
+      db.createObjectStore(LYRICS_SCOPE_STORE);
     }
     if (!db.objectStoreNames.contains(LYRICS_ASSIGNMENT_STORE)) {
       db.createObjectStore(LYRICS_ASSIGNMENT_STORE);
@@ -147,14 +161,17 @@ export function createLibraryStore(): LibraryStore {
       });
     },
 
-    async getRootKind(rootId: string): Promise<RootKind> {
+    async getLyricsScopes(): Promise<LyricsScope[]> {
       const db = await getDb();
-      const kind = await idbGet<RootKind>(db, ROOT_KIND_STORE, rootId);
-      return kind ?? DEFAULT_ROOT_KIND;
+      return idbGetAll<LyricsScope>(db, LYRICS_SCOPE_STORE);
     },
-    async setRootKind(rootId: string, kind: RootKind): Promise<void> {
+    async addLyricsScope(scope: LyricsScope): Promise<void> {
       const db = await getDb();
-      await idbPut(db, ROOT_KIND_STORE, kind, rootId);
+      await idbPut(db, LYRICS_SCOPE_STORE, scope, lyricsScopeKey(scope));
+    },
+    async removeLyricsScope(rootId: string, relativePath: string): Promise<void> {
+      const db = await getDb();
+      await idbDelete(db, LYRICS_SCOPE_STORE, lyricsScopeKey({ rootId, relativePath }));
     },
 
     async getLyricsAssignment(fileId: string): Promise<string | null> {

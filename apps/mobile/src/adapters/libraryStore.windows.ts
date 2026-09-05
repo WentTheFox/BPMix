@@ -3,9 +3,9 @@ import {
   type AnalysisResult,
   type CoverArtBytes,
   type LibraryStore,
+  type LyricsScope,
   type PlaybackState,
   type PlaylistRecord,
-  type RootKind,
   type TrackMetadata,
   type TrackRecord,
 } from '@bpmix/core';
@@ -53,12 +53,13 @@ interface StoredData {
   analyses: Record<string, AnalysisResult>;
   metadata: Record<string, TrackMetadata>;
   playbackState: PlaybackState | null;
-  rootKinds: Record<string, RootKind>;
+  /** See LyricsScope's doc - replaces the short-lived rootKinds field (never shipped with real user data, so no migration). */
+  lyricsScopes: LyricsScope[];
   lyricsAssignments: Record<string, string>;
 }
 
 function emptyData(): StoredData {
-  return { tracks: [], playlists: [], analyses: {}, metadata: {}, playbackState: null, rootKinds: {}, lyricsAssignments: {} };
+  return { tracks: [], playlists: [], analyses: {}, metadata: {}, playbackState: null, lyricsScopes: [], lyricsAssignments: {} };
 }
 
 export function createLibraryStore(): LibraryStore {
@@ -76,7 +77,7 @@ export function createLibraryStore(): LibraryStore {
     try {
       const parsed = JSON.parse(text) as StoredData;
       parsed.metadata ??= {}; // absent in files written before metadata scanning existed
-      parsed.rootKinds ??= {}; // absent in files written before lyrics folders existed
+      parsed.lyricsScopes ??= []; // absent in files written before lyrics folders existed
       parsed.lyricsAssignments ??= {};
       return parsed;
     } catch {
@@ -199,14 +200,23 @@ export function createLibraryStore(): LibraryStore {
       });
     },
 
-    async getRootKind(rootId: string): Promise<RootKind> {
+    async getLyricsScopes(): Promise<LyricsScope[]> {
       const data = await load();
-      return data.rootKinds[rootId] ?? 'music';
+      return data.lyricsScopes;
     },
 
-    async setRootKind(rootId: string, kind: RootKind): Promise<void> {
+    async addLyricsScope(scope: LyricsScope): Promise<void> {
       await mutate((data) => {
-        data.rootKinds[rootId] = kind;
+        const exists = data.lyricsScopes.some((s) => s.rootId === scope.rootId && s.relativePath === scope.relativePath);
+        if (!exists) {
+          data.lyricsScopes.push(scope);
+        }
+      });
+    },
+
+    async removeLyricsScope(rootId: string, relativePath: string): Promise<void> {
+      await mutate((data) => {
+        data.lyricsScopes = data.lyricsScopes.filter((s) => !(s.rootId === rootId && s.relativePath === relativePath));
       });
     },
 
