@@ -69,7 +69,7 @@ export function LyricsFolderSection({
               path={mdiFolder}
               text={label}
               color={colors.text}
-              iconSize={16}
+              iconSize={18}
               textStyle={styles.scopeName}
               containerStyle={styles.scopeNameContainer}
               numberOfLines={1}
@@ -126,7 +126,8 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   scopeName: {
-    fontSize: 14,
+    fontSize: 18,
+    fontWeight: '600',
   },
   scopeActions: {
     flexDirection: 'row',
