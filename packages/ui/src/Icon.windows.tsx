@@ -1,6 +1,7 @@
 import {
   mdiArrowLeft,
   mdiFolder,
+  mdiFolderMusic,
   mdiFolderPlus,
   mdiMusicNote,
   mdiPause,
@@ -12,6 +13,7 @@ import {
   mdiShuffle,
   mdiSkipNext,
   mdiSkipPrevious,
+  mdiSubtitles,
 } from '@mdi/js';
 import React from 'react';
 import { Text } from 'react-native';
@@ -60,9 +62,15 @@ const CODEPOINTS: Record<string, number> = {
   [mdiMusicNote]: 0xec4f,
   [mdiFolder]: 0xe8b7,
   [mdiFolderPlus]: 0xe8f4, // "NewFolder" - a folder with a plus-circle overlay
+  // Segoe Fluent Icons has no music-specific folder variant (checked the full
+  // name->codepoint table, nothing combines "Folder" and "Music") - reuses
+  // "NewFolder" since both buttons mean "add a folder" and there's no way to
+  // visually distinguish "music" from "lyrics" via a single-glyph icon font.
+  [mdiFolderMusic]: 0xe8f4,
   [mdiPlaylistMusic]: 0xe90b, // "MusicNoteList" - list lines with a music note
   [mdiRefresh]: 0xe72c,
   [mdiArrowLeft]: 0xe72b, // "Back"
+  [mdiSubtitles]: 0xed1e, // "Subtitles" - a rounded box with horizontal text lines
 };
 
 const FALLBACK_CODEPOINT = 0xe11b; // "StatusErrorFull" (a "?" in a circle) - visible placeholder for an unmapped icon, not a silent blank.
