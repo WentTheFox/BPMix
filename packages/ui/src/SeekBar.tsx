@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { GestureResponderEvent, LayoutChangeEvent } from 'react-native';
-import { PanResponder, StyleSheet, View } from 'react-native';
+import { Animated, Easing, PanResponder, StyleSheet, View } from 'react-native';
 
 export interface SeekBarProps {
   positionSeconds: number;
@@ -15,6 +15,19 @@ export interface SeekBarProps {
    * every tick the way there is for onSeekTo.
    */
   onPreview?: (positionSeconds: number | null) => void;
+  /**
+   * Set while TrackPlayer.rewindTo()/fastForwardTo()'s sped-up scrub effect
+   * is in flight (see PlaylistPlayerState.track.scrubbing) - the blue fill
+   * jumps straight to toSeconds immediately (rather than tracking
+   * positionSeconds, which is genuinely counting up/down for the effect's
+   * duration and would otherwise read as "jumped to the target, then
+   * slowly rolled there instead"), and a white highlight spanning
+   * [min, max](fromSeconds, toSeconds) shrinks away over durationSeconds
+   * instead - conveying "this stretch is being scrubbed through" without
+   * the fill itself visibly moving backward (or, for a fast-forward,
+   * visibly crawling forward before snapping ahead).
+   */
+  scrubbing?: { fromSeconds: number; toSeconds: number; durationSeconds: number } | null;
 }
 
 /** How long a drag has to sit idle before its position is actually committed (see onSeekTo) - only matters mid-drag, since a release always commits immediately regardless. Keeps a held drag from calling onSeekTo on every touch-move tick, which is the same rapid-fire native-source-churn pattern real seeking-while-dragging used to avoid entirely by not supporting drag at all. Generous on purpose: a fast/flicked drag (e.g. spinning the disc preview quickly across a big range) should feel free to keep moving without triggering a real seek - and thus a real native-source teardown/recreate - until it actually settles. */
@@ -31,7 +44,7 @@ const SEEK_COMMIT_DEBOUNCE_MS = 500;
  * ever fired one seek() call; a drag now behaves the same way once your
  * finger actually settles, instead of firing continuously).
  */
-export function SeekBar({ positionSeconds, durationSeconds, onSeekTo, onPreview }: SeekBarProps) {
+export function SeekBar({ positionSeconds, durationSeconds, onSeekTo, onPreview, scrubbing }: SeekBarProps) {
   // event.nativeEvent.locationX is unreliable on react-native-web (comes
   // back undefined there, unlike native RN) - measure() + pageX works on
   // both, so that's used instead of locationX everywhere.
@@ -144,8 +157,42 @@ export function SeekBar({ positionSeconds, durationSeconds, onSeekTo, onPreview 
     }),
   ).current;
 
-  const realFraction = durationSeconds > 0 ? Math.max(0, Math.min(1, positionSeconds / durationSeconds)) : 0;
+  // While scrubbing, the fill jumps straight to the target (not
+  // positionSeconds, which is genuinely counting up/down for the effect's
+  // duration) - see scrubbing's own doc for why.
+  const realFraction =
+    scrubbing && durationSeconds > 0
+      ? Math.max(0, Math.min(1, scrubbing.toSeconds / durationSeconds))
+      : durationSeconds > 0
+        ? Math.max(0, Math.min(1, positionSeconds / durationSeconds))
+        : 0;
   const fillFraction = previewFraction ?? realFraction;
+
+  const scrubShrink = useRef(new Animated.Value(0)).current;
+  // Keyed on the scrub's own identity (its start/end/duration) rather than
+  // just its presence, so a second scrub landing before the first's shrink
+  // animation finished restarts cleanly from full width instead of
+  // wherever the interrupted one left off.
+  const scrubKey = scrubbing ? `${scrubbing.fromSeconds}-${scrubbing.toSeconds}-${scrubbing.durationSeconds}` : null;
+  useEffect(() => {
+    if (!scrubbing) return;
+    scrubShrink.setValue(1);
+    Animated.timing(scrubShrink, {
+      toValue: 0,
+      duration: scrubbing.durationSeconds * 1000,
+      easing: Easing.linear,
+      useNativeDriver: false, // animating `width`, which the native driver can't do
+    }).start();
+    // scrubKey (derived from scrubbing) is the real dependency - see its own doc.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrubKey]);
+
+  // min/max rather than assuming an order - fromSeconds > toSeconds for a
+  // rewind, fromSeconds < toSeconds for a fast-forward.
+  const scrubLeftFraction =
+    scrubbing && durationSeconds > 0 ? Math.max(0, Math.min(1, Math.min(scrubbing.fromSeconds, scrubbing.toSeconds) / durationSeconds)) : 0;
+  const scrubSpanFraction =
+    scrubbing && durationSeconds > 0 ? Math.max(0, Math.min(1, Math.abs(scrubbing.fromSeconds - scrubbing.toSeconds) / durationSeconds)) : 0;
 
   return (
     <View
@@ -156,6 +203,17 @@ export function SeekBar({ positionSeconds, durationSeconds, onSeekTo, onPreview 
       {...panResponder.panHandlers}
     >
       <View style={[styles.seekBarFill, { width: `${fillFraction * 100}%` }]} />
+      {scrubbing && (
+        <Animated.View
+          style={[
+            styles.scrubHighlight,
+            {
+              left: `${scrubLeftFraction * 100}%`,
+              width: scrubShrink.interpolate({ inputRange: [0, 1], outputRange: ['0%', `${scrubSpanFraction * 100}%`] }),
+            },
+          ]}
+        />
+      )}
     </View>
   );
 }
@@ -171,5 +229,13 @@ const styles = StyleSheet.create({
   seekBarFill: {
     height: '100%',
     backgroundColor: '#3b82f6',
+  },
+  // Sits on top of seekBarFill (later sibling), covering the stretch
+  // currently being scrubbed through - see scrubbing's own doc.
+  scrubHighlight: {
+    position: 'absolute',
+    top: 0,
+    height: '100%',
+    backgroundColor: '#fff',
   },
 });

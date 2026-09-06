@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { memo, useEffect, useId, useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
 import { useSpin } from './spin/useSpin';
 
@@ -6,10 +6,20 @@ export interface CrossfadeArtProps {
   /** Identity (fileId) of whatever should be in the "current" slot right now. */
   currentTrackKey: string | null;
   currentArtUri: string | null;
-  /** [0,1] - how audible the current track is right now (its actual crossfade gain). Drives only the tonearm's lift (down once genuinely audible) - disc rotation itself tracks currentProgress instead, not this. */
+  /** [0,1] - how audible the current track is right now (its actual crossfade gain). Drives only the tonearm's lift (down once genuinely audible) - disc rotation itself tracks currentProgress/currentTurnsPerSecond instead, not this. */
   currentGain: number;
-  /** [0,1] - how far into the current track playback has reached. Drives both the disc's own rotation (a full TURNS_PER_SONG turns over the whole track, so it's always exactly consistent with position and freezes for free on pause) and the tonearm's needle position (outer edge at 0, disc center at 1) - NOT reset or hidden by pausing, so a paused tonearm stays parked over wherever it actually stopped instead of jumping back to the edge. Defaults to 0. */
+  /** [0,1] - how far into the current track playback has reached. Anchors the disc's own rotation and drives the tonearm's needle position (outer edge at 0, disc center at 1) - NOT reset or hidden by pausing, so a paused tonearm stays parked over wherever it actually stopped instead of jumping back to the edge. Defaults to 0. */
   currentProgress?: number;
+  /**
+   * Real full turns per second the current disc should be continuously
+   * spinning at right now (0 while paused) - e.g. TURNS_PER_SONG /
+   * durationSeconds for ordinary playback, or a much higher value derived
+   * from an in-flight rewindTo()/fastForwardTo() scrub. Drives the actual
+   * spin animation (see useSpin) as a continuous native/CSS animation
+   * rather than a per-tick retarget; currentProgress only anchors its
+   * starting angle whenever this changes. Defaults to 0 (frozen).
+   */
+  currentTurnsPerSecond?: number;
   /** Identity (fileId) of whatever should be in the "next" slot right now. */
   nextTrackKey: string | null;
   nextArtUri: string | null;
@@ -17,6 +27,8 @@ export interface CrossfadeArtProps {
   nextGain: number;
   /** Same as currentProgress, for the next slot's tonearm - 0 whenever the next track hasn't actually started playing yet (i.e. outside an in-progress crossfade), which is most of the time, so its needle stays parked at the outer edge until a crossfade actually brings it in. */
   nextProgress?: number;
+  /** Same as currentTurnsPerSecond, for the next slot's disc - 0 outside an in-progress crossfade, same as nextProgress. */
+  nextTurnsPerSecond?: number;
   size?: number;
 }
 
@@ -101,24 +113,32 @@ function centeredCircleStyle(discSize: number, circleSize: number): { width: num
   };
 }
 
-function VinylDisc({
-  artUri,
-  progress,
-  spinId,
-  size,
-  opacity = 1,
-  translateX,
-}: {
+interface VinylDiscProps {
   artUri: string | null;
-  /** [0,1] through the track - the disc's rotation is a pure function of this (see spinConstants.ts's TURNS_PER_SONG), not of audibility. */
+  /** [0,1] through the track - anchors the spin's starting angle whenever turnsPerSecond changes; see useSpin's doc. */
   progress: number;
+  /** Real turns/second the spin should be continuously running at right now (0 = frozen) - see CrossfadeArtProps.currentTurnsPerSecond's doc. */
+  turnsPerSecond: number;
   /** Stable identity for this disc's spin across a mount/unmount (see useSpin.web.ts) - not used natively, but required regardless so every call site supplies one. */
   spinId: string;
   size: number;
   opacity?: Animated.Value | number;
   translateX?: Animated.Value | number;
-}) {
-  const spinStyle = useSpin(progress, spinId);
+}
+
+/**
+ * Memoized with a comparator that deliberately excludes `progress` - once
+ * a rate is set, useSpin's continuous native/CSS animation runs entirely
+ * off the JS thread and progress is only ever read again to re-anchor
+ * *when turnsPerSecond changes*, never on its own. Without this, every
+ * ~200ms position poll (which updates progress on every render regardless
+ * of whether the rate actually changed) would still re-render this
+ * component and re-run its effects for no visual benefit, competing with
+ * the JS thread for no reason and risking exactly the stutter this
+ * continuous-animation design exists to avoid.
+ */
+const VinylDisc = memo(function VinylDisc({ artUri, progress, turnsPerSecond, spinId, size, opacity = 1, translateX }: VinylDiscProps) {
+  const spinStyle = useSpin(turnsPerSecond, progress, spinId);
   const boxStyle = { width: size, height: size, borderRadius: size / 2 };
   // The placeholder stays underneath throughout (disc is never literally
   // empty), and the art image cross-dissolves in on top of it once it
@@ -162,7 +182,16 @@ function VinylDisc({
       </Animated.View>
     </Animated.View>
   );
-}
+},
+// Deliberately omits `progress` - see VinylDisc's own doc for why.
+(prev, next) =>
+  prev.artUri === next.artUri &&
+  prev.turnsPerSecond === next.turnsPerSecond &&
+  prev.spinId === next.spinId &&
+  prev.size === next.size &&
+  prev.opacity === next.opacity &&
+  prev.translateX === next.translateX,
+);
 
 /**
  * The needle/tonearm resting over a slot - one per slot (current, next),
@@ -261,10 +290,12 @@ export function CrossfadeArt({
   currentArtUri,
   currentGain,
   currentProgress = 0,
+  currentTurnsPerSecond = 0,
   nextTrackKey,
   nextArtUri,
   nextGain,
   nextProgress = 0,
+  nextTurnsPerSecond = 0,
   size = DEFAULT_SIZE,
 }: CrossfadeArtProps): React.JSX.Element {
   const [displayed, setDisplayed] = useState<DisplayedState>({
@@ -407,14 +438,48 @@ export function CrossfadeArt({
   return (
     <View style={[styles.row, containerStyle]}>
       <View style={[styles.slot, boxStyle, { left: 0 }]}>
-        {!transitioning && <VinylDisc artUri={displayed.currentArt} progress={currentProgress} spinId={`${spinIdBase}-current`} size={size} />}
-        {outgoing && <VinylDisc artUri={outgoing.artUri} progress={outgoing.progress} spinId={`${spinIdBase}-outgoing`} size={size} opacity={outgoingOpacity} />}
-        {incoming && <VinylDisc artUri={incoming.artUri} progress={incoming.progress} spinId={`${spinIdBase}-incoming`} size={size} opacity={incomingOpacity} />}
+        {!transitioning && (
+          <VinylDisc
+            artUri={displayed.currentArt}
+            progress={currentProgress}
+            turnsPerSecond={currentTurnsPerSecond}
+            spinId={`${spinIdBase}-current`}
+            size={size}
+          />
+        )}
+        {outgoing && (
+          <VinylDisc
+            artUri={outgoing.artUri}
+            progress={outgoing.progress}
+            turnsPerSecond={currentTurnsPerSecond}
+            spinId={`${spinIdBase}-outgoing`}
+            size={size}
+            opacity={outgoingOpacity}
+          />
+        )}
+        {incoming && (
+          <VinylDisc
+            artUri={incoming.artUri}
+            progress={incoming.progress}
+            turnsPerSecond={currentTurnsPerSecond}
+            spinId={`${spinIdBase}-incoming`}
+            size={size}
+            opacity={incomingOpacity}
+          />
+        )}
         {/* Forced up (`!transitioning &&`) for the swap/fade's whole duration, not just while a disc is actually mid-slide - the needle has to be clear before a disc starts moving under it, not just while it's moving. */}
         <Tonearm down={!transitioning && currentGain > 0} progress={currentProgress} size={size} />
       </View>
       <View style={[styles.slot, boxStyle, { left: size + GAP }]}>
-        <VinylDisc artUri={displayed.nextArt} progress={nextProgress} spinId={`${spinIdBase}-next`} size={size} opacity={nextOpacity} translateX={slideX} />
+        <VinylDisc
+          artUri={displayed.nextArt}
+          progress={nextProgress}
+          turnsPerSecond={nextTurnsPerSecond}
+          spinId={`${spinIdBase}-next`}
+          size={size}
+          opacity={nextOpacity}
+          translateX={slideX}
+        />
         <Tonearm down={!transitioning && nextGain > 0} progress={nextProgress} size={size} />
       </View>
     </View>

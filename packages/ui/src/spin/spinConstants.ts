@@ -1,21 +1,22 @@
 /**
  * Full turns a disc makes over the course of an entire track (progress 0
- * to 1) - rotation is a pure function of playback progress rather than an
- * open-ended animation, so it's always exactly consistent with how far
- * into the track playback actually is (and freezes cleanly on pause,
- * with no separate "stop turning" logic needed).
+ * to 1) - used both to convert a moment-in-time progress value into an
+ * angle (for anchoring the spin correctly whenever it starts/restarts)
+ * and to convert a real playback rate into a turnsPerSecond value the
+ * spin animation actually runs continuously at (see useSpin's doc).
  */
 export const TURNS_PER_SONG = 30;
 
 /**
- * How long the rotation takes to ease to a newly-reported progress value -
- * matches the actual ~200ms position-poll cadence both apps use (see each
- * App.tsx's setInterval), so the needle/disc reads as continuously turning
- * between ticks instead of stepping, without lagging behind. Was
- * mismatched at 1000ms for a while - imperceptible during ordinary
- * playback (progress barely changes within a second), but very visibly
- * out of sync with a fast rewindTo() effect, where position can swing
- * across a big chunk of the track in under a second and a 1s smoothing
- * window can't keep up.
+ * Native leg length (a single Animated.timing call's fixed wall-clock
+ * duration) for useSpin.ts - NOT scaled by rate, unlike an earlier version
+ * of this that fixed a number of *turns* per leg instead: at a very low
+ * turnsPerSecond, that came out to a leg duration of tens of millions of
+ * ms in one Animated.timing call, and RN precomputes a per-frame easing
+ * lookup table sized by duration/frameDuration even under
+ * useNativeDriver - at that duration the table's element count overflowed
+ * what the engine could allocate ("Requested an array size that fails to
+ * allocate"), crashing the app outright. A fixed *duration* keeps that
+ * table bounded regardless of rate.
  */
-export const SPIN_UPDATE_MS = 200;
+export const NATIVE_SPIN_LEG_MS = 20000;

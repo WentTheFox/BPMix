@@ -13,6 +13,7 @@ export * from './NowPlayingScreen';
 export * from './RemoveButton';
 export * from './SeekBar';
 export * from './Skeleton';
+export * from './spin/spinConstants';
 export * from './theme';
 export * from './TrackList';
 export * from './TrackRow';

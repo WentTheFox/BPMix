@@ -304,14 +304,19 @@ export class PlaylistPlayer {
   }
 
   /**
-   * A backward seek tries TrackPlayer.rewindTo() first - a stylized reverse-
-   * playback "tape rewind" effect - falling back to a plain seek() when it
-   * doesn't apply (not currently playing, forward/negligible seek, or an
-   * engine that can't reverse real PCM - see rewindTo's own doc).
+   * A backward seek tries TrackPlayer.rewindTo() first (a stylized reverse-
+   * playback "tape rewind"), a forward one tries fastForwardTo() (its
+   * forward mirror) - falling back to a plain seek() when the direction's
+   * effect doesn't apply (not currently playing, a negligible seek, or -
+   * rewindTo only - an engine that can't reverse real PCM; see each
+   * method's own doc).
    */
   seek(positionSeconds: number): void {
     const current = this.trackPlayer.getState().positionSeconds;
     if (positionSeconds < current && this.trackPlayer.rewindTo(positionSeconds)) {
+      return;
+    }
+    if (positionSeconds > current && this.trackPlayer.fastForwardTo(positionSeconds)) {
       return;
     }
     this.trackPlayer.seek(positionSeconds);

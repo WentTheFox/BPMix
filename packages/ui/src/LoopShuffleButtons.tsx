@@ -21,17 +21,25 @@ const LOOP_MODE_ICON: Record<LoopMode, string> = { off: mdiRepeat, all: mdiRepea
  * while web groups them together in their own row, so a single component
  * covering both button placements can't fit both layouts.
  */
-export function LoopButton({ loopMode, onPress }: { loopMode: LoopMode; onPress: () => void }) {
+export function LoopButton({ loopMode, onPress, disabled }: { loopMode: LoopMode; onPress: () => void; disabled?: boolean }) {
   return (
-    <Pressable style={[styles.button, loopMode !== 'off' && styles.buttonActive]} onPress={onPress}>
+    <Pressable
+      style={[styles.button, loopMode !== 'off' && styles.buttonActive, disabled && styles.buttonDisabled]}
+      onPress={onPress}
+      disabled={disabled}
+    >
       <Icon path={LOOP_MODE_ICON[loopMode]} size={18} color="white" />
     </Pressable>
   );
 }
 
-export function ShuffleButton({ shuffleEnabled, onPress }: { shuffleEnabled: boolean; onPress: () => void }) {
+export function ShuffleButton({ shuffleEnabled, onPress, disabled }: { shuffleEnabled: boolean; onPress: () => void; disabled?: boolean }) {
   return (
-    <Pressable style={[styles.button, shuffleEnabled && styles.buttonActive]} onPress={onPress}>
+    <Pressable
+      style={[styles.button, shuffleEnabled && styles.buttonActive, disabled && styles.buttonDisabled]}
+      onPress={onPress}
+      disabled={disabled}
+    >
       <Icon path={mdiShuffle} size={18} color="white" />
     </Pressable>
   );
@@ -52,5 +60,8 @@ const styles = StyleSheet.create({
   },
   buttonActive: {
     backgroundColor: '#3b82f6',
+  },
+  buttonDisabled: {
+    opacity: 0.4,
   },
 });

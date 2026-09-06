@@ -35,6 +35,7 @@ import {
   NowPlayingScreen,
   ShuffleButton,
   TrackList,
+  TURNS_PER_SONG,
   useCoverArt,
   useDoublePressHandler,
   useFadeInOnChange,
@@ -712,6 +713,24 @@ function AppContent() {
   // (otherwise it hasn't started, so its needle stays parked at the edge).
   const outgoingProgress = playerState.track.durationSeconds > 0 ? playerState.track.positionSeconds / playerState.track.durationSeconds : 0;
   const incomingProgress = pendingIncoming && pendingIncoming.durationSeconds > 0 ? pendingIncoming.positionSeconds / pendingIncoming.durationSeconds : 0;
+  // Feeds CrossfadeArt's disc spin (a real turns-per-second rate, not a
+  // per-tick progress retarget - see CrossfadeArtProps.currentTurnsPerSecond's
+  // doc): 0 while paused, TURNS_PER_SONG spread over the track's own
+  // duration during ordinary playback, or - much faster - spread over
+  // just the segment and duration of an in-flight rewindTo()/
+  // fastForwardTo() scrub effect.
+  const scrub = playerState.track.scrubbing;
+  const currentTurnsPerSecond = !isPlaying
+    ? 0
+    : scrub
+      ? (TURNS_PER_SONG * (Math.abs(scrub.fromSeconds - scrub.toSeconds) / (playerState.track.durationSeconds || 1))) / scrub.durationSeconds
+      : playerState.track.durationSeconds > 0
+        ? TURNS_PER_SONG / playerState.track.durationSeconds
+        : 0;
+  // The next slot only actually spins once a crossfade is genuinely
+  // bringing it in - otherwise it hasn't started playing at all yet.
+  const incomingTurnsPerSecond =
+    pendingIncoming && pendingIncoming.durationSeconds > 0 ? TURNS_PER_SONG / pendingIncoming.durationSeconds : 0;
 
   // Title/"up next" text only actually changes CROSSFADE_ART_TRANSITION_MS
   // after outgoingTrack/incomingTrack do, not the instant playback state
@@ -812,13 +831,16 @@ function AppContent() {
         currentArtUri={outgoingCoverArt}
         currentGain={outgoingGain}
         currentProgress={outgoingProgress}
+        currentTurnsPerSecond={currentTurnsPerSecond}
         nextTrackKey={incomingTrack?.fileId ?? null}
         nextArtUri={incomingCoverArt}
         nextGain={incomingGain}
         nextProgress={incomingProgress}
+        nextTurnsPerSecond={incomingTurnsPerSecond}
         isLoading={isLoadingTrack}
         positionSeconds={displayPositionSeconds}
         durationSeconds={displayDurationSeconds}
+        scrubbing={scrub}
         // Disabled mid-crossfade: seekTo() still only affects the actual
         // (outgoing) source, which no longer matches what the bar is showing
         // (the incoming track's position/duration) - a tap here would compute
@@ -828,17 +850,22 @@ function AppContent() {
         onChangeVolume={handleVolumeChange}
         controls={
           <View style={styles.playerControlsRow}>
-            <LoopButton loopMode={playerState.loopMode} onPress={cycleLoopMode} />
-            <Pressable style={styles.controlButton} onPress={handlePreviousPress}>
+            <LoopButton loopMode={playerState.loopMode} onPress={cycleLoopMode} disabled={!!scrub} />
+            {/* Disabled mid-scrub: a rewindTo()/fastForwardTo() effect already tears down and recreates the source once - stacking a second transport action on top of it before it settles risks the same rapid-fire native-source-churn crash the effect itself is built to avoid. */}
+            <Pressable style={[styles.controlButton, !!scrub && styles.controlButtonDisabled]} onPress={handlePreviousPress} disabled={!!scrub}>
               <Icon path={mdiSkipPrevious} size={20} color="white" />
             </Pressable>
-            <Pressable style={[styles.controlButton, styles.controlButtonPrimary]} onPress={togglePause}>
+            <Pressable
+              style={[styles.controlButton, styles.controlButtonPrimary, !!scrub && styles.controlButtonDisabled]}
+              onPress={togglePause}
+              disabled={!!scrub}
+            >
               <Icon path={playerState.track.status === 'playing' ? mdiPause : mdiPlay} size={30} color="white" />
             </Pressable>
-            <Pressable style={styles.controlButton} onPress={handleNextPress}>
+            <Pressable style={[styles.controlButton, !!scrub && styles.controlButtonDisabled]} onPress={handleNextPress} disabled={!!scrub}>
               <Icon path={mdiSkipNext} size={20} color="white" />
             </Pressable>
-            <ShuffleButton shuffleEnabled={playerState.shuffleEnabled} onPress={toggleShuffle} />
+            <ShuffleButton shuffleEnabled={playerState.shuffleEnabled} onPress={toggleShuffle} disabled={!!scrub} />
           </View>
         }
       />
@@ -1040,6 +1067,9 @@ const styles = StyleSheet.create({
     height: 72,
     borderRadius: 36,
     backgroundColor: '#2563eb',
+  },
+  controlButtonDisabled: {
+    opacity: 0.4,
   },
 });
 

@@ -32,14 +32,20 @@ export interface NowPlayingScreenProps {
   currentArtUri: string | null;
   currentGain: number;
   currentProgress: number;
+  /** See CrossfadeArtProps.currentTurnsPerSecond's doc. Defaults to 0 (frozen). */
+  currentTurnsPerSecond?: number;
   nextTrackKey: string | null;
   nextArtUri: string | null;
   nextGain: number;
   nextProgress: number;
+  /** See CrossfadeArtProps.nextTurnsPerSecond's doc. Defaults to 0 (frozen). */
+  nextTurnsPerSecond?: number;
   isLoading: boolean;
   positionSeconds: number;
   durationSeconds: number;
   onSeekTo: (positionSeconds: number) => void;
+  /** See SeekBarProps.scrubbing's doc - passed straight through. */
+  scrubbing?: { fromSeconds: number; toSeconds: number; durationSeconds: number } | null;
   /** The primary transport row(s) - genuinely different between mobile (icon buttons flanked by loop/shuffle) and web (adds ±10s seek buttons, loop/shuffle on their own row), so left as a slot rather than forced into one shape. */
   controls: ReactNode;
   volume: number;
@@ -65,14 +71,17 @@ export function NowPlayingScreen({
   currentArtUri,
   currentGain,
   currentProgress,
+  currentTurnsPerSecond = 0,
   nextTrackKey,
   nextArtUri,
   nextGain,
   nextProgress,
+  nextTurnsPerSecond = 0,
   isLoading,
   positionSeconds,
   durationSeconds,
   onSeekTo,
+  scrubbing,
   controls,
   volume,
   onChangeVolume,
@@ -110,10 +119,12 @@ export function NowPlayingScreen({
               currentArtUri={currentArtUri}
               currentGain={currentGain}
               currentProgress={displayCurrentProgress}
+              currentTurnsPerSecond={currentTurnsPerSecond}
               nextTrackKey={nextTrackKey}
               nextArtUri={nextArtUri}
               nextGain={nextGain}
               nextProgress={nextProgress}
+              nextTurnsPerSecond={nextTurnsPerSecond}
               size={ART_SIZE}
             />
           </View>
@@ -125,6 +136,7 @@ export function NowPlayingScreen({
               durationSeconds={durationSeconds}
               onSeekTo={onSeekTo}
               onPreview={setPreviewPositionSeconds}
+              scrubbing={scrubbing}
             />
           )}
           <View style={styles.seekTimesRow}>
