@@ -187,12 +187,25 @@ export function SeekBar({ positionSeconds, durationSeconds, onSeekTo, onPreview,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrubKey]);
 
-  // min/max rather than assuming an order - fromSeconds > toSeconds for a
-  // rewind, fromSeconds < toSeconds for a fast-forward.
-  const scrubLeftFraction =
-    scrubbing && durationSeconds > 0 ? Math.max(0, Math.min(1, Math.min(scrubbing.fromSeconds, scrubbing.toSeconds) / durationSeconds)) : 0;
+  // The highlight always shrinks TOWARD toSeconds (the target the blue fill
+  // already jumped to underneath it), never toward fromSeconds - a rewind's
+  // target is the smaller value, so its anchor is the left edge (width
+  // shrinks rightward, receding toward the left-side target); a
+  // fast-forward's target is the larger value, so its anchor is the right
+  // edge instead (width shrinks leftward, receding toward the right-side
+  // target). Anchoring both directions at min() unconditionally (the old
+  // behavior) pinned a fast-forward's highlight to its FROM side, so it
+  // visibly receded back toward the old position instead of toward the one
+  // being seeked to.
+  const isForward = !!scrubbing && scrubbing.toSeconds >= scrubbing.fromSeconds;
   const scrubSpanFraction =
     scrubbing && durationSeconds > 0 ? Math.max(0, Math.min(1, Math.abs(scrubbing.fromSeconds - scrubbing.toSeconds) / durationSeconds)) : 0;
+  const scrubAnchorFraction =
+    scrubbing && durationSeconds > 0
+      ? isForward
+        ? Math.max(0, Math.min(1, 1 - scrubbing.toSeconds / durationSeconds))
+        : Math.max(0, Math.min(1, scrubbing.toSeconds / durationSeconds))
+      : 0;
 
   return (
     <View
@@ -207,10 +220,8 @@ export function SeekBar({ positionSeconds, durationSeconds, onSeekTo, onPreview,
         <Animated.View
           style={[
             styles.scrubHighlight,
-            {
-              left: `${scrubLeftFraction * 100}%`,
-              width: scrubShrink.interpolate({ inputRange: [0, 1], outputRange: ['0%', `${scrubSpanFraction * 100}%`] }),
-            },
+            isForward ? { right: `${scrubAnchorFraction * 100}%` } : { left: `${scrubAnchorFraction * 100}%` },
+            { width: scrubShrink.interpolate({ inputRange: [0, 1], outputRange: ['0%', `${scrubSpanFraction * 100}%`] }) },
           ]}
         />
       )}
