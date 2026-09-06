@@ -2,8 +2,21 @@ import { useEffect, useRef } from 'react';
 import { Animated, Easing } from 'react-native';
 import { BASE_SPIN_MS, bucketedSpinRate } from './spinConstants';
 
-/** How many full turns to schedule per animation leg - just needs to be long enough that a rate-bucket change (or a lap completing) is very unlikely to still be running the same leg by the time the next one's scheduled; each leg's actual duration still scales with the current rate. */
-const TURNS_PER_LEG = 200;
+/**
+ * Wall-clock duration of each animation leg, independent of rate - NOT a
+ * fixed number of turns (as this used to be): at MIN_SPIN_RATE (0.12), a
+ * fixed 200-turn leg took (BASE_SPIN_MS/0.12)*200 ≈ 26.6 million ms to
+ * schedule in one Animated.timing call. RN precomputes a per-frame easing
+ * lookup table sized by duration/frameDuration for a timing animation even
+ * under useNativeDriver, and at that duration the table's element count
+ * overflowed what the engine could allocate ("Requested an array size that
+ * fails to allocate") - crashing the whole app the moment a disc idled at
+ * the slow end of its speed range, which is most of the time (the "next"
+ * disc, until an actual crossfade brings it up to speed). A fixed leg
+ * *duration* keeps the table size bounded regardless of rate; only the
+ * degrees it covers (legDegrees below) scales with rate instead.
+ */
+const LEG_DURATION_MS = 20000;
 
 /**
  * Native (Android/iOS) disc spin - a continuously-advancing Animated.Value
@@ -35,8 +48,11 @@ export function useSpin(
       // reads as the record actually coming to a stop, not resetting.
       return;
     }
-    const legDegrees = TURNS_PER_LEG * 360;
-    const legDurationMs = (BASE_SPIN_MS / bucketedRate) * TURNS_PER_LEG;
+    // Degrees covered by LEG_DURATION_MS at this rate - one full turn
+    // (360deg) normally takes BASE_SPIN_MS/bucketedRate ms, so this is just
+    // that turn rate scaled up to the fixed leg duration.
+    const legDegrees = 360 * bucketedRate * (LEG_DURATION_MS / BASE_SPIN_MS);
+    const legDurationMs = LEG_DURATION_MS;
     let anim: Animated.CompositeAnimation | null = null;
     let cancelled = false;
     const runLeg = () => {
