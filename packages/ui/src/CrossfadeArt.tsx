@@ -48,6 +48,24 @@ export const CROSSFADE_ART_TRANSITION_MS = 450;
 const LABEL_FRACTION = 0.38;
 const HOLE_FRACTION = 0.09;
 const GROOVE_RING_COUNT = 3;
+/** Diameter fraction (of disc size) of groove ring index `i` (0 = innermost, evenly spaced out to the disc's own edge) - shared by VinylDisc's rendering and OUTER_GROOVE_DIAMETER_FRACTION below so they can't drift apart. */
+function grooveRingDiameterFraction(i: number): number {
+  const t = (i + 1) / (GROOVE_RING_COUNT + 1);
+  return LABEL_FRACTION + (1 - LABEL_FRACTION) * t;
+}
+/**
+ * Diameter fraction of the outermost decorative groove ring. The tonearm's
+ * outer resting position (see TONEARM_ANGLE_OUTER_DEG) targets this ring,
+ * not the disc's own bounding-box edge (radiusFraction 0.5): vinylBody's
+ * color (#161616) is barely distinguishable from the page background, so
+ * the ~15% margin between the outermost ring and the disc's true edge
+ * reads as empty space - a needle resting there looked visually
+ * disconnected from the disc entirely ("stuck behind/above the disc",
+ * confirmed on-device), even though it was geometrically correct. Resting
+ * on the last visible groove instead makes the needle read as touching
+ * the record.
+ */
+const OUTER_GROOVE_DIAMETER_FRACTION = grooveRingDiameterFraction(GROOVE_RING_COUNT - 1);
 /** How long the needle takes to react to a progress/lift change. */
 const TONEARM_MOVE_MS = 220;
 /**
@@ -70,11 +88,12 @@ const TONEARM_ARM_LENGTH_FRACTION = Math.SQRT1_2;
  * such crossing while sweeping in from the outer edge (increasing
  * rotation magnitude), which is the one that's actually reachable by
  * continuously turning the arm inward rather than the far side of the
- * disc. Used for both ends of the needle's travel: radiusFraction=0.5
- * (the disc's own rim) for progress 0, and LABEL_FRACTION/2 (the label's
- * edge, where a real record's grooves actually end) for progress 1 - a
- * physical record's playable surface is only that outer band, not the
- * whole disc down to the spindle hole.
+ * disc. Used for both ends of the needle's travel: OUTER_GROOVE_DIAMETER_FRACTION/2
+ * (the outermost visible groove ring, not the disc's own bounding-box
+ * edge - see that constant's doc for why) for progress 0, and
+ * LABEL_FRACTION/2 (the label's edge, where a real record's grooves
+ * actually end) for progress 1 - a physical record's playable surface is
+ * only that outer band, not the whole disc down to the spindle hole.
  *
  * Derivation: with the pivot at (1,0) and arm length L=√0.5 (unit disc,
  * center at (0.5,0.5)), the radical line between the pivot's swept circle
@@ -91,7 +110,7 @@ function tonearmAngleForRadius(radiusFraction: number): number {
   return (Math.atan2(-y, 1 - x) * 180) / Math.PI;
 }
 
-const TONEARM_ANGLE_OUTER_DEG = tonearmAngleForRadius(0.5);
+const TONEARM_ANGLE_OUTER_DEG = tonearmAngleForRadius(OUTER_GROOVE_DIAMETER_FRACTION / 2);
 const TONEARM_ANGLE_INNER_DEG = tonearmAngleForRadius(LABEL_FRACTION / 2);
 /**
  * Lifting is a small upward *translation* of the whole arm+pivot, not a
@@ -162,10 +181,7 @@ const VinylDisc = memo(function VinylDisc({ artUri, progress, turnsPerSecond, sp
   // printed on the vinyl itself out here, just grooves over plain black
   // vinyl, so the art only appears on the label (below) instead of behind
   // these rings.
-  const grooveRadii = Array.from({ length: GROOVE_RING_COUNT }, (_, i) => {
-    const t = (i + 1) / (GROOVE_RING_COUNT + 1);
-    return size * LABEL_FRACTION + (size - size * LABEL_FRACTION) * t;
-  });
+  const grooveRadii = Array.from({ length: GROOVE_RING_COUNT }, (_, i) => size * grooveRingDiameterFraction(i));
   const labelCircleStyle = centeredCircleStyle(size, size * LABEL_FRACTION);
   return (
     <Animated.View style={[styles.layer, boxStyle, { opacity, transform: [{ translateX: translateX ?? 0 }] }]}>
@@ -325,6 +341,46 @@ export function CrossfadeArt({
   const previousProgressRef = useRef(currentProgress);
   const lastKnownProgress = previousProgressRef.current;
   previousProgressRef.current = currentProgress;
+
+  // Always current - read by the watchdog below via a ref (not as an
+  // effect dependency) so it can self-heal using whatever's actually true
+  // *right now*, not a stale closure from whenever the stuck transition
+  // started.
+  const latestPropsRef = useRef({ currentTrackKey, currentArtUri, nextTrackKey, nextArtUri });
+  latestPropsRef.current = { currentTrackKey, currentArtUri, nextTrackKey, nextArtUri };
+
+  // Safety net: the normal finalize() path (below) is scheduled via a
+  // plain setTimeout, which native platforms can silently delay or drop
+  // entirely while the app is backgrounded (confirmed on Android) - with
+  // nothing else watching for that, a transition interrupted that way
+  // left transitioning/outgoing/incoming stuck forever: the real current
+  // disc (gated on `!transitioning`) never rendered again, and whichever
+  // ghost was last on screen stayed frozen there permanently instead.
+  // Firing well past CROSSFADE_ART_TRANSITION_MS - long enough to never
+  // preempt a transition that's actually still in progress - and snapping
+  // straight to the live props (not replaying the original transition)
+  // means this self-heals correctly regardless of how far things drifted
+  // in the meantime.
+  useEffect(() => {
+    if (!transitioning) return;
+    const watchdog = setTimeout(() => {
+      const latest = latestPropsRef.current;
+      slideX.setValue(0);
+      outgoingOpacity.setValue(0);
+      incomingOpacity.setValue(0);
+      nextOpacity.setValue(latest.nextTrackKey ? 1 : 0);
+      setTransitioning(false);
+      setOutgoing(null);
+      setIncoming(null);
+      setDisplayed({
+        currentKey: latest.currentTrackKey,
+        currentArt: latest.currentArtUri,
+        nextKey: latest.nextTrackKey,
+        nextArt: latest.nextArtUri,
+      });
+    }, CROSSFADE_ART_TRANSITION_MS * 4);
+    return () => clearTimeout(watchdog);
+  }, [transitioning]);
 
   // The current slot changing - the one animated transition that can
   // involve a slide (natural progression) as well as a fade.
