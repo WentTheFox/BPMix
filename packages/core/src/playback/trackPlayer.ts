@@ -2,6 +2,7 @@ import type { AudioEngine, DecodedAudio, SourceNode } from '../audio-engine/type
 import type { TransitionPlan } from '../crossfade/computeTransitionPlan';
 import { sampleEqualPowerGainCurve } from '../crossfade/equalPowerGain';
 import type { FileRef } from '../file-access/types';
+import { buildReversedSegment } from './reverseSegment';
 
 /** How many points to sample the equal-power gain curve at for crossfadeTo's rampGainCurve calls - the engine interpolates between them, so this just needs to be smooth enough to not sound stepped. */
 const GAIN_CURVE_SAMPLE_COUNT = 32;
@@ -17,6 +18,27 @@ const GAIN_CURVE_SAMPLE_COUNT = 32;
 const STOP_TAIL_SECONDS = 0.2;
 /** Cap for the fade-out on pause() and fade-in on play()/resume - avoids an audible pop/click from an instant gain cut or jump, while staying quick enough that it doesn't read as a real crossfade. */
 const PAUSE_RESUME_FADE_SECONDS = 0.5;
+/**
+ * A rewind's reversed clip is sped up to fit whatever segment it covers
+ * into roughly this long, regardless of how far back the seek was - a
+ * short hop back sounds close to normal speed, a long one sounds like a
+ * blur, but either way the "tape rewind" always resolves in about the
+ * same amount of real time.
+ */
+const REWIND_EFFECT_DURATION_SECONDS = 0.6;
+/**
+ * Rewinding further back than REWIND_EFFECT_DURATION_SECONDS * this would
+ * need a rate above this to still fit in that fixed duration - clamped
+ * here instead, stretching the effect's duration a bit longer rather than
+ * an ever-increasing, eventually-silent-sounding playback rate. Kept high
+ * on purpose: the whole point is a fast, fixed-time "blur" regardless of
+ * how far back the seek was, so this should only ever actually kick in
+ * for a genuinely huge rewind (most of an entire track), not an ordinary
+ * seek-bar drag partway across a several-minute song.
+ */
+const MAX_REWIND_RATE = 40;
+/** Below this, a "backward seek" is closer to drag jitter than a deliberate rewind - not worth tearing down the source and building a reversed segment for. */
+const MIN_REWIND_SEGMENT_SECONDS = 0.3;
 
 export type TrackPlayerStatus = 'idle' | 'loading' | 'playing' | 'paused' | 'stopped';
 
@@ -37,6 +59,15 @@ export interface TrackPlayerState {
    * and out of sync with what's actually audible throughout the fade.
    */
   pendingIncoming: { positionSeconds: number; durationSeconds: number; fadeDurationSeconds: number } | null;
+  /**
+   * Set while a rewindTo() reverse-playback effect is in flight - null the
+   * rest of the time (including during a normal forward seek(), which
+   * doesn't use this at all). A caller can use this to know the disc
+   * should visibly spin backward and that positionSeconds is decreasing
+   * because real reversed audio is genuinely playing, not because
+   * something's wrong.
+   */
+  rewinding: { fromSeconds: number; toSeconds: number; durationSeconds: number } | null;
 }
 
 export interface TrackPlayerCallbacks {
@@ -90,6 +121,7 @@ export class TrackPlayer {
   /** User-facing master volume [0,1], independent of currentGain (per-track normalization) - the two multiply together into whatever's actually sent to the engine. Persists across tracks (unlike currentGain, which is per-track), same reasoning as currentRate/currentGain: sources are torn down and recreated on every seek/pause/resume, so this has to be remembered and re-applied each time. */
   private masterVolume = 1;
   private pendingCrossfade: PendingCrossfade | null = null;
+  private rewind: { fromSeconds: number; toSeconds: number; durationSeconds: number; startedAtEngineTime: number } | null = null;
 
   constructor(engine: AudioEngine, callbacks: TrackPlayerCallbacks = {}) {
     this.engine = engine;
@@ -217,6 +249,70 @@ export class TrackPlayer {
     }
   }
 
+  /**
+   * A stylized alternative to seek() for a manual backward jump: instead of
+   * cutting straight to targetPositionSeconds, plays the just-passed
+   * segment of the track in reverse (sped up to resolve in roughly
+   * REWIND_EFFECT_DURATION_SECONDS regardless of how far back it is - see
+   * MAX_REWIND_RATE), then resumes normal forward playback from
+   * targetPositionSeconds once the reversed clip finishes - like a tape/
+   * vinyl rewind actually catching up to where you let go.
+   *
+   * Returns false (no-op, caller should fall back to plain seek()) when
+   * the effect doesn't apply: not currently playing (there'd be nothing to
+   * play in reverse), the "seek" isn't meaningfully backward, or the
+   * engine doesn't guarantee real decoded PCM to reverse - awaitAnalysisReady
+   * being defined is exactly Windows's signal that it plays from its own
+   * native-cached buffer rather than real channelData (see AudioEngine's
+   * doc), so there's nothing here to build a reversed segment from.
+   */
+  rewindTo(targetPositionSeconds: number, rewindDurationSeconds = REWIND_EFFECT_DURATION_SECONDS): boolean {
+    if (this.engine.awaitAnalysisReady) return false;
+    if (this.status !== 'playing' || !this.decoded || !this.source) return false;
+    if (!Number.isFinite(targetPositionSeconds)) return false;
+
+    const fromSeconds = this.getPositionSeconds();
+    const clampedTarget = Math.max(0, Math.min(targetPositionSeconds, this.decoded.durationSeconds));
+    const segmentSeconds = fromSeconds - clampedTarget;
+    if (segmentSeconds < MIN_REWIND_SEGMENT_SECONDS) return false;
+
+    const decoded = this.decoded;
+    const reversed = buildReversedSegment(decoded, clampedTarget, fromSeconds);
+    const actualDurationSeconds = Math.max(rewindDurationSeconds, segmentSeconds / MAX_REWIND_RATE);
+    const rate = segmentSeconds / actualDurationSeconds;
+
+    this.stopCurrentSource();
+    this.startOffsetSeconds = clampedTarget;
+
+    const when = this.engine.now();
+    let rewindSource: SourceNode | undefined;
+    try {
+      rewindSource = this.engine.createSource(reversed, () => this.handleRewindEnded(rewindSource as SourceNode, clampedTarget));
+      rewindSource.setGain(this.currentGain * this.masterVolume);
+      rewindSource.setRate(rate);
+      this.engine.scheduleStart(rewindSource, when, 0);
+    } catch {
+      // The engine rejected the reversed source (e.g. a bad/empty buffer) -
+      // fall back to a plain seek so playback doesn't get stuck without a
+      // source at all.
+      this.startPlaybackFrom(clampedTarget);
+      return true;
+    }
+    this.source = rewindSource;
+    this.rewind = { fromSeconds, toSeconds: clampedTarget, durationSeconds: actualDurationSeconds, startedAtEngineTime: when };
+    this.status = 'playing';
+    return true;
+  }
+
+  private handleRewindEnded(source: SourceNode, targetPositionSeconds: number): void {
+    // Ignore callbacks from a rewind we've already moved past (interrupted
+    // by another seek/pause/rewind before it naturally finished).
+    if (this.source !== source) return;
+    this.source = null;
+    this.rewind = null;
+    this.startPlaybackFrom(targetPositionSeconds);
+  }
+
   stop(): void {
     this.stopCurrentSource();
     this.startOffsetSeconds = 0;
@@ -264,6 +360,7 @@ export class TrackPlayer {
    */
   private stopCurrentSource(): void {
     this.cancelPendingCrossfade();
+    this.rewind = null;
     const oldSource = this.source;
     this.source = null;
     oldSource?.stop();
@@ -393,10 +490,17 @@ export class TrackPlayer {
             fadeDurationSeconds: this.pendingCrossfade.fadeDurationSeconds,
           }
         : null,
+      rewinding: this.rewind
+        ? { fromSeconds: this.rewind.fromSeconds, toSeconds: this.rewind.toSeconds, durationSeconds: this.rewind.durationSeconds }
+        : null,
     };
   }
 
   private getPositionSeconds(): number {
+    if (this.rewind) {
+      const elapsedFraction = Math.max(0, Math.min(1, (this.engine.now() - this.rewind.startedAtEngineTime) / this.rewind.durationSeconds));
+      return this.rewind.fromSeconds - (this.rewind.fromSeconds - this.rewind.toSeconds) * elapsedFraction;
+    }
     if (this.status !== 'playing') {
       return this.startOffsetSeconds;
     }

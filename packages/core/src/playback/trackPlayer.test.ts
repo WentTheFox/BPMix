@@ -101,13 +101,13 @@ describe('TrackPlayer', () => {
   });
 
   it('starts stopped with the decoded duration and zero position', () => {
-    expect(player.getState()).toEqual({ status: 'stopped', positionSeconds: 0, durationSeconds: 10, pendingIncoming: null });
+    expect(player.getState()).toEqual({ status: 'stopped', positionSeconds: 0, durationSeconds: 10, pendingIncoming: null, rewinding: null });
   });
 
   it('play() advances position with the engine clock', () => {
     player.play();
     engine.clock = 3;
-    expect(player.getState()).toEqual({ status: 'playing', positionSeconds: 3, durationSeconds: 10, pendingIncoming: null });
+    expect(player.getState()).toEqual({ status: 'playing', positionSeconds: 3, durationSeconds: 10, pendingIncoming: null, rewinding: null });
   });
 
   it('pause() freezes position and stops the underlying source', () => {
@@ -115,7 +115,7 @@ describe('TrackPlayer', () => {
     engine.clock = 4;
     player.pause();
     engine.clock = 10; // should have no further effect while paused
-    expect(player.getState()).toEqual({ status: 'paused', positionSeconds: 4, durationSeconds: 10, pendingIncoming: null });
+    expect(player.getState()).toEqual({ status: 'paused', positionSeconds: 4, durationSeconds: 10, pendingIncoming: null, rewinding: null });
     expect(engine.stoppedSourceIds).toEqual(['source-0']);
   });
 
@@ -165,20 +165,20 @@ describe('TrackPlayer', () => {
     player.play();
     player.pause();
     player.seek(6);
-    expect(player.getState()).toEqual({ status: 'paused', positionSeconds: 6, durationSeconds: 10, pendingIncoming: null });
+    expect(player.getState()).toEqual({ status: 'paused', positionSeconds: 6, durationSeconds: 10, pendingIncoming: null, rewinding: null });
   });
 
   it('stop() resets position to zero', () => {
     player.play();
     engine.clock = 5;
     player.stop();
-    expect(player.getState()).toEqual({ status: 'stopped', positionSeconds: 0, durationSeconds: 10, pendingIncoming: null });
+    expect(player.getState()).toEqual({ status: 'stopped', positionSeconds: 0, durationSeconds: 10, pendingIncoming: null, rewinding: null });
   });
 
   it('transitions to stopped when the source reports it ended naturally', () => {
     player.play();
     engine.fireEnded('source-0');
-    expect(player.getState()).toEqual({ status: 'stopped', positionSeconds: 10, durationSeconds: 10, pendingIncoming: null });
+    expect(player.getState()).toEqual({ status: 'stopped', positionSeconds: 10, durationSeconds: 10, pendingIncoming: null, rewinding: null });
   });
 
   it('ignores an ended callback from a source already superseded by seek/pause', () => {
@@ -238,7 +238,7 @@ describe('TrackPlayer', () => {
     player.seek(Number.NaN);
     player.seek(Number.POSITIVE_INFINITY);
     // Unaffected - both calls were no-ops.
-    expect(player.getState()).toEqual({ status: 'playing', positionSeconds: 3, durationSeconds: 10, pendingIncoming: null });
+    expect(player.getState()).toEqual({ status: 'playing', positionSeconds: 3, durationSeconds: 10, pendingIncoming: null, rewinding: null });
   });
 
   it('recovers instead of getting stuck if the engine rejects a start (e.g. throws on a bad offset)', async () => {
@@ -370,7 +370,7 @@ describe('TrackPlayer', () => {
     player.loadDecoded({ sampleRate: 44100, numberOfChannels: 2, channelData: [], durationSeconds: 30 });
 
     expect(engine.decodeCallCount).toBe(decodeCallsBefore); // no new decode
-    expect(player.getState()).toEqual({ status: 'stopped', positionSeconds: 0, durationSeconds: 30, pendingIncoming: null });
+    expect(player.getState()).toEqual({ status: 'stopped', positionSeconds: 0, durationSeconds: 30, pendingIncoming: null, rewinding: null });
 
     player.play();
     expect(player.getState().status).toBe('playing');
@@ -382,7 +382,7 @@ describe('TrackPlayer', () => {
 
     player.loadDecoded({ sampleRate: 44100, numberOfChannels: 2, channelData: [], durationSeconds: 5 });
 
-    expect(player.getState()).toEqual({ status: 'stopped', positionSeconds: 0, durationSeconds: 5, pendingIncoming: null });
+    expect(player.getState()).toEqual({ status: 'stopped', positionSeconds: 0, durationSeconds: 5, pendingIncoming: null, rewinding: null });
   });
 
   it('loadDecoded() invalidates a still-in-flight async load(), like a newer load() would', () => {
@@ -476,6 +476,7 @@ describe('TrackPlayer', () => {
         positionSeconds: 6,
         durationSeconds: 10,
         pendingIncoming: { positionSeconds: 2, durationSeconds: 20, fadeDurationSeconds: 3 }, // incomingStartSeconds(1) + (now(6)-fadeWhen(5))*rate(1)
+        rewinding: null,
       });
       expect(ended).toEqual([]);
       expect(crossfadeCompletions).toEqual([]);
@@ -486,7 +487,7 @@ describe('TrackPlayer', () => {
       expect(ended).toEqual([]); // not a natural end - must not be reported as one
       expect(crossfadeCompletions).toEqual([0]);
       // positionSeconds = incomingStartSeconds(1) + (now(6) - fadeWhen(5)) * rate(1) = 1 + 1 = 2
-      expect(cfPlayer.getState()).toEqual({ status: 'playing', positionSeconds: 2, durationSeconds: 20, pendingIncoming: null });
+      expect(cfPlayer.getState()).toEqual({ status: 'playing', positionSeconds: 2, durationSeconds: 20, pendingIncoming: null, rewinding: null });
 
       cfEngine.clock = 8;
       expect(cfPlayer.getState().positionSeconds).toBeCloseTo(1 + (8 - 5), 6);
@@ -541,6 +542,86 @@ describe('TrackPlayer', () => {
       // Only the second incoming source's completion should resolve the transition.
       engine.fireEnded('source-0');
       expect(player.getState().durationSeconds).toBe(15);
+    });
+  });
+
+  describe('rewindTo', () => {
+    it('is a no-op while paused - nothing to play a reversed clip over', () => {
+      player.play();
+      player.pause();
+      expect(player.rewindTo(0, 1)).toBe(false);
+      expect(player.getState().rewinding).toBeNull();
+    });
+
+    it('is a no-op for a forward or negligible seek', () => {
+      player.play();
+      engine.clock = 5;
+      expect(player.rewindTo(5, 1)).toBe(false); // same position
+      expect(player.rewindTo(6, 1)).toBe(false); // forward
+      expect(player.rewindTo(4.9, 1)).toBe(false); // under MIN_REWIND_SEGMENT_SECONDS
+      expect(player.getState().rewinding).toBeNull();
+    });
+
+    it('is a no-op on an engine without real decoded PCM to reverse (Windows)', () => {
+      class WindowsLikeEngine extends FakeAudioEngine {
+        async awaitAnalysisReady(): Promise<void> {}
+      }
+      const winEngine = new WindowsLikeEngine();
+      const winPlayer = new TrackPlayer(winEngine);
+      return winPlayer.load(fileRef).then(() => {
+        winPlayer.play();
+        winEngine.clock = 5;
+        expect(winPlayer.rewindTo(1, 1)).toBe(false);
+      });
+    });
+
+    it('plays a reversed, sped-up source and reports position decreasing toward the target', () => {
+      player.play(); // source-0
+      engine.clock = 5;
+      expect(player.rewindTo(2, 1)).toBe(true); // 3s segment sped up to fit 1s -> rate 3
+
+      expect(engine.stoppedSourceIds).toEqual(['source-0']);
+      expect(engine.setRateCallsBySourceId.get('source-1')).toEqual([3]);
+      expect(player.getState().rewinding).toEqual({ fromSeconds: 5, toSeconds: 2, durationSeconds: 1 });
+
+      // Halfway through the 1s rewind: halfway from 5 down to 2.
+      engine.clock = 5.5;
+      expect(player.getState().positionSeconds).toBeCloseTo(3.5, 6);
+    });
+
+    it('resumes normal forward playback from the target once the reversed clip ends', () => {
+      player.play(); // source-0
+      engine.clock = 5;
+      player.rewindTo(2, 1); // source-1, 1s rewind
+
+      engine.clock = 6; // the rewind's 1s has elapsed
+      engine.fireEnded('source-1');
+
+      const state = player.getState();
+      expect(state.rewinding).toBeNull();
+      expect(state.status).toBe('playing');
+      expect(state.positionSeconds).toBe(2);
+
+      // Playback continues forward normally from there.
+      engine.clock = 8;
+      expect(player.getState().positionSeconds).toBe(4);
+    });
+
+    it('clamps the rate for a very long rewind by stretching the effect duration instead', () => {
+      // A long segment: rate would need to exceed MAX_REWIND_RATE(40) at the
+      // requested 1.2s duration, so the effect's duration stretches instead.
+      const longEngine = new FakeAudioEngine();
+      const longPlayer = new TrackPlayer(longEngine);
+      return longPlayer.load({ ...fileRef, id: 'f2' }).then(async () => {
+        // Give it a much longer duration to seek back across.
+        const decoded: DecodedAudio = { sampleRate: 44100, numberOfChannels: 2, channelData: [], durationSeconds: 200 };
+        longPlayer.loadDecoded(decoded);
+        longPlayer.play();
+        longEngine.clock = 100;
+        longPlayer.rewindTo(0, 1.2); // 100s segment / MAX_REWIND_RATE(40) = 2.5s actual duration, rate 40
+        expect(longEngine.setRateCallsBySourceId.get('source-1')).toEqual([40]);
+        expect(longPlayer.getState().rewinding?.durationSeconds).toBeCloseTo(2.5, 6);
+      });
     });
   });
 });
