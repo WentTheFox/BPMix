@@ -6,10 +6,19 @@ export interface SeekBarProps {
   positionSeconds: number;
   durationSeconds: number;
   onSeekTo: (positionSeconds: number) => void;
+  /**
+   * Fired on every touch-move tick while dragging (and once more with null
+   * on release/terminate) - lets a caller mirror the live drag position
+   * elsewhere (e.g. the crossfade disc's rotation) without waiting for the
+   * debounced real seek. Never gated by SEEK_COMMIT_DEBOUNCE_MS - purely
+   * visual, so there's no native-source-churn concern in firing it on
+   * every tick the way there is for onSeekTo.
+   */
+  onPreview?: (positionSeconds: number | null) => void;
 }
 
-/** How long a drag has to sit idle before its position is actually committed (see onSeekTo) - only matters mid-drag, since a release always commits immediately regardless. Keeps a held drag from calling onSeekTo on every touch-move tick, which is the same rapid-fire native-source-churn pattern real seeking-while-dragging used to avoid entirely by not supporting drag at all. */
-const SEEK_COMMIT_DEBOUNCE_MS = 150;
+/** How long a drag has to sit idle before its position is actually committed (see onSeekTo) - only matters mid-drag, since a release always commits immediately regardless. Keeps a held drag from calling onSeekTo on every touch-move tick, which is the same rapid-fire native-source-churn pattern real seeking-while-dragging used to avoid entirely by not supporting drag at all. Generous on purpose: a fast/flicked drag (e.g. spinning the disc preview quickly across a big range) should feel free to keep moving without triggering a real seek - and thus a real native-source teardown/recreate - until it actually settles. */
+const SEEK_COMMIT_DEBOUNCE_MS = 500;
 
 /**
  * Tap or drag to seek. The bar's fill tracks the finger/pointer immediately
@@ -22,7 +31,7 @@ const SEEK_COMMIT_DEBOUNCE_MS = 150;
  * ever fired one seek() call; a drag now behaves the same way once your
  * finger actually settles, instead of firing continuously).
  */
-export function SeekBar({ positionSeconds, durationSeconds, onSeekTo }: SeekBarProps) {
+export function SeekBar({ positionSeconds, durationSeconds, onSeekTo, onPreview }: SeekBarProps) {
   // event.nativeEvent.locationX is unreliable on react-native-web (comes
   // back undefined there, unlike native RN) - measure() + pageX works on
   // both, so that's used instead of locationX everywhere.
@@ -34,6 +43,10 @@ export function SeekBar({ positionSeconds, durationSeconds, onSeekTo }: SeekBarP
   const pageXRef = useRef(0);
   const durationRef = useRef(durationSeconds);
   const onSeekToRef = useRef(onSeekTo);
+  const onPreviewRef = useRef(onPreview);
+  useEffect(() => {
+    onPreviewRef.current = onPreview;
+  }, [onPreview]);
   useEffect(() => {
     durationRef.current = durationSeconds;
   }, [durationSeconds]);
@@ -107,22 +120,26 @@ export function SeekBar({ positionSeconds, durationSeconds, onSeekTo }: SeekBarP
         const fraction = fractionFromEvent(event);
         if (fraction == null) return;
         setPreviewFraction(fraction);
+        onPreviewRef.current?.(fraction * durationRef.current);
         scheduleCommit(fraction);
       },
       onPanResponderMove: (event) => {
         const fraction = fractionFromEvent(event);
         if (fraction == null) return;
         setPreviewFraction(fraction);
+        onPreviewRef.current?.(fraction * durationRef.current);
         scheduleCommit(fraction);
       },
       onPanResponderRelease: (event) => {
         const fraction = fractionFromEvent(event);
         if (fraction != null) commit(fraction);
         setPreviewFraction(null);
+        onPreviewRef.current?.(null);
       },
       onPanResponderTerminate: () => {
         clearCommitTimeout();
         setPreviewFraction(null);
+        onPreviewRef.current?.(null);
       },
     }),
   ).current;

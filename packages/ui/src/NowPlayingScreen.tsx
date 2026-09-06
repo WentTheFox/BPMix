@@ -1,5 +1,6 @@
 import { mdiArrowLeft } from '@mdi/js';
 import type { ReactNode } from 'react';
+import { useState } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { CrossfadeArt } from './CrossfadeArt';
 import { IconLabel } from './IconLabel';
@@ -76,6 +77,14 @@ export function NowPlayingScreen({
   volume,
   onChangeVolume,
 }: NowPlayingScreenProps) {
+  // Live position while dragging the seek bar, mirrored here so the disc's
+  // rotation and the position text can both track the drag in real time -
+  // the real seek (onSeekTo) stays debounced (see SeekBar's own doc), this
+  // is purely visual and updates on every touch-move tick.
+  const [previewPositionSeconds, setPreviewPositionSeconds] = useState<number | null>(null);
+  const displayPositionSeconds = previewPositionSeconds ?? positionSeconds;
+  const displayCurrentProgress = previewPositionSeconds != null && durationSeconds > 0 ? previewPositionSeconds / durationSeconds : currentProgress;
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <Pressable style={styles.backRow} onPress={onClose}>
@@ -100,7 +109,7 @@ export function NowPlayingScreen({
               currentTrackKey={currentTrackKey}
               currentArtUri={currentArtUri}
               currentGain={currentGain}
-              currentProgress={currentProgress}
+              currentProgress={displayCurrentProgress}
               nextTrackKey={nextTrackKey}
               nextArtUri={nextArtUri}
               nextGain={nextGain}
@@ -111,10 +120,15 @@ export function NowPlayingScreen({
           {isLoading ? (
             <LoadingBar />
           ) : (
-            <SeekBar positionSeconds={positionSeconds} durationSeconds={durationSeconds} onSeekTo={onSeekTo} />
+            <SeekBar
+              positionSeconds={positionSeconds}
+              durationSeconds={durationSeconds}
+              onSeekTo={onSeekTo}
+              onPreview={setPreviewPositionSeconds}
+            />
           )}
           <View style={styles.seekTimesRow}>
-            <Text style={[styles.seekTimeText, { color: colors.subtleText }]}>{formatSeconds(positionSeconds)}</Text>
+            <Text style={[styles.seekTimeText, { color: colors.subtleText }]}>{formatSeconds(displayPositionSeconds)}</Text>
             <Text style={[styles.seekTimeText, { color: colors.subtleText }]}>{formatSeconds(durationSeconds)}</Text>
           </View>
         </View>
