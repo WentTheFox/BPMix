@@ -47,7 +47,7 @@ import type { RootWithLibrary } from '@bpmix/ui';
 import { mdiArrowLeft, mdiPause, mdiPlay, mdiSkipNext, mdiSkipPrevious, mdiSubtitles } from '@mdi/js';
 import type { ReactNode } from 'react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, InteractionManager, Pressable, StatusBar, StyleSheet, Text, useColorScheme, View } from 'react-native';
+import { ActivityIndicator, Pressable, StatusBar, StyleSheet, Text, useColorScheme, View } from 'react-native';
 import {
   SafeAreaProvider,
   useSafeAreaInsets,
@@ -306,24 +306,27 @@ function AppContent() {
     // library screen on reading every file's tag bytes up front. Cheap to
     // call again on every refresh - already-fresh tracks are skipped
     // without a re-read (see scanLibraryMetadata/isMetadataFresh).
-    // Deferred to runAfterInteractions - reading/parsing tag bytes is real
-    // synchronous JS work (there's no worker-thread equivalent available
-    // here; RN's JS environment is single-threaded), so starting it only
-    // once whatever brought the user to this screen has finished
-    // animating keeps it from competing with that for the JS thread.
-    InteractionManager.runAfterInteractions(() => {
-      void scanLibraryMetadata(fileAccess, libraryStore, withLibrary.flatMap(({ tracksById }) => [...tracksById.values()]), {
-        resizer: coverArtResizer,
-        // Bumps whatever's actually on screen (now playing + up next) ahead
-        // of the rest of the library, evaluated fresh on every step - so a
-        // large stale-parser-version rescan reaches the tracks the user is
-        // looking at long before it would in plain list order.
-        getPriorityFileIds: () => {
-          const state = playlistPlayer.getState();
-          const nextFileId = playlistPlayer.getNextFileId();
-          return [state.currentFileId, nextFileId].filter((id): id is string => id != null);
-        },
-      });
+    // scanLibraryMetadata itself chunks its work against real idle time
+    // (requestIdle, backed by requestIdleCallback) rather than running
+    // straight through - reading/parsing tag bytes is real synchronous JS
+    // work (there's no worker-thread equivalent available here; RN's JS
+    // environment is single-threaded), so it only touches the JS thread
+    // during actual idle gaps instead of competing with whatever brought
+    // the user to this screen. No InteractionManager.runAfterInteractions
+    // wrapper needed here anymore - that API is deprecated on this RN
+    // version, and requestIdle already defers past the current interaction
+    // on its own.
+    void scanLibraryMetadata(fileAccess, libraryStore, withLibrary.flatMap(({ tracksById }) => [...tracksById.values()]), {
+      resizer: coverArtResizer,
+      // Bumps whatever's actually on screen (now playing + up next) ahead
+      // of the rest of the library, evaluated fresh on every step - so a
+      // large stale-parser-version rescan reaches the tracks the user is
+      // looking at long before it would in plain list order.
+      getPriorityFileIds: () => {
+        const state = playlistPlayer.getState();
+        const nextFileId = playlistPlayer.getNextFileId();
+        return [state.currentFileId, nextFileId].filter((id): id is string => id != null);
+      },
     });
     return withLibrary;
   }, []);
@@ -851,7 +854,7 @@ function AppContent() {
         controls={
           <View style={styles.playerControlsRow}>
             <LoopButton loopMode={playerState.loopMode} onPress={cycleLoopMode} disabled={!!scrub} />
-            {/* Disabled mid-scrub: a rewindTo()/fastForwardTo() effect already tears down and recreates the source once - stacking a second transport action on top of it before it settles risks the same rapid-fire native-source-churn crash the effect itself is built to avoid. */}
+            {/* Disabled mid-scrub: a rewindTo()/fastForwardTo() effect already tears down (and, for fastForwardTo, recreates) the source once - stacking a second transport action on top of it before it settles risks the same rapid-fire native-source-churn crash the effect itself is built to avoid. */}
             <Pressable style={[styles.controlButton, !!scrub && styles.controlButtonDisabled]} onPress={handlePreviousPress} disabled={!!scrub}>
               <Icon path={mdiSkipPrevious} size={20} color="white" />
             </Pressable>

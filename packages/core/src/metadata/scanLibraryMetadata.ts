@@ -1,8 +1,18 @@
 import type { FileAccess, FileRef } from '../file-access/types';
 import type { LibraryStore, TrackRecord } from '../library-store/types';
-import { yieldToEventLoop } from '../analysis/yieldToEventLoop';
 import type { CoverArtResizer } from './coverArtResizer';
 import { ensureTrackMetadata, isMetadataFresh } from './ensureMetadata';
+import { requestIdle } from './idleCallback';
+
+/**
+ * Upper bound on how long a single scanLibraryMetadata() run is allowed to
+ * go without the JS thread actually being idle before it's given a slice
+ * anyway - requestIdleCallback's own `timeout` option, passed straight
+ * through by requestIdle(). Without this, a screen kept continuously busy
+ * (animations, frequent re-renders) could starve the scan indefinitely;
+ * this caps that to a bounded worst-case delay per chunk instead.
+ */
+const IDLE_CALLBACK_TIMEOUT_MS = 2000;
 
 export interface ScanMetadataProgress {
   track: TrackRecord;
@@ -50,8 +60,18 @@ function trackToFileRef(track: TrackRecord): FileRef {
  * filenames as it completes (see useTrackMetadata's retry-poll on the UI
  * side). A bad/unreadable file is reported via onProgress rather than
  * aborting the run, same as analyzeLibrary.
+ *
+ * Work is chunked against real idle time (requestIdle, backed by
+ * requestIdleCallback where available) rather than a fixed per-track
+ * setTimeout(0): as many tracks as fit in one idle deadline are processed
+ * back-to-back before yielding, so a long idle window (nothing else going
+ * on) drains the scan faster, while a busy one (animations, active
+ * scrolling) still only takes a track at a time between real gaps - this
+ * replaced the previous InteractionManager.runAfterInteractions-triggered,
+ * setTimeout(0)-between-every-track design (InteractionManager is
+ * deprecated on this RN version).
  */
-export async function scanLibraryMetadata(
+export function scanLibraryMetadata(
   fileAccess: FileAccess,
   store: LibraryStore,
   tracks: TrackRecord[],
@@ -59,7 +79,9 @@ export async function scanLibraryMetadata(
 ): Promise<void> {
   const remaining = [...tracks];
   const total = remaining.length;
-  for (let index = 0; index < total; index++) {
+  let index = 0;
+
+  const processOne = async (): Promise<void> => {
     // Default to the next track in original order - only reach for a
     // priority one if one's actually still pending, so this stays a no-op
     // (and no extra scan cost) for callers that don't pass the option.
@@ -70,20 +92,43 @@ export async function scanLibraryMetadata(
       if (prioritizedIndex !== -1) nextIndex = prioritizedIndex;
     }
     const track = remaining.splice(nextIndex, 1)[0]!;
+    const currentIndex = index++;
 
     const existing = await store.getMetadata(track.fileId);
     if (isMetadataFresh(existing, track)) {
-      options.onProgress?.({ track, index, total, skipped: true });
-      await yieldToEventLoop();
-      continue;
+      options.onProgress?.({ track, index: currentIndex, total, skipped: true });
+      return;
     }
 
     try {
       await ensureTrackMetadata(store, fileAccess, trackToFileRef(track), options.resizer);
-      options.onProgress?.({ track, index, total, skipped: false });
+      options.onProgress?.({ track, index: currentIndex, total, skipped: false });
     } catch (error) {
-      options.onProgress?.({ track, index, total, skipped: false, error });
+      options.onProgress?.({ track, index: currentIndex, total, skipped: false, error });
     }
-    await yieldToEventLoop();
+  };
+
+  if (total === 0) {
+    return Promise.resolve();
   }
+
+  return new Promise((resolve) => {
+    const runChunk = (deadline: { didTimeout: boolean; timeRemaining(): number }) => {
+      void (async () => {
+        // At least one track always runs per chunk (even with zero time
+        // left) - otherwise a deadline that reports 0 remaining right away
+        // would reschedule forever without ever making progress.
+        do {
+          await processOne();
+        } while (index < total && (deadline.didTimeout || deadline.timeRemaining() > 0));
+
+        if (index < total) {
+          requestIdle(runChunk, IDLE_CALLBACK_TIMEOUT_MS);
+        } else {
+          resolve();
+        }
+      })();
+    };
+    requestIdle(runChunk, IDLE_CALLBACK_TIMEOUT_MS);
+  });
 }
