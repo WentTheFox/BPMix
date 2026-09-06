@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AudioEngine, DecodedAudio, RampSpec, SourceNode } from '../audio-engine/types';
 import type { TransitionPlan } from '../crossfade/computeTransitionPlan';
 import type { FileRef } from '../file-access/types';
@@ -546,7 +546,14 @@ describe('TrackPlayer', () => {
   });
 
   describe('rewindTo', () => {
-    it('is a no-op while paused - nothing to play a reversed clip over', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('is a no-op while paused - nothing to mute over', () => {
       player.play();
       player.pause();
       expect(player.rewindTo(0, 1)).toBe(false);
@@ -558,11 +565,11 @@ describe('TrackPlayer', () => {
       engine.clock = 5;
       expect(player.rewindTo(5, 1)).toBe(false); // same position
       expect(player.rewindTo(6, 1)).toBe(false); // forward
-      expect(player.rewindTo(4.9, 1)).toBe(false); // under MIN_REWIND_SEGMENT_SECONDS
+      expect(player.rewindTo(4.9, 1)).toBe(false); // under MIN_SCRUB_SEGMENT_SECONDS
       expect(player.getState().scrubbing).toBeNull();
     });
 
-    it('is a no-op on an engine without real decoded PCM to reverse (Windows)', () => {
+    it('works even on an engine without real decoded PCM (no reversal needed anymore)', () => {
       class WindowsLikeEngine extends FakeAudioEngine {
         async awaitAnalysisReady(): Promise<void> {}
       }
@@ -571,35 +578,35 @@ describe('TrackPlayer', () => {
       return winPlayer.load(fileRef).then(() => {
         winPlayer.play();
         winEngine.clock = 5;
-        expect(winPlayer.rewindTo(1, 1)).toBe(false);
+        expect(winPlayer.rewindTo(1, 1)).toBe(true);
       });
     });
 
-    it('plays a reversed, sped-up source and reports position decreasing toward the target', () => {
+    it('mutes (stops the current source) immediately and reports position decreasing toward the target, with no new source created', () => {
       player.play(); // source-0
       engine.clock = 5;
-      expect(player.rewindTo(2, 1)).toBe(true); // 3s segment sped up to fit 1s -> rate 3
+      expect(player.rewindTo(2, 1)).toBe(true);
 
-      // source-0 (the old forward source) stopped immediately; source-1
-      // (the rewind clip) has its own stop scheduled for when it should
-      // finish - see startScrub's doc for why that's explicit rather than
-      // relying on the reversed buffer's own natural end.
-      expect(engine.stoppedSourceIds).toEqual(['source-0', 'source-1']);
-      expect(engine.setRateCallsBySourceId.get('source-1')).toEqual([3]);
+      // The old forward source is stopped (silenced) immediately, and no
+      // replacement source is created - this is the whole point of muting
+      // instead of playing a real reversed clip.
+      expect(engine.stoppedSourceIds).toEqual(['source-0']);
+      expect(engine.setRateCallsBySourceId.has('source-1')).toBe(false); // no new source ever created for the rewind
       expect(player.getState().scrubbing).toEqual({ fromSeconds: 5, toSeconds: 2, durationSeconds: 1 });
 
-      // Halfway through the 1s rewind: halfway from 5 down to 2.
+      // Halfway through the 1s rewind: halfway from 5 down to 2 - still
+      // simulated purely from engine.now(), same as before.
       engine.clock = 5.5;
       expect(player.getState().positionSeconds).toBeCloseTo(3.5, 6);
     });
 
-    it('resumes normal forward playback from the target once the reversed clip ends', () => {
-      player.play(); // source-0
+    it('resumes normal forward playback from the target once the mute duration elapses', () => {
+      player.play();
       engine.clock = 5;
-      player.rewindTo(2, 1); // source-1, 1s rewind
+      player.rewindTo(2, 1); // 1s muted rewind
 
-      engine.clock = 6; // the rewind's 1s has elapsed
-      engine.fireEnded('source-1');
+      engine.clock = 6; // real audio-clock time the rewind should span
+      vi.advanceTimersByTime(1000); // the setTimeout standing in for it
 
       const state = player.getState();
       expect(state.scrubbing).toBeNull();
@@ -612,17 +619,18 @@ describe('TrackPlayer', () => {
     });
 
     it('pausing mid-rewind does not leave position permanently stuck once resumed (regression)', () => {
-      player.play(); // source-0
+      player.play();
       engine.clock = 5;
-      player.rewindTo(2, 1); // source-1, 1s rewind in flight
+      player.rewindTo(2, 1); // 1s muted rewind in flight
 
       engine.clock = 5.3; // partway through the rewind
       player.pause();
       expect(player.getState().scrubbing).toBeNull();
 
-      // The rewind source's own scheduled stop (from pause's fade-out)
-      // firing later must not resurrect the stale rewind state.
-      engine.fireEnded('source-1');
+      // The rewind's own pending completion timer firing later must not
+      // resurrect the stale rewind state (scrubGeneration guards this the
+      // way handleScrubEnded's source-identity check does for fastForwardTo).
+      vi.advanceTimersByTime(1000);
       expect(player.getState().scrubbing).toBeNull();
 
       player.play(); // resumes forward from the paused position
@@ -635,18 +643,39 @@ describe('TrackPlayer', () => {
       expect(player.getState().positionSeconds).toBeGreaterThan(firstReading.positionSeconds);
     });
 
-    it('keeps the effect duration fixed (uncapped rate) even for a very long rewind', () => {
+    it('a second rewindTo landing before the first completes ignores the first one\'s stale completion timer', () => {
+      player.play();
+      engine.clock = 5;
+      player.rewindTo(3, 1); // first muted rewind (1000ms), targeting 3
+
+      vi.advanceTimersByTime(200); // 200ms of real time passes before it's interrupted
+      engine.clock = 5.2;
+      player.rewindTo(0, 1); // interrupts it, targeting 0 instead - its own 1000ms timer starts now
+
+      // The first rewind's original completion time (800ms from here) fires,
+      // but it's stale (scrubGeneration moved on) - must not land on 3.
+      vi.advanceTimersByTime(800);
+      expect(player.getState().scrubbing).not.toBeNull(); // second rewind still in flight, has 200ms left
+
+      vi.advanceTimersByTime(200); // second rewind's own completion fires
+      expect(player.getState().scrubbing).toBeNull();
+      expect(player.getState().positionSeconds).toBe(0);
+    });
+
+    it('keeps the effect duration fixed even for a very long rewind - no allocation to cap anymore', () => {
       const longEngine = new FakeAudioEngine();
       const longPlayer = new TrackPlayer(longEngine);
       return longPlayer.load({ ...fileRef, id: 'f2' }).then(async () => {
-        // Give it a much longer duration to seek back across.
         const decoded: DecodedAudio = { sampleRate: 44100, numberOfChannels: 2, channelData: [], durationSeconds: 200 };
         longPlayer.loadDecoded(decoded);
         longPlayer.play();
         longEngine.clock = 100;
-        longPlayer.rewindTo(0, 0.6); // 100s segment sped up to fit 0.6s -> rate ~166.7, not clamped
-        expect(longEngine.setRateCallsBySourceId.get('source-1')?.[0]).toBeCloseTo(100 / 0.6, 6);
-        expect(longPlayer.getState().scrubbing?.durationSeconds).toBe(0.6);
+        expect(longPlayer.rewindTo(0, 0.6)).toBe(true); // 100s rewind - no source/buffer built regardless of distance
+        expect(longPlayer.getState().scrubbing).toEqual({ fromSeconds: 100, toSeconds: 0, durationSeconds: 0.6 });
+
+        vi.advanceTimersByTime(600);
+        expect(longPlayer.getState().scrubbing).toBeNull();
+        expect(longPlayer.getState().positionSeconds).toBe(0);
       });
     });
   });
