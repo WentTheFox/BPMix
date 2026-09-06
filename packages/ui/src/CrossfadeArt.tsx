@@ -292,13 +292,21 @@ export function CrossfadeArt({
     outgoingOpacity.setValue(1);
     Animated.timing(outgoingOpacity, { toValue: 0, duration: CROSSFADE_ART_TRANSITION_MS, easing: Easing.linear, useNativeDriver: true }).start();
 
+    // Always reset first, regardless of which branch below actually
+    // animates it - if the previous transition was a natural progression
+    // that got interrupted before its own timeout could fire (e.g. a
+    // manual skip landing mid-slide), slideX would otherwise be left
+    // stranded at -(size+GAP): the next slot's disc stuck rendered on top
+    // of the current slot (behind its tonearm), and the next slot itself
+    // left looking empty.
+    slideX.setValue(0);
+
     if (isNaturalProgression) {
       setIncoming(null);
       // The sliding disc IS the next-slot disc (already rendered at the
       // right slot's fixed position) - translateX 0 is "still at the
       // right slot", so it animates to -(size+GAP) (one slot-width plus
       // the gap, leftward) to land exactly on the left slot.
-      slideX.setValue(0);
       Animated.timing(slideX, {
         toValue: -(size + GAP),
         duration: CROSSFADE_ART_TRANSITION_MS,
@@ -311,7 +319,19 @@ export function CrossfadeArt({
       Animated.timing(incomingOpacity, { toValue: 1, duration: CROSSFADE_ART_TRANSITION_MS, easing: Easing.linear, useNativeDriver: true }).start();
     }
 
-    const timeout = setTimeout(() => {
+    // Guarded so it only ever actually applies once - called normally when
+    // the timeout fires, but ALSO from this effect's cleanup, so that a
+    // transition interrupted by another track change before its own 450ms
+    // is up still gets finalized immediately instead of leaving
+    // transitioning/outgoing/incoming/slideX stuck mid-flight forever (the
+    // next effect run's own setup would otherwise start from that stale
+    // state instead of a clean one - previously the cause of a disc
+    // getting stranded on top of the wrong slot, or the current slot's own
+    // disc staying hidden behind ghost layers indefinitely).
+    let finalized = false;
+    const finalize = () => {
+      if (finalized) return;
+      finalized = true;
       if (isNaturalProgression) {
         // Resets the now-empty next slot's disc back to its own resting
         // position/hidden state - left as-is otherwise, it'd sit stuck at
@@ -326,8 +346,12 @@ export function CrossfadeArt({
       setOutgoing(null);
       setIncoming(null);
       setTransitioning(false);
-    }, CROSSFADE_ART_TRANSITION_MS);
-    return () => clearTimeout(timeout);
+    };
+    const timeout = setTimeout(finalize, CROSSFADE_ART_TRANSITION_MS);
+    return () => {
+      clearTimeout(timeout);
+      finalize();
+    };
     // Only currentTrackKey should retrigger this - the rest are read at
     // the moment it fires, not reactive dependencies of their own.
     // eslint-disable-next-line react-hooks/exhaustive-deps

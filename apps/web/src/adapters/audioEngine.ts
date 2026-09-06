@@ -114,20 +114,40 @@ export function createAudioEngine(fileAccess: FileAccess): AudioEngine {
           }
         },
         rampGain(ramp: RampSpec) {
-          const endTime = ramp.atTimeSeconds + ramp.durationSeconds;
-          gainNode.gain.setValueAtTime(gainNode.gain.value, ramp.atTimeSeconds);
-          gainNode.gain.linearRampToValueAtTime(ramp.toValue, endTime);
+          // Same NotSupportedError risk as setGain above - rapid-fire
+          // transport actions (e.g. skipping again before an in-flight
+          // crossfade/pause-resume ramp on this same node has finished) can
+          // ask to schedule a new ramp that overlaps one already pending.
+          // Dropping it is safe: whatever's already scheduled keeps
+          // running, and the next call after it clears goes through.
+          try {
+            const endTime = ramp.atTimeSeconds + ramp.durationSeconds;
+            gainNode.gain.setValueAtTime(gainNode.gain.value, ramp.atTimeSeconds);
+            gainNode.gain.linearRampToValueAtTime(ramp.toValue, endTime);
+          } catch {
+            // Conflicted with an in-flight ramp/curve - see above.
+          }
         },
         rampGainCurve(values, atTimeSeconds, durationSeconds) {
-          gainNode.gain.setValueCurveAtTime(new Float32Array(values), atTimeSeconds, durationSeconds);
+          // Same NotSupportedError risk as setGain above.
+          try {
+            gainNode.gain.setValueCurveAtTime(new Float32Array(values), atTimeSeconds, durationSeconds);
+          } catch {
+            // Conflicted with an in-flight ramp/curve - see above.
+          }
         },
         setRate(value) {
           bufferSource.playbackRate.value = value;
         },
         rampRate(ramp: RampSpec) {
-          const endTime = ramp.atTimeSeconds + ramp.durationSeconds;
-          bufferSource.playbackRate.setValueAtTime(bufferSource.playbackRate.value, ramp.atTimeSeconds);
-          bufferSource.playbackRate.linearRampToValueAtTime(ramp.toValue, endTime);
+          // Same NotSupportedError risk as setGain above.
+          try {
+            const endTime = ramp.atTimeSeconds + ramp.durationSeconds;
+            bufferSource.playbackRate.setValueAtTime(bufferSource.playbackRate.value, ramp.atTimeSeconds);
+            bufferSource.playbackRate.linearRampToValueAtTime(ramp.toValue, endTime);
+          } catch {
+            // Conflicted with an in-flight ramp/curve - see above.
+          }
         },
         stop(whenSeconds) {
           const effectiveWhen = whenSeconds ?? context.currentTime;

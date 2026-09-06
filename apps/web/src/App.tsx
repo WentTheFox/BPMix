@@ -688,15 +688,42 @@ function App() {
   useEffect(() => {
     const key = outgoingTrack?.fileId ?? null;
     if (key === settledCurrentKey) return;
-    const timeout = setTimeout(() => setSettledCurrentKey(key), CROSSFADE_ART_TRANSITION_MS);
-    return () => clearTimeout(timeout);
+    // Finalizing on cleanup (not just the timeout) matters when tracks
+    // change faster than CROSSFADE_ART_TRANSITION_MS apart (e.g. rapid
+    // manual skips): otherwise each new effect run just cancels the
+    // previous one's pending setSettledCurrentKey without ever applying
+    // it, leaving the title/art permanently stuck on a stale track once
+    // the skips stop, instead of catching up to whatever's actually
+    // playing.
+    let finalized = false;
+    const finalize = () => {
+      if (finalized) return;
+      finalized = true;
+      setSettledCurrentKey(key);
+    };
+    const timeout = setTimeout(finalize, CROSSFADE_ART_TRANSITION_MS);
+    return () => {
+      clearTimeout(timeout);
+      finalize();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [outgoingTrack?.fileId]);
   useEffect(() => {
     const key = incomingTrack?.fileId ?? null;
     if (key === settledNextKey) return;
-    const timeout = setTimeout(() => setSettledNextKey(key), CROSSFADE_ART_TRANSITION_MS);
-    return () => clearTimeout(timeout);
+    // See the outgoing-key effect above for why finalize() also runs from
+    // cleanup, not just the timeout.
+    let finalized = false;
+    const finalize = () => {
+      if (finalized) return;
+      finalized = true;
+      setSettledNextKey(key);
+    };
+    const timeout = setTimeout(finalize, CROSSFADE_ART_TRANSITION_MS);
+    return () => {
+      clearTimeout(timeout);
+      finalize();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incomingTrack?.fileId]);
   const settledCurrentTrack = settledCurrentKey ? activeTracksById.get(settledCurrentKey) : undefined;
