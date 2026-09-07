@@ -46,7 +46,7 @@ export function MiniPlayerBar({
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.progressTrack}>
-        <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
+        <View style={[styles.progressFill, { width: `${progress * 100}%`, backgroundColor: colors.accent }]} />
       </View>
       <View style={styles.row}>
         <Pressable style={styles.infoArea} onPress={onPress}>
@@ -95,7 +95,6 @@ const styles = StyleSheet.create({
   },
   progressFill: {
     height: 2,
-    backgroundColor: '#3b82f6',
   },
   row: {
     flexDirection: 'row',

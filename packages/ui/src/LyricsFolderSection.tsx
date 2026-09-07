@@ -43,8 +43,10 @@ export interface LyricsFolderSectionProps {
  * copies the way LibraryScreen's own roots list once did (see CLAUDE.md's
  * convention note on each app's App.tsx).
  *
- * Manual override of a single track's auto-matched lyrics file isn't wired
- * up yet - this only surfaces the aggregate match count for now.
+ * Manual override of a single track's auto-matched lyrics file is done from
+ * the Now Playing screen instead (see LyricsSection/LyricsPickerScreen) -
+ * this component only surfaces the aggregate match count and per-scope
+ * rescan/remove actions.
  */
 export function LyricsFolderSection({
   colors,
@@ -78,12 +80,12 @@ export function LyricsFolderSection({
             <View style={styles.scopeActions}>
               <Pressable onPress={() => onRescan(scope.rootId, scope.relativePath)} disabled={busyScopeKey === key}>
                 {busyScopeKey === key ? (
-                  <Text style={styles.actionLink}>Scanning…</Text>
+                  <Text style={[styles.actionLink, { color: colors.accent }]}>Scanning…</Text>
                 ) : (
-                  <IconLabel path={mdiRefresh} text="Rescan" color="#3b82f6" iconSize={14} textStyle={styles.actionLink} />
+                  <IconLabel path={mdiRefresh} text="Rescan" color={colors.accent} iconSize={14} textStyle={styles.actionLink} />
                 )}
               </Pressable>
-              <RemoveButton onConfirm={() => onRemoveScope(scope.rootId, scope.relativePath)} />
+              <RemoveButton colors={colors} onConfirm={() => onRemoveScope(scope.rootId, scope.relativePath)} />
             </View>
           </View>
         );
@@ -134,7 +136,6 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   actionLink: {
-    color: '#3b82f6',
     fontSize: 12,
   },
   summary: {

@@ -15,6 +15,10 @@ import {
   mdiSkipPrevious,
   mdiSubtitles,
   mdiTrashCanOutline,
+  mdiVolumeHigh,
+  mdiVolumeLow,
+  mdiVolumeMedium,
+  mdiVolumeOff,
 } from '@mdi/js';
 import React from 'react';
 import { Text } from 'react-native';
@@ -73,6 +77,14 @@ const CODEPOINTS: Record<string, number> = {
   [mdiArrowLeft]: 0xe72b, // "Back"
   [mdiSubtitles]: 0xed1e, // "Subtitles" - a rounded box with horizontal text lines
   [mdiTrashCanOutline]: 0xe74d, // "Delete" - a trash can
+  // "Volume0"-"Volume3" - sourced from Microsoft's own published Segoe
+  // Fluent Icons codepoint table (see the segoe-fluent-icons-codepoints
+  // memory), not independently GDI+-verified since that table is itself an
+  // authoritative source rather than a guess.
+  [mdiVolumeOff]: 0xe992, // "Volume0"
+  [mdiVolumeLow]: 0xe993, // "Volume1"
+  [mdiVolumeMedium]: 0xe994, // "Volume2"
+  [mdiVolumeHigh]: 0xe995, // "Volume3"
 };
 
 const FALLBACK_CODEPOINT = 0xe11b; // "StatusErrorFull" (a "?" in a circle) - visible placeholder for an unmapped icon, not a silent blank.

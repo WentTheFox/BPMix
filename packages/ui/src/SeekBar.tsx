@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import type { GestureResponderEvent, LayoutChangeEvent } from 'react-native';
 import { Animated, Easing, PanResponder, StyleSheet, View } from 'react-native';
+import type { Colors } from './theme';
+import { withAlpha } from './theme';
 
 export interface SeekBarProps {
+  colors: Colors;
   positionSeconds: number;
   durationSeconds: number;
   onSeekTo: (positionSeconds: number) => void;
@@ -32,6 +35,7 @@ export interface SeekBarProps {
 
 /** How long a drag has to sit idle before its position is actually committed (see onSeekTo) - only matters mid-drag, since a release always commits immediately regardless. Keeps a held drag from calling onSeekTo on every touch-move tick, which is the same rapid-fire native-source-churn pattern real seeking-while-dragging used to avoid entirely by not supporting drag at all. Generous on purpose: a fast/flicked drag (e.g. spinning the disc preview quickly across a big range) should feel free to keep moving without triggering a real seek - and thus a real native-source teardown/recreate - until it actually settles. */
 const SEEK_COMMIT_DEBOUNCE_MS = 500;
+const KNOB_SIZE = 16;
 
 /**
  * Tap or drag to seek. The bar's fill tracks the finger/pointer immediately
@@ -44,7 +48,7 @@ const SEEK_COMMIT_DEBOUNCE_MS = 500;
  * ever fired one seek() call; a drag now behaves the same way once your
  * finger actually settles, instead of firing continuously).
  */
-export function SeekBar({ positionSeconds, durationSeconds, onSeekTo, onPreview, scrubbing }: SeekBarProps) {
+export function SeekBar({ colors, positionSeconds, durationSeconds, onSeekTo, onPreview, scrubbing }: SeekBarProps) {
   // event.nativeEvent.locationX is unreliable on react-native-web (comes
   // back undefined there, unlike native RN) - measure() + pageX works on
   // both, so that's used instead of locationX everywhere.
@@ -210,12 +214,12 @@ export function SeekBar({ positionSeconds, durationSeconds, onSeekTo, onPreview,
   return (
     <View
       ref={trackRef}
-      style={styles.seekBarTrack}
+      style={[styles.seekBarTrack, { backgroundColor: withAlpha(colors.accent, 0.25) }]}
       onLayout={handleLayout}
       hitSlop={{ top: 14, bottom: 14, left: 4, right: 4 }}
       {...panResponder.panHandlers}
     >
-      <View style={[styles.seekBarFill, { width: `${fillFraction * 100}%` }]} />
+      <View style={[styles.seekBarFill, { width: `${fillFraction * 100}%`, backgroundColor: colors.accent }]} />
       {scrubbing && (
         <Animated.View
           style={[
@@ -225,6 +229,8 @@ export function SeekBar({ positionSeconds, durationSeconds, onSeekTo, onPreview,
           ]}
         />
       )}
+      {/* Sits at the fill's right edge, shifted left by half its own (fixed) size to center on that edge - a round knob signals "this is draggable" the way a bare filled track doesn't. */}
+      <View style={[styles.knob, { left: `${fillFraction * 100}%`, backgroundColor: colors.accent }]} />
     </View>
   );
 }
@@ -234,12 +240,12 @@ const styles = StyleSheet.create({
     height: 10,
     marginTop: 12,
     borderRadius: 5,
-    backgroundColor: 'rgba(59, 130, 246, 0.25)',
-    overflow: 'hidden',
+    // Deliberately NOT overflow:'hidden' - the knob needs to visibly poke
+    // out past the track's own height, which clipping would cut off.
   },
   seekBarFill: {
     height: '100%',
-    backgroundColor: '#3b82f6',
+    borderRadius: 5,
   },
   // Sits on top of seekBarFill (later sibling), covering the stretch
   // currently being scrubbed through - see scrubbing's own doc.
@@ -248,5 +254,13 @@ const styles = StyleSheet.create({
     top: 0,
     height: '100%',
     backgroundColor: '#fff',
+  },
+  knob: {
+    position: 'absolute',
+    top: '50%',
+    width: KNOB_SIZE,
+    height: KNOB_SIZE,
+    borderRadius: KNOB_SIZE / 2,
+    transform: [{ translateX: -KNOB_SIZE / 2 }, { translateY: -KNOB_SIZE / 2 }],
   },
 });

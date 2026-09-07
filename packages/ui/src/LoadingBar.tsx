@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import type { LayoutChangeEvent } from 'react-native';
 import { Animated, Easing, StyleSheet } from 'react-native';
+import type { Colors } from './theme';
+import { withAlpha } from './theme';
 
 const SWEEP_DURATION_MS = 900;
 const HIGHLIGHT_WIDTH_FRACTION = 0.35;
+
+export interface LoadingBarProps {
+  colors: Colors;
+}
 
 /**
  * Indeterminate loading progress bar - a highlight sweeping left-to-right
@@ -19,7 +25,7 @@ const HIGHLIGHT_WIDTH_FRACTION = 0.35;
  * re-renders, metadata/art fetches, ...) instead of running independently
  * on the native side like the rest of the app's animations.
  */
-export function LoadingBar(): React.JSX.Element {
+export function LoadingBar({ colors }: LoadingBarProps): React.JSX.Element {
   const [trackWidth, setTrackWidth] = useState(0);
   const progress = useRef(new Animated.Value(0)).current;
 
@@ -48,9 +54,11 @@ export function LoadingBar(): React.JSX.Element {
   });
 
   return (
-    <Animated.View style={styles.track} onLayout={handleLayout}>
+    <Animated.View style={[styles.track, { backgroundColor: withAlpha(colors.accent, 0.25) }]} onLayout={handleLayout}>
       {trackWidth > 0 && (
-        <Animated.View style={[styles.highlight, { width: highlightWidth, transform: [{ translateX }] }]} />
+        <Animated.View
+          style={[styles.highlight, { width: highlightWidth, backgroundColor: colors.accent, transform: [{ translateX }] }]}
+        />
       )}
     </Animated.View>
   );
@@ -61,7 +69,6 @@ const styles = StyleSheet.create({
     height: 10,
     marginTop: 12,
     borderRadius: 5,
-    backgroundColor: 'rgba(59, 130, 246, 0.25)',
     overflow: 'hidden',
   },
   highlight: {
@@ -69,7 +76,6 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     left: 0,
-    backgroundColor: '#3b82f6',
     borderRadius: 5,
   },
 });

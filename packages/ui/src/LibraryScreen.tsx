@@ -75,7 +75,7 @@ export function LibraryScreen({
     <>
       <AppTitle color={colors.text} />
       <View style={styles.addButtonRow}>
-        <AddFolderButton icon={mdiFolderMusic} text="Add Folder" onPress={onAddFolder} busy={isAddingFolder} busyText="Scanning folder…" />
+        <AddFolderButton colors={colors} icon={mdiFolderMusic} text="Add Folder" onPress={onAddFolder} busy={isAddingFolder} busyText="Scanning folder…" />
         {secondaryAddButton}
       </View>
       {bannerContent}
@@ -102,12 +102,12 @@ export function LibraryScreen({
               <View style={styles.rootActions}>
                 <Pressable onPress={() => onRescan(root.id)} disabled={busyRootId === root.id}>
                   {busyRootId === root.id ? (
-                    <Text style={styles.rescanLink}>Scanning…</Text>
+                    <Text style={{ color: colors.accent }}>Scanning…</Text>
                   ) : (
-                    <IconLabel path={mdiRefresh} text="Rescan" color="#3b82f6" iconSize={16} textStyle={styles.rescanLink} />
+                    <IconLabel path={mdiRefresh} text="Rescan" color={colors.accent} iconSize={16} />
                   )}
                 </Pressable>
-                {onRemoveRoot && <RemoveButton onConfirm={() => onRemoveRoot(root.id)} />}
+                {onRemoveRoot && <RemoveButton colors={colors} onConfirm={() => onRemoveRoot(root.id)} />}
               </View>
             </View>
             {playlists.length === 0 && <Text style={[styles.empty, { color: colors.subtleText }]}>No playlists found yet.</Text>}
@@ -170,9 +170,6 @@ const styles = StyleSheet.create({
   // clip against Rescan/Remove).
   rootName: {
     fontSize: 14,
-  },
-  rescanLink: {
-    color: '#3b82f6',
   },
   empty: {
     opacity: 0.6,

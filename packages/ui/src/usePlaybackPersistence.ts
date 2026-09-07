@@ -8,9 +8,13 @@ import type {
   TrackRecord,
 } from '@bpmix/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { RestoringStepKey } from './restoringSteps';
 
 /** How often to persist positionSeconds while a track is playing - frequent enough that a crash/force-quit loses very little progress, infrequent enough not to hammer the store on every ~200ms poll tick. */
 const POSITION_PERSIST_INTERVAL_MS = 5000;
+
+/** Debounce for persisting a rapidly-changing value (currently just volume, dragged via VolumeSlider) - see persistPlaybackPatch's `debounceMs` option. Long enough to coalesce a drag's whole burst of touch-move ticks into one write, short enough that a quick tap-to-set still saves within a beat of releasing. */
+export const RAPID_PLAYBACK_PATCH_DEBOUNCE_MS = 400;
 
 export interface RootWithLibrary {
   root: GrantedRoot;
@@ -29,6 +33,8 @@ interface UsePlaybackPersistenceOptions {
   /** Switches the caller's screen state to the restored playlist once one was found. */
   onRestoreScreen: (root: GrantedRoot, playlist: PlaylistRecord, tracksById: Map<string, TrackRecord>) => void;
   onError: (error: unknown) => void;
+  /** Advances the caller's restoring checklist (see RestoringScreen/useRestoringProgress) to this step - `refresh` itself advances its own earlier steps directly. */
+  onStepChange?: (step: RestoringStepKey) => void;
 }
 
 /**
@@ -52,9 +58,22 @@ export function usePlaybackPersistence({
   setActiveTracksById,
   onRestoreScreen,
   onError,
+  onStepChange,
 }: UsePlaybackPersistenceOptions): {
   isRestoring: boolean;
-  persistPlaybackPatch: (patch: Partial<PlaybackState>) => void;
+  /**
+   * `debounceMs` delays only the actual storage write (SQLite on Android,
+   * IndexedDB on web) by that long, coalescing rapid-fire calls into one -
+   * `playbackStateRef.current` (and so the in-memory state every other
+   * call site's merge sees) is still updated immediately either way, only
+   * the disk write is deferred. Needed for a caller like a slider's drag
+   * handler that fires on every touch-move tick (VolumeButton/VolumeSlider
+   * do, deliberately, so the audible volume itself updates with no lag) -
+   * without this, that same rapid-fire rate hit the store on every tick
+   * too, and the resulting I/O was visibly janking the drag itself
+   * (confirmed on-device).
+   */
+  persistPlaybackPatch: (patch: Partial<PlaybackState>, options?: { debounceMs?: number }) => void;
   persistPositionIfDue: (state: PlaylistPlayerState) => void;
 } {
   const [isRestoring, setIsRestoring] = useState(true);
@@ -71,10 +90,21 @@ export function usePlaybackPersistence({
     shuffleEnabled: false,
     volume: 1,
   });
+  const persistDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const persistPlaybackPatch = useCallback(
-    (patch: Partial<PlaybackState>) => {
+    (patch: Partial<PlaybackState>, options?: { debounceMs?: number }) => {
       playbackStateRef.current = { ...playbackStateRef.current, ...patch };
-      void libraryStore.putPlaybackState(playbackStateRef.current);
+      if (persistDebounceRef.current) {
+        clearTimeout(persistDebounceRef.current);
+        persistDebounceRef.current = null;
+      }
+      if (options?.debounceMs) {
+        persistDebounceRef.current = setTimeout(() => {
+          void libraryStore.putPlaybackState(playbackStateRef.current);
+        }, options.debounceMs);
+      } else {
+        void libraryStore.putPlaybackState(playbackStateRef.current);
+      }
     },
     [libraryStore],
   );
@@ -99,6 +129,7 @@ export function usePlaybackPersistence({
     let cancelled = false;
     (async () => {
       const withLibrary = await refresh();
+      onStepChange?.('restoringPlayback');
       const stored = await libraryStore.getPlaybackState();
       if (cancelled || !stored) return;
       playbackStateRef.current = stored;
@@ -109,6 +140,7 @@ export function usePlaybackPersistence({
         setActiveTracksById(tracksById);
         playlistPlayer.setShuffle(stored.shuffleEnabled);
         playlistPlayer.setLoopMode(stored.loopMode);
+        onStepChange?.('loadingPlaylist');
         // loadPlaylist() (unlike setPlaylist()) decodes without starting
         // playback - restoring on launch shouldn't start audio before the
         // UI has even rendered controls to stop it with.

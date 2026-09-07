@@ -1,7 +1,9 @@
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { IconLabel } from './IconLabel';
+import type { Colors } from './theme';
 
 export interface AddFolderButtonProps {
+  colors: Colors;
   icon: string;
   text: string;
   onPress: () => void;
@@ -15,9 +17,13 @@ export interface AddFolderButtonProps {
  * lay them out side by side (see its buttonRow) without duplicating this
  * markup per button.
  */
-export function AddFolderButton({ icon, text, onPress, busy = false, busyText }: AddFolderButtonProps) {
+export function AddFolderButton({ colors, icon, text, onPress, busy = false, busyText }: AddFolderButtonProps) {
   return (
-    <Pressable style={[styles.button, busy && styles.buttonDisabled]} onPress={onPress} disabled={busy}>
+    <Pressable
+      style={[styles.button, { backgroundColor: colors.accent }, busy && styles.buttonDisabled]}
+      onPress={onPress}
+      disabled={busy}
+    >
       {busy ? (
         <View style={styles.buttonRow}>
           <ActivityIndicator color="#fff" style={styles.buttonSpinner} />
@@ -32,7 +38,6 @@ export function AddFolderButton({ icon, text, onPress, busy = false, busyText }:
 
 const styles = StyleSheet.create({
   button: {
-    backgroundColor: '#3b82f6',
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 8,

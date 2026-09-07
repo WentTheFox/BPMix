@@ -1,8 +1,10 @@
 import { memo, useEffect, useId, useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
 import { useSpin } from './spin/useSpin';
+import type { Colors } from './theme';
 
 export interface CrossfadeArtProps {
+  colors: Colors;
   /** Identity (fileId) of whatever should be in the "current" slot right now. */
   currentTrackKey: string | null;
   currentArtUri: string | null;
@@ -133,6 +135,7 @@ function centeredCircleStyle(discSize: number, circleSize: number): { width: num
 }
 
 interface VinylDiscProps {
+  colors: Colors;
   artUri: string | null;
   /** [0,1] through the track - anchors the spin's starting angle whenever turnsPerSecond changes; see useSpin's doc. */
   progress: number;
@@ -156,7 +159,7 @@ interface VinylDiscProps {
  * the JS thread for no reason and risking exactly the stutter this
  * continuous-animation design exists to avoid.
  */
-const VinylDisc = memo(function VinylDisc({ artUri, progress, turnsPerSecond, spinId, size, opacity = 1, translateX }: VinylDiscProps) {
+const VinylDisc = memo(function VinylDisc({ colors, artUri, progress, turnsPerSecond, spinId, size, opacity = 1, translateX }: VinylDiscProps) {
   const spinStyle = useSpin(turnsPerSecond, progress, spinId);
   const boxStyle = { width: size, height: size, borderRadius: size / 2 };
   // The placeholder stays underneath throughout (disc is never literally
@@ -191,7 +194,8 @@ const VinylDisc = memo(function VinylDisc({ artUri, progress, turnsPerSecond, sp
         {grooveRadii.map((diameter, i) => (
           <View key={i} style={[styles.layer, styles.groove, centeredCircleStyle(size, diameter)]} />
         ))}
-        <View style={[styles.layer, styles.labelBase, labelCircleStyle]} />
+        {/* Sits under the art (cropped to this same circle) so a track with no art yet, or art with transparency, shows the accent color instead of bare vinyl poking through. */}
+        <View style={[styles.layer, labelCircleStyle, { backgroundColor: colors.accent }]} />
         {artUri && <Animated.Image source={{ uri: artUri }} style={[styles.layer, labelCircleStyle, { opacity: artOpacity }]} />}
         <View style={[styles.layer, styles.labelRim, labelCircleStyle]} />
         <View style={[styles.layer, styles.hole, centeredCircleStyle(size, size * HOLE_FRACTION)]} />
@@ -302,6 +306,7 @@ interface DisplayedState {
  * it lands at the same moment either way.
  */
 export function CrossfadeArt({
+  colors,
   currentTrackKey,
   currentArtUri,
   currentGain,
@@ -496,6 +501,7 @@ export function CrossfadeArt({
       <View style={[styles.slot, boxStyle, { left: 0 }]}>
         {!transitioning && (
           <VinylDisc
+            colors={colors}
             artUri={displayed.currentArt}
             progress={currentProgress}
             turnsPerSecond={currentTurnsPerSecond}
@@ -505,6 +511,7 @@ export function CrossfadeArt({
         )}
         {outgoing && (
           <VinylDisc
+            colors={colors}
             artUri={outgoing.artUri}
             progress={outgoing.progress}
             turnsPerSecond={currentTurnsPerSecond}
@@ -515,6 +522,7 @@ export function CrossfadeArt({
         )}
         {incoming && (
           <VinylDisc
+            colors={colors}
             artUri={incoming.artUri}
             progress={incoming.progress}
             turnsPerSecond={currentTurnsPerSecond}
@@ -528,6 +536,7 @@ export function CrossfadeArt({
       </View>
       <View style={[styles.slot, boxStyle, { left: size + GAP }]}>
         <VinylDisc
+          colors={colors}
           artUri={displayed.nextArt}
           progress={nextProgress}
           turnsPerSecond={nextTurnsPerSecond}
@@ -565,12 +574,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
-  },
-  // Sits under the art (which is cropped to this same circle) so a track
-  // with no art yet still shows a plain label instead of bare vinyl body
-  // poking through the label's own footprint.
-  labelBase: {
-    backgroundColor: '#2a2a2a',
   },
   // A thin ring on top of the art marking the label's edge, like a real
   // paper label's visible border against the vinyl - a plain fill here

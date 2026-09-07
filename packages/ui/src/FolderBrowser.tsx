@@ -5,6 +5,7 @@ import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from '
 import { Icon } from './Icon';
 import { IconLabel } from './IconLabel';
 import type { Colors } from './theme';
+import { withAlpha } from './theme';
 
 // Substrings (not whole words) so "Playlists", "Songs", "Music", "Lyrics"
 // etc. all match their singular/plural forms via a plain .includes() check.
@@ -121,7 +122,7 @@ export function FolderBrowser({ colors, fileAccess, rootId, rootDisplayName, ini
               {index > 0 && <Text style={[styles.breadcrumbSeparator, { color: colors.subtleText }]}>/</Text>}
               <Pressable onPress={() => setPath(crumb.path)} disabled={crumb.path === path}>
                 <Text
-                  style={[styles.breadcrumbText, { color: crumb.path === path ? colors.text : '#3b82f6' }]}
+                  style={[styles.breadcrumbText, { color: crumb.path === path ? colors.text : colors.accent }]}
                   numberOfLines={1}
                 >
                   {crumb.label}
@@ -138,12 +139,16 @@ export function FolderBrowser({ colors, fileAccess, rootId, rootDisplayName, ini
       {error && <Text style={styles.error}>{error}</Text>}
 
       {suggested.length > 0 && (
-        <View style={styles.suggestedBox}>
+        <View style={[styles.suggestedBox, { backgroundColor: withAlpha(colors.accent, 0.1) }]}>
           <Text style={[styles.suggestedHeading, { color: colors.subtleText }]}>Suggested folders</Text>
           <View style={styles.suggestedRow}>
             {suggested.map((entry) => (
-              <Pressable key={entry.relativePath} style={styles.suggestedChip} onPress={() => setPath(entry.relativePath)}>
-                <IconLabel path={mdiFolder} text={entry.name} color="#3b82f6" iconSize={15} textStyle={styles.suggestedChipText} />
+              <Pressable
+                key={entry.relativePath}
+                style={[styles.suggestedChip, { backgroundColor: withAlpha(colors.accent, 0.15) }]}
+                onPress={() => setPath(entry.relativePath)}
+              >
+                <IconLabel path={mdiFolder} text={entry.name} color={colors.accent} iconSize={15} textStyle={styles.suggestedChipText} />
               </Pressable>
             ))}
           </View>
@@ -180,10 +185,10 @@ export function FolderBrowser({ colors, fileAccess, rootId, rootDisplayName, ini
 
       <View style={styles.actionsRow}>
         <Pressable style={styles.cancelButton} onPress={onCancel}>
-          <Text style={styles.cancelButtonText}>Cancel</Text>
+          <Text style={[styles.cancelButtonText, { color: colors.accent }]}>Cancel</Text>
         </Pressable>
         <Pressable
-          style={[styles.selectButton, currentPathCovered && styles.selectButtonDisabled]}
+          style={[styles.selectButton, { backgroundColor: colors.accent }, currentPathCovered && styles.selectButtonDisabled]}
           onPress={() => onSelect(path)}
           disabled={!!currentPathCovered}
         >
@@ -239,7 +244,6 @@ const styles = StyleSheet.create({
     marginTop: 12,
     padding: 10,
     borderRadius: 8,
-    backgroundColor: 'rgba(59, 130, 246, 0.1)',
   },
   suggestedHeading: {
     fontSize: 11,
@@ -254,7 +258,6 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   suggestedChip: {
-    backgroundColor: 'rgba(59, 130, 246, 0.15)',
     borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -299,11 +302,9 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   cancelButtonText: {
-    color: '#3b82f6',
     fontWeight: '600',
   },
   selectButton: {
-    backgroundColor: '#3b82f6',
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 8,

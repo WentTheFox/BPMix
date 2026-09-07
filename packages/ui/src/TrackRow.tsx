@@ -1,10 +1,13 @@
 import { isMetadataCurrent, trackDisplayName, type LibraryStore, type TrackRecord } from '@bpmix/core';
-import { mdiPause, mdiPlay } from '@mdi/js';
+import { mdiPause, mdiPlay, mdiSubtitles } from '@mdi/js';
 import { memo, useEffect, useRef } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Icon } from './Icon';
 import { Skeleton } from './Skeleton';
+import type { Colors } from './theme';
+import { withAlpha } from './theme';
 import { useCoverArt } from './useCoverArt';
+import { useHasLyrics } from './useHasLyrics';
 import { useTrackMetadata } from './useTrackMetadata';
 
 const ART_FADE_IN_MS = 250;
@@ -27,8 +30,9 @@ export interface TrackRowProps {
   track: TrackRecord;
   isCurrent: boolean;
   isPlaying: boolean;
-  /** Text color for a non-current row - a current row always uses the accent color instead, regardless of this. */
+  /** Text color for a non-current row - a current row always uses colors.accent instead, regardless of this. */
   textColor: string;
+  colors: Colors;
   onPress: (track: TrackRecord) => void;
   libraryStore: LibraryStore;
 }
@@ -43,7 +47,7 @@ export interface TrackRowProps {
  * the text. Shared between mobile and web (identical on both, so it lives
  * here rather than being duplicated per-app).
  */
-export const TrackRow = memo(function TrackRow({ track, isCurrent, isPlaying, textColor, onPress, libraryStore }: TrackRowProps) {
+export const TrackRow = memo(function TrackRow({ track, isCurrent, isPlaying, textColor, colors, onPress, libraryStore }: TrackRowProps) {
   const metadata = useTrackMetadata(libraryStore, track.fileId);
   // Not just metadata !== null - useTrackMetadata can display a still-stale
   // (older parserVersion) result immediately while it keeps retrying, and
@@ -55,6 +59,7 @@ export const TrackRow = memo(function TrackRow({ track, isCurrent, isPlaying, te
   // art or not, so a still-shimmering placeholder past that point would be
   // lying about there being more to load.
   const artLoading = !metadataCurrent;
+  const hasLyrics = useHasLyrics(libraryStore, track.fileId);
 
   // Cross-dissolves from the placeholder to the art once it loads, rather
   // than popping in - the placeholder stays underneath throughout (never
@@ -78,15 +83,18 @@ export const TrackRow = memo(function TrackRow({ track, isCurrent, isPlaying, te
           {artLoading ? <Skeleton style={styles.art} /> : <View style={[styles.art, styles.artPlaceholder]} />}
           {coverArt && <Animated.Image source={{ uri: coverArt }} style={[styles.art, styles.artOverlay, { opacity: artOpacity }]} />}
           {isCurrent && (
-            <View style={[styles.art, styles.artOverlay, styles.artCurrentTint]}>
+            <View style={[styles.art, styles.artOverlay, styles.artCurrentTint, { backgroundColor: withAlpha(colors.accent, 0.55) }]}>
               <Icon path={isPlaying ? mdiPause : mdiPlay} size={18} color="#fff" />
             </View>
           )}
         </View>
         <View style={styles.trackTextColumn}>
-          <Text style={[styles.trackTitle, { color: isCurrent ? '#3b82f6' : textColor }]} numberOfLines={1}>
-            {title}
-          </Text>
+          <View style={styles.titleRow}>
+            <Text style={[styles.trackTitle, { color: isCurrent ? colors.accent : textColor }]} numberOfLines={1}>
+              {title}
+            </Text>
+            {hasLyrics && <Icon path={mdiSubtitles} size={13} color={isCurrent ? colors.accent : textColor} />}
+          </View>
           {artist ? (
             <Text style={[styles.trackArtist, { color: textColor }]} numberOfLines={1}>
               {artist}
@@ -124,7 +132,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(128,128,128,0.15)',
   },
   artCurrentTint: {
-    backgroundColor: 'rgba(59,130,246,0.55)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -132,9 +139,15 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     minWidth: 0,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
   trackTitle: {
     fontSize: 14,
     fontWeight: '600',
+    flexShrink: 1,
   },
   trackArtist: {
     fontSize: 12,

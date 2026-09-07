@@ -7,6 +7,8 @@ export * from './playlist/m3u8';
 export * from './lyrics/lrc';
 export * from './lyrics/matchLyrics';
 export * from './lyrics/scanLyricsRoot';
+export * from './lyrics/loadAssignedLyrics';
+export * from './lyrics/matchTranslationLines';
 export * from './library-scan/walk';
 export * from './library-scan/scan';
 export * from './playback/trackPlayer';

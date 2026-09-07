@@ -2,6 +2,13 @@ export interface LyricLine {
   /** Seconds from track start, or null for an unsynced (plain-text) lyrics file. */
   timeSeconds: number | null;
   text: string;
+  /**
+   * The matching line from a sibling translation .lrc file, if one is
+   * assigned and lines up within tolerance - see matchTranslationLines.
+   * Always absent (not just null) on a plain parseLrc() result; only
+   * populated by that merge step.
+   */
+  translation?: string | null;
 }
 
 export interface ParsedLyrics {

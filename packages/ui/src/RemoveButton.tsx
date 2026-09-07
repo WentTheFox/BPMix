@@ -2,8 +2,10 @@ import { mdiTrashCanOutline } from '@mdi/js';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { IconLabel } from './IconLabel';
+import type { Colors } from './theme';
 
 export interface RemoveButtonProps {
+  colors: Colors;
   onConfirm: () => void;
 }
 
@@ -18,7 +20,7 @@ export interface RemoveButtonProps {
  * has historically lagged the other platforms, and this needs to behave
  * identically on mobile, web, and Windows.
  */
-export function RemoveButton({ onConfirm }: RemoveButtonProps) {
+export function RemoveButton({ colors, onConfirm }: RemoveButtonProps) {
   const [confirming, setConfirming] = useState(false);
 
   if (confirming) {
@@ -29,7 +31,7 @@ export function RemoveButton({ onConfirm }: RemoveButtonProps) {
           <Text style={styles.yes}>Yes</Text>
         </Pressable>
         <Pressable onPress={() => setConfirming(false)}>
-          <Text style={styles.no}>No</Text>
+          <Text style={[styles.no, { color: colors.accent }]}>No</Text>
         </Pressable>
       </View>
     );
@@ -59,7 +61,6 @@ const styles = StyleSheet.create({
   },
   no: {
     fontSize: 12,
-    color: '#3b82f6',
   },
   removeText: {
     fontSize: 12,

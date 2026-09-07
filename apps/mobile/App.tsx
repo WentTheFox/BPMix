@@ -24,6 +24,7 @@ import {
   AddFolderButton,
   AppTitle,
   CROSSFADE_ART_TRANSITION_MS,
+  darken,
   FolderBrowser,
   Icon,
   IconLabel,
@@ -33,21 +34,25 @@ import {
   lyricsScopeKey,
   MiniPlayerBar,
   NowPlayingScreen,
+  RestoringScreen,
   ShuffleButton,
   TrackList,
   TURNS_PER_SONG,
   useCoverArt,
   useDoublePressHandler,
   useFadeInOnChange,
+  RAPID_PLAYBACK_PATCH_DEBOUNCE_MS,
   usePlaybackPersistence,
+  useRestoringProgress,
   useThemeColors,
   useTrackMetadata,
+  VolumeButton,
 } from '@bpmix/ui';
 import type { RootWithLibrary } from '@bpmix/ui';
 import { mdiArrowLeft, mdiPause, mdiPlay, mdiSkipNext, mdiSkipPrevious, mdiSubtitles } from '@mdi/js';
 import type { ReactNode } from 'react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StatusBar, StyleSheet, Text, useColorScheme, View } from 'react-native';
+import { Pressable, StatusBar, StyleSheet, Text, useColorScheme, View } from 'react-native';
 import {
   SafeAreaProvider,
   useSafeAreaInsets,
@@ -183,6 +188,9 @@ function AppContent() {
   } | null>(null);
   const [busyRootId, setBusyRootId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Drives RestoringScreen's checklist - see refresh()'s and
+  // usePlaybackPersistence's onStepChange updates below.
+  const { completedSteps, currentStep, hasLyricsScopes, advanceStep, setHasLyricsScopes } = useRestoringProgress();
   const [screen, setScreen] = useState<Screen>({ kind: 'library' });
   const [playerState, setPlayerState] = useState<PlaylistPlayerState>(playlistPlayer.getState());
 
@@ -219,8 +227,10 @@ function AppContent() {
   }, []);
 
   const refresh = useCallback(async () => {
+    advanceStep('listingFolders');
     const roots = await fileAccess.listGrantedRoots();
     setGrantedRoots(roots);
+    advanceStep('scanningLibrary');
 
     // Each root's scan is isolated in its own try/catch - see
     // apps/web/src/App.tsx's refresh() for why (one bad root used to blank
@@ -263,8 +273,10 @@ function AppContent() {
     // identical logic/reasoning.
     const scopes = await libraryStore.getLyricsScopes();
     setLyricsScopes(scopes);
+    setHasLyricsScopes(scopes.length > 0);
 
     if (scopes.length > 0) {
+      advanceStep('scanningLyrics');
       setMatchedLyricsCount(null);
       const allTracks = withLibrary.flatMap(({ tracksById }) => [...tracksById.values()]);
       // Same per-root isolation as the music roots above.
@@ -341,6 +353,7 @@ function AppContent() {
     },
     onRestoreScreen: (root, playlist, tracksById) => setScreen({ kind: 'playlist', root, playlist, tracksById }),
     onError: (err) => setError(errorMessage(err)),
+    onStepChange: advanceStep,
   });
 
   useEffect(() => {
@@ -608,7 +621,10 @@ function AppContent() {
       // Persisted so the next launch doesn't blast out at whatever volume
       // happened to be in effect before it's set once - merges onto the rest
       // of playbackStateRef rather than clobbering it back to defaults.
-      persistPlaybackPatch({ volume: value });
+      // Debounced: VolumeSlider calls this on every drag touch-move tick
+      // (deliberately, so the audible volume itself has no lag), and
+      // hitting the store that often was visibly janking the drag itself.
+      persistPlaybackPatch({ volume: value }, { debounceMs: RAPID_PLAYBACK_PATCH_DEBOUNCE_MS });
     },
     [persistPlaybackPatch],
   );
@@ -849,26 +865,41 @@ function AppContent() {
         // (the incoming track's position/duration) - a tap here would compute
         // a fraction against the wrong track's duration.
         onSeekTo={pendingIncoming ? () => {} : seekTo}
-        volume={volume}
-        onChangeVolume={handleVolumeChange}
+        fileAccess={fileAccess}
+        libraryStore={libraryStore}
+        lyricsScopes={lyricsScopes}
         controls={
           <View style={styles.playerControlsRow}>
-            <LoopButton loopMode={playerState.loopMode} onPress={cycleLoopMode} disabled={!!scrub} />
+            <LoopButton colors={colors} loopMode={playerState.loopMode} onPress={cycleLoopMode} disabled={!!scrub} />
             {/* Disabled mid-scrub: a rewindTo()/fastForwardTo() effect already tears down (and, for fastForwardTo, recreates) the source once - stacking a second transport action on top of it before it settles risks the same rapid-fire native-source-churn crash the effect itself is built to avoid. */}
-            <Pressable style={[styles.controlButton, !!scrub && styles.controlButtonDisabled]} onPress={handlePreviousPress} disabled={!!scrub}>
+            <Pressable
+              style={[styles.controlButton, { backgroundColor: colors.accent }, !!scrub && styles.controlButtonDisabled]}
+              onPress={handlePreviousPress}
+              disabled={!!scrub}
+            >
               <Icon path={mdiSkipPrevious} size={20} color="white" />
             </Pressable>
             <Pressable
-              style={[styles.controlButton, styles.controlButtonPrimary, !!scrub && styles.controlButtonDisabled]}
+              style={[
+                styles.controlButton,
+                styles.controlButtonPrimary,
+                { backgroundColor: darken(colors.accent, 0.15) },
+                !!scrub && styles.controlButtonDisabled,
+              ]}
               onPress={togglePause}
               disabled={!!scrub}
             >
               <Icon path={playerState.track.status === 'playing' ? mdiPause : mdiPlay} size={30} color="white" />
             </Pressable>
-            <Pressable style={[styles.controlButton, !!scrub && styles.controlButtonDisabled]} onPress={handleNextPress} disabled={!!scrub}>
+            <Pressable
+              style={[styles.controlButton, { backgroundColor: colors.accent }, !!scrub && styles.controlButtonDisabled]}
+              onPress={handleNextPress}
+              disabled={!!scrub}
+            >
               <Icon path={mdiSkipNext} size={20} color="white" />
             </Pressable>
-            <ShuffleButton shuffleEnabled={playerState.shuffleEnabled} onPress={toggleShuffle} disabled={!!scrub} />
+            <ShuffleButton colors={colors} shuffleEnabled={playerState.shuffleEnabled} onPress={toggleShuffle} disabled={!!scrub} />
+            <VolumeButton colors={colors} volume={volume} onChangeVolume={handleVolumeChange} />
           </View>
         }
       />
@@ -882,10 +913,13 @@ function AppContent() {
   // right screen.
   if (isRestoring) {
     return (
-      <View style={[styles.container, styles.restoringContainer, { paddingTop: insets.top, backgroundColor: colors.background }]}>
-        <AppTitle color={colors.text} />
-        <ActivityIndicator color={colors.text} />
-      </View>
+      <RestoringScreen
+        colors={colors}
+        paddingTop={insets.top}
+        completedSteps={completedSteps}
+        currentStep={currentStep}
+        hasLyricsScopes={hasLyricsScopes}
+      />
     );
   }
 
@@ -947,6 +981,7 @@ function AppContent() {
           currentFileId={playerState.currentFileId}
           isPlaying={playerState.track.status === 'playing'}
           textColor={colors.text}
+          colors={colors}
           onPressTrack={(t) => void playFromTrack(playlist, tracksById, t)}
           libraryStore={libraryStore}
           initialNumToRender={20}
@@ -967,12 +1002,12 @@ function AppContent() {
         error={error}
         errorAction={
           needsAllFilesAccess && (
-            <Pressable style={styles.grantAccessButton} onPress={openAllFilesAccessSettings}>
+            <Pressable style={[styles.grantAccessButton, { backgroundColor: colors.accent }]} onPress={openAllFilesAccessSettings}>
               <Text style={styles.grantAccessButtonText}>Open Settings</Text>
             </Pressable>
           )
         }
-        secondaryAddButton={<AddFolderButton icon={mdiSubtitles} text="Add Lyrics Folder" onPress={addLyricsFolder} />}
+        secondaryAddButton={<AddFolderButton colors={colors} icon={mdiSubtitles} text="Add Lyrics Folder" onPress={addLyricsFolder} />}
         lyricsSection={
           <LyricsFolderSection
             colors={colors}
@@ -1005,10 +1040,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 24,
   },
-  restoringContainer: {
-    justifyContent: 'center',
-    gap: 16,
-  },
   // Wraps the library/playlist content so it can flex to fill the space
   // above MiniPlayerBar/NowPlayingScreen instead of the two overlapping -
   // container itself can't grow the content because it also hosts those
@@ -1020,7 +1051,6 @@ const styles = StyleSheet.create({
   },
   grantAccessButton: {
     marginTop: 8,
-    backgroundColor: '#3b82f6',
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 8,
@@ -1061,7 +1091,6 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#3b82f6',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1069,7 +1098,6 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: '#2563eb',
   },
   controlButtonDisabled: {
     opacity: 0.4,

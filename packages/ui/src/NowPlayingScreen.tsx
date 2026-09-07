@@ -1,3 +1,4 @@
+import type { FileAccess, LibraryStore, LyricsScope } from '@bpmix/core';
 import { mdiArrowLeft } from '@mdi/js';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
@@ -5,9 +6,9 @@ import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { CrossfadeArt } from './CrossfadeArt';
 import { IconLabel } from './IconLabel';
 import { LoadingBar } from './LoadingBar';
+import { LyricsSection } from './LyricsSection';
 import { SeekBar } from './SeekBar';
 import type { Colors } from './theme';
-import { VolumeSlider } from './VolumeSlider';
 
 const ART_SIZE = 130;
 
@@ -46,10 +47,11 @@ export interface NowPlayingScreenProps {
   onSeekTo: (positionSeconds: number) => void;
   /** See SeekBarProps.scrubbing's doc - passed straight through. */
   scrubbing?: { fromSeconds: number; toSeconds: number; durationSeconds: number } | null;
-  /** The primary transport row(s) - genuinely different between mobile (icon buttons flanked by loop/shuffle) and web (adds ±10s seek buttons, loop/shuffle on their own row), so left as a slot rather than forced into one shape. */
+  /** The primary transport row(s) (including the volume button - see VolumeButton) - genuinely different between mobile (icon buttons flanked by loop/shuffle) and web (adds ±10s seek buttons, loop/shuffle on their own row), so left as a slot rather than forced into one shape. */
   controls: ReactNode;
-  volume: number;
-  onChangeVolume: (value: number) => void;
+  fileAccess: FileAccess;
+  libraryStore: LibraryStore;
+  lyricsScopes: LyricsScope[];
 }
 
 /**
@@ -83,8 +85,9 @@ export function NowPlayingScreen({
   onSeekTo,
   scrubbing,
   controls,
-  volume,
-  onChangeVolume,
+  fileAccess,
+  libraryStore,
+  lyricsScopes,
 }: NowPlayingScreenProps) {
   // Live position while dragging the seek bar, mirrored here so the disc's
   // rotation and the position text can both track the drag in real time -
@@ -115,6 +118,7 @@ export function NowPlayingScreen({
           )}
           <View style={styles.artRow}>
             <CrossfadeArt
+              colors={colors}
               currentTrackKey={currentTrackKey}
               currentArtUri={currentArtUri}
               currentGain={currentGain}
@@ -129,9 +133,10 @@ export function NowPlayingScreen({
             />
           </View>
           {isLoading ? (
-            <LoadingBar />
+            <LoadingBar colors={colors} />
           ) : (
             <SeekBar
+              colors={colors}
               positionSeconds={positionSeconds}
               durationSeconds={durationSeconds}
               onSeekTo={onSeekTo}
@@ -144,10 +149,16 @@ export function NowPlayingScreen({
             <Text style={[styles.seekTimeText, { color: colors.subtleText }]}>{formatSeconds(durationSeconds)}</Text>
           </View>
         </View>
-        <View style={styles.footer}>
-          {controls}
-          <VolumeSlider volume={volume} onChangeVolume={onChangeVolume} />
-        </View>
+        <LyricsSection
+          colors={colors}
+          fileAccess={fileAccess}
+          libraryStore={libraryStore}
+          lyricsScopes={lyricsScopes}
+          trackFileId={currentTrackKey}
+          positionSeconds={displayPositionSeconds}
+          onSeekTo={onSeekTo}
+        />
+        <View style={styles.footer}>{controls}</View>
       </View>
     </View>
   );

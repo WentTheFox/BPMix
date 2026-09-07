@@ -2,6 +2,7 @@ import type { LoopMode } from '@bpmix/core';
 import { mdiRepeat, mdiRepeatOnce, mdiShuffle } from '@mdi/js';
 import { Pressable, StyleSheet } from 'react-native';
 import { Icon } from './Icon';
+import type { Colors } from './theme';
 
 // 'off' reuses the repeat-all glyph dimmed, rather than a distinct "repeat
 // off" icon - Segoe Fluent Icons (the Windows Icon renderer's font) has no
@@ -21,10 +22,20 @@ const LOOP_MODE_ICON: Record<LoopMode, string> = { off: mdiRepeat, all: mdiRepea
  * while web groups them together in their own row, so a single component
  * covering both button placements can't fit both layouts.
  */
-export function LoopButton({ loopMode, onPress, disabled }: { loopMode: LoopMode; onPress: () => void; disabled?: boolean }) {
+export function LoopButton({
+  colors,
+  loopMode,
+  onPress,
+  disabled,
+}: {
+  colors: Colors;
+  loopMode: LoopMode;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
   return (
     <Pressable
-      style={[styles.button, loopMode !== 'off' && styles.buttonActive, disabled && styles.buttonDisabled]}
+      style={[styles.button, loopMode !== 'off' && { backgroundColor: colors.accent }, disabled && styles.buttonDisabled]}
       onPress={onPress}
       disabled={disabled}
     >
@@ -33,10 +44,20 @@ export function LoopButton({ loopMode, onPress, disabled }: { loopMode: LoopMode
   );
 }
 
-export function ShuffleButton({ shuffleEnabled, onPress, disabled }: { shuffleEnabled: boolean; onPress: () => void; disabled?: boolean }) {
+export function ShuffleButton({
+  colors,
+  shuffleEnabled,
+  onPress,
+  disabled,
+}: {
+  colors: Colors;
+  shuffleEnabled: boolean;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
   return (
     <Pressable
-      style={[styles.button, shuffleEnabled && styles.buttonActive, disabled && styles.buttonDisabled]}
+      style={[styles.button, shuffleEnabled && { backgroundColor: colors.accent }, disabled && styles.buttonDisabled]}
       onPress={onPress}
       disabled={disabled}
     >
@@ -48,8 +69,8 @@ export function ShuffleButton({ shuffleEnabled, onPress, disabled }: { shuffleEn
 const styles = StyleSheet.create({
   // Smaller and dimmer than the primary transport buttons they sit
   // alongside - secondary controls, not primary ones - lighting up
-  // (buttonActive) when their mode is non-default, since the icon glyph
-  // alone can't carry on/off state for shuffle (same icon either way).
+  // (accent background) when their mode is non-default, since the icon
+  // glyph alone can't carry on/off state for shuffle (same icon either way).
   button: {
     width: 36,
     height: 36,
@@ -57,9 +78,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#475569',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  buttonActive: {
-    backgroundColor: '#3b82f6',
   },
   buttonDisabled: {
     opacity: 0.4,
