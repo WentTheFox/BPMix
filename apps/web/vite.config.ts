@@ -29,5 +29,15 @@ export default defineConfig({
   },
   define: {
     __DEV__: JSON.stringify(process.env.NODE_ENV !== 'production'),
+    // react-native-web's Animated implementation (TimingAnimation.stop, hit
+    // whenever an Animated.Image's fade-in - e.g. TrackRow's cover art - is
+    // torn down mid-animation on unmount) references the Node-style global
+    // object directly, which Vite's browser build doesn't provide - confirmed
+    // on-device as `ReferenceError: global is not defined`, crashing the
+    // whole app (no error boundary) any time enough rows unmount at once to
+    // hit it (e.g. typing in TrackList's search box rapidly re-filters and
+    // unmounts many rows). `global: 'window'` is the standard shim other
+    // vite+react-native-web setups need for the same reason.
+    global: 'window',
   },
 });
