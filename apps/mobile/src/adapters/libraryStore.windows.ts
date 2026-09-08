@@ -56,10 +56,21 @@ interface StoredData {
   /** See LyricsScope's doc - replaces the short-lived rootKinds field (never shipped with real user data, so no migration). */
   lyricsScopes: LyricsScope[];
   lyricsAssignments: Record<string, string>;
+  /** See LibraryStore.getSetting's doc. Optional so an older on-disk file (from before this field existed) just reads as {} rather than needing a migration. */
+  settings?: Record<string, string>;
 }
 
 function emptyData(): StoredData {
-  return { tracks: [], playlists: [], analyses: {}, metadata: {}, playbackState: null, lyricsScopes: [], lyricsAssignments: {} };
+  return {
+    tracks: [],
+    playlists: [],
+    analyses: {},
+    metadata: {},
+    playbackState: null,
+    lyricsScopes: [],
+    lyricsAssignments: {},
+    settings: {},
+  };
 }
 
 export function createLibraryStore(): LibraryStore {
@@ -232,6 +243,18 @@ export function createLibraryStore(): LibraryStore {
         } else {
           data.lyricsAssignments[fileId] = lrcFileId;
         }
+      });
+    },
+
+    async getSetting(key: string): Promise<string | null> {
+      const data = await load();
+      return data.settings?.[key] ?? null;
+    },
+
+    async putSetting(key: string, value: string): Promise<void> {
+      await mutate((data) => {
+        data.settings ??= {};
+        data.settings[key] = value;
       });
     },
   };

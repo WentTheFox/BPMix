@@ -4,13 +4,13 @@ import {
   ensureTrackAnalyzed,
   equalPowerGain,
   errorMessage,
-  findAutoLyricsMatch,
   formatTrackTitle,
   isMetadataCurrent,
+  LYRICS_MATCHED_COUNT_SETTING_KEY,
+  matchLibraryLyrics,
   PlaylistPlayer,
   realTimeForOutgoingPosition,
   scanLibraryMetadata,
-  scanLyricsRoot,
   scanRoot,
   trackDisplayName,
 } from '@bpmix/core';
@@ -241,40 +241,44 @@ function App() {
     // contents can change between scans same as a music root's can.
     if (scopes.length > 0) {
       advanceStep('scanningLyrics');
-      setMatchedLyricsCount(null);
+      // Optimistic starting display: last launch's exact final count,
+      // shown immediately instead of null/"Matching lyrics…" - the pass
+      // below only ever ticks it down (via onAnomaly) as it actually finds
+      // a track without a match, then snaps to the exact true count and
+      // persists it as next launch's baseline once done (onSettled). A
+      // library that hasn't changed since last launch (the common case)
+      // never visibly moves at all.
+      const lastKnownCount = await libraryStore.getSetting(LYRICS_MATCHED_COUNT_SETTING_KEY);
+      setMatchedLyricsCount(lastKnownCount != null ? Number(lastKnownCount) : null);
       const allTracks = withLibrary.flatMap(({ tracksById }) => [...tracksById.values()]);
-      // Same per-root isolation as the music roots above - one lyrics scope
-      // failing to scan shouldn't block matching against the ones that work.
-      const lrcFiles = (
-        await Promise.all(
-          scopes.map(async (scope) => {
-            try {
-              return await scanLyricsRoot(fileAccess, scope.rootId, scope.relativePath);
-            } catch (err) {
-              setError(errorMessage(err));
-              return [];
-            }
-          }),
-        )
-      ).flat();
-      const candidates = lrcFiles.map((file) => ({ fileId: file.id, name: file.name }));
-      let matched = 0;
-      await Promise.all(
-        allTracks.map(async (track) => {
-          const existing = await libraryStore.getLyricsAssignment(track.fileId);
-          if (existing) {
-            matched++;
-            return;
-          }
-          const trackName = track.relativePath.split('/').pop() ?? track.relativePath;
-          const match = findAutoLyricsMatch(trackName, candidates);
-          if (match) {
-            await libraryStore.putLyricsAssignment(track.fileId, match.fileId);
-            matched++;
-          }
-        }),
-      );
-      setMatchedLyricsCount(matched);
+      // Idle-chunked, same reasoning as scanLibraryMetadata below - matching
+      // every track in the library against every .lrc candidate is real
+      // synchronous work that shouldn't run straight through and compete
+      // with whatever else is on the JS thread. Fire-and-forget: the
+      // restoring track's own assignment is already resolved separately
+      // (see usePlaybackPersistence/ensureLyricsAssignment), so nothing here
+      // needs to be awaited before refresh() returns.
+      void matchLibraryLyrics(fileAccess, libraryStore, scopes, allTracks, {
+        onProgress: (matchedCount) => {
+          // Only drives the display for a first-ever run (no baseline to
+          // start optimistic from yet) - once there's a baseline, onAnomaly/
+          // onSettled below own the display so it doesn't jump back down to
+          // a small live-counted number and re-climb every launch.
+          if (lastKnownCount == null) setMatchedLyricsCount(matchedCount);
+        },
+        onAnomaly: () => {
+          if (lastKnownCount != null) setMatchedLyricsCount((prev) => (prev == null ? null : Math.max(0, prev - 1)));
+        },
+        onSettled: (matchedCount) => {
+          setMatchedLyricsCount(matchedCount);
+          void libraryStore.putSetting(LYRICS_MATCHED_COUNT_SETTING_KEY, String(matchedCount));
+        },
+        getPriorityFileIds: () => {
+          const state = playlistPlayer.getState();
+          const nextFileId = playlistPlayer.getNextFileId();
+          return [state.currentFileId, nextFileId].filter((id): id is string => id != null);
+        },
+      }).catch((err) => setError(errorMessage(err)));
     } else {
       setMatchedLyricsCount(null);
     }
@@ -310,6 +314,7 @@ function App() {
   }, []);
 
   const { isRestoring, persistPlaybackPatch, persistPositionIfDue } = usePlaybackPersistence({
+    fileAccess,
     libraryStore,
     playlistPlayer,
     refresh,
@@ -317,9 +322,16 @@ function App() {
     setActiveTracksById: (tracksById) => {
       activeTracksById = tracksById;
     },
-    onRestoreScreen: (root, playlist, tracksById) => setScreen({ kind: 'playlist', root, playlist, tracksById }),
+    onRestoreScreen: (root, playlist, tracksById, nowPlayingOpen) => {
+      setScreen({ kind: 'playlist', root, playlist, tracksById });
+      if (nowPlayingOpen) setNowPlayingScreenOpen(true);
+    },
     onError: (err) => setError(errorMessage(err)),
     onStepChange: advanceStep,
+    onLyricsScopesKnown: (scopes) => {
+      setLyricsScopes(scopes);
+      setHasLyricsScopes(scopes.length > 0);
+    },
   });
 
   useEffect(() => {
@@ -481,6 +493,7 @@ function App() {
       persistPlaybackPatch({
         playlistId: playlist.id,
         currentTrackFileId: track.fileId,
+        rootId: playlist.rootId,
         ...(isSameTrack ? {} : { positionSeconds: 0 }),
       });
     },
@@ -789,7 +802,10 @@ function App() {
       isPlaying={playerState.track.status === 'playing'}
       positionSeconds={displayPositionSeconds}
       durationSeconds={displayDurationSeconds}
-      onPress={() => setNowPlayingScreenOpen(true)}
+      onPress={() => {
+        setNowPlayingScreenOpen(true);
+        persistPlaybackPatch({ nowPlayingOpen: true });
+      }}
       onPlayPause={togglePause}
       onNext={handleNextPress}
       onPrevious={handlePreviousPress}
@@ -800,7 +816,10 @@ function App() {
     <View style={StyleSheet.absoluteFill}>
       <NowPlayingScreen
         colors={colors}
-        onClose={() => setNowPlayingScreenOpen(false)}
+        onClose={() => {
+          setNowPlayingScreenOpen(false);
+          persistPlaybackPatch({ nowPlayingOpen: false });
+        }}
         title={currentTitle ?? ''}
         upNextTitle={settledNextTrack ? formatTrackTitle(settledNextMetadata, settledNextTrack) : null}
         nowPlayingOpacity={nowPlayingOpacity}

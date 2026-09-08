@@ -84,14 +84,18 @@ const ready = (async () => {
     )`,
   );
   // Same reasoning/pattern as the analysis table's migration guard above -
-  // a table created before the `volume` column existed would silently
-  // reject every putPlaybackState() insert with "no such column".
+  // a table created before the `volume`/`rootId`/`nowPlayingOpen` columns
+  // existed would silently reject every putPlaybackState() insert with "no
+  // such column".
   const playbackStateTableInfo = await run('PRAGMA table_info(playback_state)');
   const playbackStateColumns = new Set<string>();
   for (let i = 0; i < playbackStateTableInfo.rows.length; i++) {
     playbackStateColumns.add((playbackStateTableInfo.rows.item(i) as { name: string }).name);
   }
-  if (playbackStateColumns.size > 0 && !playbackStateColumns.has('volume')) {
+  if (
+    playbackStateColumns.size > 0 &&
+    (!playbackStateColumns.has('volume') || !playbackStateColumns.has('rootId') || !playbackStateColumns.has('nowPlayingOpen'))
+  ) {
     await run('DROP TABLE playback_state');
   }
 
@@ -119,10 +123,12 @@ const ready = (async () => {
       id INTEGER PRIMARY KEY CHECK (id = 1),
       playlistId TEXT,
       currentTrackFileId TEXT,
+      rootId TEXT,
       positionSeconds REAL NOT NULL,
       loopMode TEXT NOT NULL,
       shuffleEnabled INTEGER NOT NULL,
-      volume REAL NOT NULL
+      volume REAL NOT NULL,
+      nowPlayingOpen INTEGER NOT NULL
     )`,
   );
 
@@ -143,6 +149,14 @@ const ready = (async () => {
     `CREATE TABLE IF NOT EXISTS lyrics_assignment (
       fileId TEXT PRIMARY KEY,
       lrcFileId TEXT NOT NULL
+    )`,
+  );
+
+  // Generic string key-value store - see LibraryStore.getSetting's doc.
+  await run(
+    `CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
     )`,
   );
 })();
@@ -304,31 +318,35 @@ export function createLibraryStore(): LibraryStore {
       const rows = rowsToArray<{
         playlistId: string | null;
         currentTrackFileId: string | null;
+        rootId: string | null;
         positionSeconds: number;
         loopMode: PlaybackState['loopMode'];
         shuffleEnabled: number;
         volume: number;
+        nowPlayingOpen: number;
       }>(result);
       const row = rows[0];
       if (!row) return null;
-      return { ...row, shuffleEnabled: row.shuffleEnabled === 1 };
+      return { ...row, shuffleEnabled: row.shuffleEnabled === 1, nowPlayingOpen: row.nowPlayingOpen === 1 };
     },
 
     async putPlaybackState(state: PlaybackState): Promise<void> {
       await ready;
       await run(
-        `INSERT INTO playback_state (id, playlistId, currentTrackFileId, positionSeconds, loopMode, shuffleEnabled, volume)
-         VALUES (1, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO playback_state (id, playlistId, currentTrackFileId, rootId, positionSeconds, loopMode, shuffleEnabled, volume, nowPlayingOpen)
+         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET playlistId=excluded.playlistId, currentTrackFileId=excluded.currentTrackFileId,
-           positionSeconds=excluded.positionSeconds, loopMode=excluded.loopMode, shuffleEnabled=excluded.shuffleEnabled,
-           volume=excluded.volume`,
+           rootId=excluded.rootId, positionSeconds=excluded.positionSeconds, loopMode=excluded.loopMode,
+           shuffleEnabled=excluded.shuffleEnabled, volume=excluded.volume, nowPlayingOpen=excluded.nowPlayingOpen`,
         [
           state.playlistId,
           state.currentTrackFileId,
+          state.rootId,
           state.positionSeconds,
           state.loopMode,
           state.shuffleEnabled ? 1 : 0,
           state.volume,
+          state.nowPlayingOpen ? 1 : 0,
         ],
       );
     },
@@ -371,6 +389,22 @@ export function createLibraryStore(): LibraryStore {
           [fileId, lrcFileId],
         );
       }
+    },
+
+    async getSetting(key: string): Promise<string | null> {
+      await ready;
+      const result = await run('SELECT value FROM settings WHERE key = ?', [key]);
+      const rows = rowsToArray<{ value: string }>(result);
+      return rows[0]?.value ?? null;
+    },
+
+    async putSetting(key: string, value: string): Promise<void> {
+      await ready;
+      await run(
+        `INSERT INTO settings (key, value) VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+        [key, value],
+      );
     },
   };
 }

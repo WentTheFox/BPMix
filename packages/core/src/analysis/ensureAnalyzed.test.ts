@@ -44,6 +44,11 @@ class FakeLibraryStore implements LibraryStore {
     return null;
   }
   async putLyricsAssignment(): Promise<void> {}
+
+  async getSetting(): Promise<string | null> {
+    return null;
+  }
+  async putSetting(): Promise<void> {}
 }
 
 const ref: FileRef = { id: 'a', name: 'a.mp3', relativePath: 'a.mp3', sizeBytes: 1000, lastModifiedMs: 5 };

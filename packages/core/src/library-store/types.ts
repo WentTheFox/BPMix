@@ -57,11 +57,22 @@ export interface LyricsScope {
 export interface PlaybackState {
   playlistId: string | null;
   currentTrackFileId: string | null;
+  /**
+   * Which granted root playlistId belongs to - lets startup restore go
+   * straight to the right root without checking every granted root first
+   * (see loadRootLibrary/usePlaybackPersistence). `null` for state persisted
+   * before this field existed, or if the root was somehow unknown at
+   * persist time; restore falls back to a (still-cheap, no-scan) linear
+   * search across granted roots' cached playlists in that case.
+   */
+  rootId: string | null;
   positionSeconds: number;
   loopMode: LoopMode;
   shuffleEnabled: boolean;
   /** User-facing master volume [0,1] - see PlaylistPlayer.setVolume. Persisted so the next launch doesn't blast out at whatever volume happened to be in effect (e.g. full, its default) before it's set once. */
   volume: number;
+  /** Whether the Now Playing screen (opened from the mini bar's art/title) was showing when last closed - restored so relaunching lands back on it instead of always the playlist/library screen underneath. */
+  nowPlayingOpen: boolean;
 }
 
 export interface LibraryStore {
@@ -102,4 +113,17 @@ export interface LibraryStore {
   /** The .lrc file (FileRef.id, from a lyrics scope) assigned to this track - null if none. Set either by auto-match (see findAutoLyricsMatch) or a manual override; both go through this same call. */
   getLyricsAssignment(fileId: string): Promise<string | null>;
   putLyricsAssignment(fileId: string, lrcFileId: string | null): Promise<void>;
+
+  /**
+   * Generic string key-value storage for small, standalone bits of app
+   * state that don't warrant their own dedicated store/table (e.g. the last
+   * known lyrics-match count, used to show an optimistic total on next
+   * launch instead of an empty/zero display while the background match
+   * pass re-verifies it - see matchLibraryLyrics). Caller-side
+   * JSON.stringify/parse for anything structured; kept to strings here so
+   * every adapter (SQLite, IndexedDB, a plain JSON blob) can store it
+   * identically without a schema per key.
+   */
+  getSetting(key: string): Promise<string | null>;
+  putSetting(key: string, value: string): Promise<void>;
 }

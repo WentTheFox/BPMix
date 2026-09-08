@@ -52,6 +52,11 @@ class FakeLibraryStore implements LibraryStore {
     return null;
   }
   async putLyricsAssignment(): Promise<void> {}
+
+  async getSetting(): Promise<string | null> {
+    return null;
+  }
+  async putSetting(): Promise<void> {}
 }
 
 class FakeFileAccess implements FileAccess {

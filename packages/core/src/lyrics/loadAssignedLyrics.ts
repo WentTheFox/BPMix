@@ -13,9 +13,44 @@ import { scanLyricsRoot } from './scanLyricsRoot';
  */
 const TRANSLATION_LANGUAGE_CODE = 'en';
 
+/**
+ * Short-TTL cache for scanAllLyricsScopes, keyed per-fileAccess (a WeakMap,
+ * so distinct fileAccess instances - e.g. separate test fixtures - never
+ * share a cache slot) and then by the scope list. Every lyrics-aware call
+ * site (loadAssignedLyrics on every track change, LyricsSection, the
+ * auto-match passes) walks the same small set of scopes, so without this a
+ * track-to-track skip re-walked the whole lyrics folder from scratch each
+ * time - this collapses repeats within a short window into one real scan.
+ * Self-expiring rather than explicitly invalidated: cheap, and a lyrics
+ * folder changing on disk is rare enough that a few seconds of staleness
+ * right after is an acceptable trade for not having to track every scope
+ * add/remove call site.
+ */
+const SCAN_CACHE_TTL_MS = 5000;
+const scanCachesByFileAccess = new WeakMap<FileAccess, Map<string, { files: FileRef[]; fetchedAtMs: number }>>();
+
+function lyricsScopesCacheKey(scopes: LyricsScope[]): string {
+  return scopes
+    .map((s) => `${s.rootId}:${s.relativePath}`)
+    .sort()
+    .join('|');
+}
+
 /** Every .lrc file across every configured lyrics scope - the candidate pool for both auto-match and a manual picker. */
 export async function scanAllLyricsScopes(fileAccess: FileAccess, scopes: LyricsScope[]): Promise<FileRef[]> {
-  return (await Promise.all(scopes.map((scope) => scanLyricsRoot(fileAccess, scope.rootId, scope.relativePath)))).flat();
+  const key = lyricsScopesCacheKey(scopes);
+  const now = Date.now();
+  const cacheForAccess = scanCachesByFileAccess.get(fileAccess);
+  const cached = cacheForAccess?.get(key);
+  if (cached && now - cached.fetchedAtMs < SCAN_CACHE_TTL_MS) {
+    return cached.files;
+  }
+
+  const files = (await Promise.all(scopes.map((scope) => scanLyricsRoot(fileAccess, scope.rootId, scope.relativePath)))).flat();
+  const cache = cacheForAccess ?? new Map<string, { files: FileRef[]; fetchedAtMs: number }>();
+  cache.set(key, { files, fetchedAtMs: now });
+  scanCachesByFileAccess.set(fileAccess, cache);
+  return files;
 }
 
 /** "Track.lrc" -> "Track.en.lrc" - null for a name that doesn't end in .lrc (shouldn't happen for anything scanAllLyricsScopes returns, but keeps this total). */

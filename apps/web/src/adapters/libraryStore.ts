@@ -11,12 +11,8 @@ import type {
 import { idbDelete, idbGet, idbGetAll, idbPut, openDb } from './indexedDb';
 
 const DB_NAME = 'bpmix-library';
-// v6: dropped the short-lived rootKind store (a whole-root "this is a
-// lyrics folder" tag) in favor of lyricsScope, keyed by rootId+relativePath -
-// see LyricsScope's doc for why lyrics moved to a subfolder-of-an-existing-
-// root model. Nothing to migrate: rootKind never shipped with real user data
-// depending on it.
-const DB_VERSION = 6;
+// v7: added the generic settings store (see LibraryStore.getSetting's doc).
+const DB_VERSION = 7;
 const TRACKS_STORE = 'tracks';
 const PLAYLISTS_STORE = 'playlists';
 const ANALYSIS_STORE = 'analysis';
@@ -26,6 +22,7 @@ const PLAYBACK_STATE_STORE = 'playbackState';
 const PLAYBACK_STATE_KEY = 'current';
 const LYRICS_SCOPE_STORE = 'lyricsScope';
 const LYRICS_ASSIGNMENT_STORE = 'lyricsAssignment';
+const SETTINGS_STORE = 'settings';
 
 // JSON-encoded tuple rather than a joined string - rootId (a URI or path)
 // and relativePath can both contain arbitrary characters, so there's no
@@ -49,8 +46,9 @@ function getDb(): Promise<IDBDatabase> {
       db.createObjectStore(METADATA_STORE, { keyPath: 'fileId' });
     }
     // Unconditionally dropped and recreated (not just created if absent,
-    // like the other stores) - see DB_VERSION's doc comment for why an
-    // older version's coverArt store can't just be reused as-is.
+    // like the other stores) - an older v5-and-earlier coverArt store used a
+    // different value shape (base64 string vs today's Blob) that can't just
+    // be reused as-is.
     if (db.objectStoreNames.contains(COVER_ART_STORE)) {
       db.deleteObjectStore(COVER_ART_STORE);
     }
@@ -60,7 +58,9 @@ function getDb(): Promise<IDBDatabase> {
       db.createObjectStore(PLAYBACK_STATE_STORE);
     }
     // v6 dropped the old rootKind store outright rather than migrating it -
-    // see DB_VERSION's doc comment.
+    // a whole-root "this is a lyrics folder" tag, replaced by lyricsScope
+    // (rootId + relativePath) - see LyricsScope's doc. Never shipped with
+    // real user data depending on it.
     if (db.objectStoreNames.contains('rootKind')) {
       db.deleteObjectStore('rootKind');
     }
@@ -69,6 +69,9 @@ function getDb(): Promise<IDBDatabase> {
     }
     if (!db.objectStoreNames.contains(LYRICS_ASSIGNMENT_STORE)) {
       db.createObjectStore(LYRICS_ASSIGNMENT_STORE);
+    }
+    if (!db.objectStoreNames.contains(SETTINGS_STORE)) {
+      db.createObjectStore(SETTINGS_STORE);
     }
   });
 }
@@ -186,6 +189,16 @@ export function createLibraryStore(): LibraryStore {
       } else {
         await idbPut(db, LYRICS_ASSIGNMENT_STORE, lrcFileId, fileId);
       }
+    },
+
+    async getSetting(key: string): Promise<string | null> {
+      const db = await getDb();
+      const value = await idbGet<string>(db, SETTINGS_STORE, key);
+      return value ?? null;
+    },
+    async putSetting(key: string, value: string): Promise<void> {
+      const db = await getDb();
+      await idbPut(db, SETTINGS_STORE, value, key);
     },
   };
 }
