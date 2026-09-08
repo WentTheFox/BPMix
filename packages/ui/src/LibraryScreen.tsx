@@ -5,6 +5,7 @@ import type { StyleProp, ViewStyle } from 'react-native';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { AddFolderButton } from './AddFolderButton';
 import { AppTitle } from './AppTitle';
+import { HeaderRow } from './HeaderRow';
 import { IconLabel } from './IconLabel';
 import { RemoveButton } from './RemoveButton';
 import type { Colors } from './theme';
@@ -39,6 +40,8 @@ export interface LibraryScreenProps {
   bannerContent?: ReactNode;
   /** The lyrics-folder scopes list (see LyricsFolderSection), rendered right after bannerContent. */
   lyricsSection?: ReactNode;
+  /** Rendered right-aligned in the same row as the title - the NotificationBell, so it sits inline rather than floating over content below it. */
+  headerRight?: ReactNode;
   /**
    * Merged onto the roots FlatList's own style - web adds flex:1 here so it
    * has a bounded-height ancestor to actually virtualize against (see web
@@ -69,11 +72,12 @@ export function LibraryScreen({
   secondaryAddButton,
   bannerContent,
   lyricsSection,
+  headerRight,
   listStyle,
 }: LibraryScreenProps) {
   return (
     <>
-      <AppTitle color={colors.text} />
+      <HeaderRow left={<AppTitle color={colors.text} />} right={headerRight} />
       <View style={styles.addButtonRow}>
         <AddFolderButton colors={colors} icon={mdiFolderMusic} text="Add Folder" onPress={onAddFolder} busy={isAddingFolder} busyText="Scanning folder…" />
         {secondaryAddButton}

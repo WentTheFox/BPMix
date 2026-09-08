@@ -24,32 +24,31 @@ import {
   AddFolderButton,
   AppTitle,
   CROSSFADE_ART_TRANSITION_MS,
-  darken,
   FolderBrowser,
-  Icon,
+  HeaderRow,
   IconLabel,
   LibraryScreen,
-  LoopButton,
   LyricsFolderSection,
   lyricsScopeKey,
   MiniPlayerBar,
+  NotificationBell,
   NowPlayingScreen,
+  PlayerControlsRow,
   RestoringScreen,
-  ShuffleButton,
   TrackList,
   TURNS_PER_SONG,
   useCoverArt,
   useDoublePressHandler,
   useFadeInOnChange,
+  useNotificationCenter,
   RAPID_PLAYBACK_PATCH_DEBOUNCE_MS,
   usePlaybackPersistence,
   useRestoringProgress,
   useThemeColors,
   useTrackMetadata,
-  VolumeButton,
 } from '@bpmix/ui';
 import type { RootWithLibrary } from '@bpmix/ui';
-import { mdiArrowLeft, mdiPause, mdiPlay, mdiSkipNext, mdiSkipPrevious, mdiSubtitles } from '@mdi/js';
+import { mdiArrowLeft, mdiSubtitles } from '@mdi/js';
 import type { ReactNode } from 'react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StatusBar, StyleSheet, Text, useColorScheme, View } from 'react-native';
@@ -67,7 +66,7 @@ import {
   registerRootBrowser,
   toRelativeDisplay,
 } from './src/adapters/fileAccess';
-import { createLibraryStore } from './src/adapters/libraryStore';
+import { createLibraryStore, setPriorityFileId } from './src/adapters/libraryStore';
 import { MemoryOverlay } from './src/debug/MemoryOverlay';
 
 // The overlay's 500ms poll + up to 120 re-rendered bars was noticeably
@@ -101,7 +100,10 @@ function trackToFileRef(track: TrackRecord): FileRef {
 // ever one active player/screen in this app). setError is likewise bridged
 // in on mount so the player's async load/decode errors reach the UI.
 let activeTracksById = new Map<string, TrackRecord>();
-let reportError: (error: unknown) => void = () => {};
+/** fileId is the track a decode/playback error actually happened for, when known - see PlaylistPlayer's onError doc. Routed to the notification bell, not a one-shot setError string - see NotificationBell's doc for why. */
+let reportError: (error: unknown, fileId?: string) => void = () => {};
+/** Clears a fileId's "missing" flag once it decodes successfully again (e.g. a sync catches up) - bridged alongside reportError. */
+let reportFileFound: (fileId: string) => void = () => {};
 // Bridged in on mount, same pattern as reportError - lets PlaylistPlayer push
 // an immediate re-render right when position changes outside a manual UI
 // action (a crossfade completing, or a natural end auto-advancing), instead
@@ -117,7 +119,7 @@ const playlistPlayer = new PlaylistPlayer(
     return trackToFileRef(track);
   },
   {
-    onError: (error) => reportError(error),
+    onError: (error, fileId) => reportError(error, fileId),
     resolveGain: async (fileId) => (await libraryStore.getAnalysis(fileId))?.normalizationGain ?? 1,
     onAdvance: () => notifyAdvance(),
     crossfadeSeconds: DEFAULT_CROSSFADE_SECONDS,
@@ -126,6 +128,7 @@ const playlistPlayer = new PlaylistPlayer(
     // batch pass over the whole library.
     onDecoded: (ref, decoded) => {
       void ensureTrackAnalyzed(libraryStore, ref, decoded, audioEngine);
+      reportFileFound(ref.id);
     },
   },
 );
@@ -188,6 +191,17 @@ function AppContent() {
   } | null>(null);
   const [busyRootId, setBusyRootId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Everything that used to be a one-shot setError(errorMessage(err)) string
+  // (playback/decode failures specifically) now goes here instead - see
+  // NotificationBell's doc for why a raw error string as the *entire*
+  // message wasn't good enough on its own. `error`/setError above is left
+  // alone for the handful of direct-action error paths (addFolder, rescan,
+  // etc.) that still want an immediate, action-adjacent inline message.
+  const notificationCenter = useNotificationCenter();
+  // fileIds whose most recent decode attempt failed - TrackRow reads this to
+  // show a missing-file indicator instead of pretending everything's fine
+  // until the user taps play and it silently does nothing.
+  const [missingFileIds, setMissingFileIds] = useState<Set<string>>(new Set());
   // Drives RestoringScreen's checklist - see refresh()'s and
   // usePlaybackPersistence's onStepChange updates below.
   const { completedSteps, currentStep, hasLyricsScopes, advanceStep, setHasLyricsScopes } = useRestoringProgress();
@@ -210,11 +224,28 @@ function AppContent() {
   };
 
   useEffect(() => {
-    reportError = (err) => setError(errorMessage(err));
+    reportError = (err, fileId) => {
+      notificationCenter.addError(fileId ? `Couldn't play "${fileId.split('/').pop()}"` : 'Playback error', errorMessage(err));
+      if (fileId) {
+        setMissingFileIds((prev) => (prev.has(fileId) ? prev : new Set(prev).add(fileId)));
+      }
+    };
+    reportFileFound = (fileId) => {
+      setMissingFileIds((prev) => {
+        if (!prev.has(fileId)) return prev;
+        const next = new Set(prev);
+        next.delete(fileId);
+        return next;
+      });
+    };
     return () => {
       reportError = () => {};
+      reportFileFound = () => {};
     };
-  }, []);
+    // notificationCenter.addError specifically - see refresh()'s identical
+    // note on why the whole notificationCenter object isn't a safe dep here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notificationCenter.addError]);
 
   useEffect(() => {
     registerRootBrowser(
@@ -344,9 +375,20 @@ function AppContent() {
         const nextFileId = playlistPlayer.getNextFileId();
         return [state.currentFileId, nextFileId].filter((id): id is string => id != null);
       },
+      // The one real "ongoing background operation" worth its own
+      // persistent notification row - this can run for a while on a large
+      // stale-parser-version rescan, and previously had no visible status
+      // anywhere at all.
+      onProgress: ({ index, total, skipped }) => {
+        if (skipped) return;
+        notificationCenter.upsertProgress('metadata-scan', 'Scanning track metadata', index + 1, total, index + 1 >= total);
+      },
     });
     return withLibrary;
-  }, []);
+    // notificationCenter.upsertProgress specifically - see the identical
+    // note on this in apps/web/src/App.tsx's refresh().
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notificationCenter.upsertProgress]);
 
   const { isRestoring, persistPlaybackPatch, persistPositionIfDue } = usePlaybackPersistence({
     fileAccess,
@@ -645,6 +687,15 @@ function AppContent() {
 
   const nowPlayingTrack = playerState.currentFileId ? activeTracksById.get(playerState.currentFileId) : undefined;
 
+  // Keeps the now-playing track's own metadata/lyrics-assignment/cover-art
+  // reads ahead of whatever backlog of unrelated TrackRow-driven reads is
+  // sitting in Android's serialized SQLite queue (see setPriorityFileId's
+  // doc in libraryStore.android.ts) - a no-op on Windows, which has no such
+  // queue to reorder.
+  useEffect(() => {
+    setPriorityFileId(playerState.currentFileId);
+  }, [playerState.currentFileId]);
+
   // Debug view: preview of the crossfade into whatever's queued up next,
   // computed from the same TransitionPlan/visualization data real playback
   // scheduling will use - lets the fade timing be checked by eye before
@@ -888,39 +939,23 @@ function AppContent() {
         fileAccess={fileAccess}
         libraryStore={libraryStore}
         lyricsScopes={lyricsScopes}
+        headerRight={<NotificationBell colors={colors} center={notificationCenter} />}
         controls={
-          <View style={styles.playerControlsRow}>
-            <LoopButton colors={colors} loopMode={playerState.loopMode} onPress={cycleLoopMode} disabled={!!scrub} />
-            {/* Disabled mid-scrub: a rewindTo()/fastForwardTo() effect already tears down (and, for fastForwardTo, recreates) the source once - stacking a second transport action on top of it before it settles risks the same rapid-fire native-source-churn crash the effect itself is built to avoid. */}
-            <Pressable
-              style={[styles.controlButton, { backgroundColor: colors.accent }, !!scrub && styles.controlButtonDisabled]}
-              onPress={handlePreviousPress}
-              disabled={!!scrub}
-            >
-              <Icon path={mdiSkipPrevious} size={20} color="white" />
-            </Pressable>
-            <Pressable
-              style={[
-                styles.controlButton,
-                styles.controlButtonPrimary,
-                { backgroundColor: darken(colors.accent, 0.15) },
-                !!scrub && styles.controlButtonDisabled,
-              ]}
-              onPress={togglePause}
-              disabled={!!scrub}
-            >
-              <Icon path={playerState.track.status === 'playing' ? mdiPause : mdiPlay} size={30} color="white" />
-            </Pressable>
-            <Pressable
-              style={[styles.controlButton, { backgroundColor: colors.accent }, !!scrub && styles.controlButtonDisabled]}
-              onPress={handleNextPress}
-              disabled={!!scrub}
-            >
-              <Icon path={mdiSkipNext} size={20} color="white" />
-            </Pressable>
-            <ShuffleButton colors={colors} shuffleEnabled={playerState.shuffleEnabled} onPress={toggleShuffle} disabled={!!scrub} />
-            <VolumeButton colors={colors} volume={volume} onChangeVolume={handleVolumeChange} />
-          </View>
+          // Disabled mid-scrub: a rewindTo()/fastForwardTo() effect already tears down (and, for fastForwardTo, recreates) the source once - stacking a second transport action on top of it before it settles risks the same rapid-fire native-source-churn crash the effect itself is built to avoid.
+          <PlayerControlsRow
+            colors={colors}
+            loopMode={playerState.loopMode}
+            onCycleLoop={cycleLoopMode}
+            shuffleEnabled={playerState.shuffleEnabled}
+            onToggleShuffle={toggleShuffle}
+            volume={volume}
+            onChangeVolume={handleVolumeChange}
+            isPlaying={playerState.track.status === 'playing'}
+            onTogglePlayPause={togglePause}
+            onPrevious={handlePreviousPress}
+            onNext={handleNextPress}
+            disabled={!!scrub}
+          />
         }
       />
     </View>
@@ -991,9 +1026,15 @@ function AppContent() {
     const { playlist, tracksById } = screen;
     screenContent = (
       <>
-        <Pressable onPress={() => setScreen({ kind: 'library' })} style={styles.backRow}>
-          <IconLabel path={mdiArrowLeft} text={`Playlist: ${playlist.name}`} color={colors.text} iconSize={18} textStyle={styles.backLink} />
-        </Pressable>
+        <HeaderRow
+          style={styles.backRow}
+          left={
+            <Pressable onPress={() => setScreen({ kind: 'library' })}>
+              <IconLabel path={mdiArrowLeft} text={`Playlist: ${playlist.name}`} color={colors.text} iconSize={18} textStyle={styles.backLink} />
+            </Pressable>
+          }
+          right={<NotificationBell colors={colors} center={notificationCenter} />}
+        />
         {error && <Text style={styles.error}>{error}</Text>}
         <TrackList
           trackFileIds={playlist.trackFileIds}
@@ -1005,6 +1046,7 @@ function AppContent() {
           onPressTrack={(t) => void playFromTrack(playlist, tracksById, t)}
           libraryStore={libraryStore}
           initialNumToRender={20}
+          missingFileIds={missingFileIds}
         />
       </>
     );
@@ -1027,6 +1069,7 @@ function AppContent() {
             </Pressable>
           )
         }
+        headerRight={<NotificationBell colors={colors} center={notificationCenter} />}
         secondaryAddButton={<AddFolderButton colors={colors} icon={mdiSubtitles} text="Add Lyrics Folder" onPress={addLyricsFolder} />}
         lyricsSection={
           <LyricsFolderSection
@@ -1094,33 +1137,6 @@ const styles = StyleSheet.create({
   backLink: {
     fontSize: 18,
     fontWeight: '600',
-  },
-  // The primary play/pause/seek/skip row, styled like a real player's
-  // transport bar: big circular icon buttons, evenly spaced, with
-  // play/pause noticeably larger and centered - easier to tap accurately
-  // on mobile than the small text-label buttons every other row still uses.
-  playerControlsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 16,
-    marginTop: 12,
-    marginBottom: 4,
-  },
-  controlButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  controlButtonPrimary: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-  },
-  controlButtonDisabled: {
-    opacity: 0.4,
   },
 });
 

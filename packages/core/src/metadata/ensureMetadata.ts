@@ -5,7 +5,7 @@ import { readTags } from './readTags';
 import type { CoverArtBytes, TrackMetadata } from './types';
 
 /** Bumped whenever readTags' behavior changes, so already-scanned files get re-read instead of keeping a stale result forever - same role as ANALYSIS_ALGORITHM_VERSION. (v2: also extracts cover art. v3: downscales/cuts off oversized art instead of storing it verbatim - a bump here is what gets already-v2-scanned tracks' oversized art reprocessed, not just newly-scanned ones.) */
-export const METADATA_PARSER_VERSION = 3;
+export const METADATA_PARSER_VERSION = 4;
 
 /** Cover art is only ever displayed at small thumbnail sizes - shrink it toward this before storing. */
 export const COVER_ART_MAX_DIMENSION_PX = 300;

@@ -29,6 +29,9 @@ const native = NativeModules.BPMixLocalStorage as NativeLocalStorage;
 
 const STORAGE_FILE = 'library-store.json';
 
+/** No-op here - Windows loads the whole store into memory from one JSON file (see NativeLocalStorage's doc), so there's no per-call dispatch queue for a priority track's reads to jump ahead of, unlike Android's serialized SQLite queue (see libraryStore.android.ts's setPriorityFileId). Exported only so App.tsx's shared call resolves on this platform too. */
+export function setPriorityFileId(_fileId: string | null): void {}
+
 /**
  * FNV-1a hash of fileId, used only to build a safe cover-art filename -
  * fileId itself is "<futureAccessListToken>|<relativePath>" on this

@@ -74,26 +74,36 @@ export function LoadingBar({ colors }: LoadingBarProps): React.JSX.Element {
   // (TRACK_HEIGHT * tan(SKEW_DEG)), so no gap can appear at either end.
   const skewMargin = STRIPE_PERIOD + TRACK_HEIGHT * Math.tan((SKEW_DEG * Math.PI) / 180);
   const layerWidth = trackWidth > 0 ? trackWidth + 2 * skewMargin : 0;
-  const stripeCount = layerWidth > 0 ? Math.ceil(layerWidth / STRIPE_PERIOD) + 1 : 0;
+  // One stripe per STRIPE_WIDTH (not STRIPE_PERIOD) - each period holds two
+  // adjacent stripes (light then dark) that need to tile with no space
+  // between them, not one stripe per period with an empty gap where the
+  // second color of that period was supposed to go.
+  const stripeCount = layerWidth > 0 ? Math.ceil(layerWidth / STRIPE_WIDTH) + 1 : 0;
   const lightColor = colors.accent;
   const darkColor = darken(colors.accent, 0.4);
 
   return (
     <View style={[styles.track, { backgroundColor: withAlpha(colors.accent, 0.18) }]} onLayout={handleLayout}>
       {trackWidth > 0 && (
-        <Animated.View
-          style={[styles.stripeLayer, { left: -skewMargin, width: layerWidth, transform: [{ translateX }, { skewX: `-${SKEW_DEG}deg` }] }]}
-        >
-          {Array.from({ length: stripeCount }).map((_, i) => (
-            <View
-              key={i}
-              style={[
-                styles.stripe,
-                { left: i * STRIPE_PERIOD, backgroundColor: i % 2 === 0 ? lightColor : darkColor },
-              ]}
-            />
-          ))}
-        </Animated.View>
+        // skewX lives on this plain (non-animated) outer View, with only
+        // translateX on the inner Animated.View - react-native-web's
+        // Animated implementation doesn't reliably keep a static transform
+        // function (skewX here) alongside an animated one in the same
+        // transform array, which read as "loading bar renders unskewed on
+        // web" despite native rendering it correctly.
+        <View style={[styles.stripeLayer, { left: -skewMargin, width: layerWidth, transform: [{ skewX: `-${SKEW_DEG}deg` }] }]}>
+          <Animated.View style={[styles.stripeInner, { transform: [{ translateX }] }]}>
+            {Array.from({ length: stripeCount }).map((_, i) => (
+              <View
+                key={i}
+                style={[
+                  styles.stripe,
+                  { left: i * STRIPE_WIDTH, backgroundColor: i % 2 === 0 ? lightColor : darkColor },
+                ]}
+              />
+            ))}
+          </Animated.View>
+        </View>
       )}
     </View>
   );
@@ -110,6 +120,13 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     bottom: 0,
+  },
+  stripeInner: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
   },
   stripe: {
     position: 'absolute',

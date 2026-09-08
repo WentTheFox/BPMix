@@ -17,10 +17,9 @@ const LOOP_MODE_ICON: Record<LoopMode, string> = { off: mdiRepeat, all: mdiRepea
  * text-label buttons and a separate crossfade stepper for another day
  * before anyone noticed).
  *
- * Two separate components, not one combined widget - mobile flanks
- * prev/play/next with these (loop on the left, shuffle on the right),
- * while web groups them together in their own row, so a single component
- * covering both button placements can't fit both layouts.
+ * Two separate components, not one combined widget, so PlayerControlsRow
+ * (the shared full-row layout both apps now use) can place them at either
+ * end of the row rather than needing them pre-glued together.
  */
 export function LoopButton({
   colors,

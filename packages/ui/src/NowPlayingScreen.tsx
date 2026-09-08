@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { CrossfadeArt } from './CrossfadeArt';
+import { HeaderRow } from './HeaderRow';
 import { IconLabel } from './IconLabel';
 import { LoadingBar } from './LoadingBar';
 import { LyricsSection } from './LyricsSection';
@@ -52,6 +53,8 @@ export interface NowPlayingScreenProps {
   fileAccess: FileAccess;
   libraryStore: LibraryStore;
   lyricsScopes: LyricsScope[];
+  /** Rendered right-aligned in the same row as the back button - the NotificationBell, so it sits inline rather than floating over content below it. */
+  headerRight?: ReactNode;
 }
 
 /**
@@ -88,6 +91,7 @@ export function NowPlayingScreen({
   fileAccess,
   libraryStore,
   lyricsScopes,
+  headerRight,
 }: NowPlayingScreenProps) {
   // Live position while dragging the seek bar, mirrored here so the disc's
   // rotation and the position text can both track the drag in real time -
@@ -99,9 +103,15 @@ export function NowPlayingScreen({
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <Pressable style={styles.backRow} onPress={onClose}>
-        <IconLabel path={mdiArrowLeft} text="Now Playing" color={colors.text} iconSize={18} textStyle={styles.backLink} />
-      </Pressable>
+      <HeaderRow
+        style={styles.backRow}
+        left={
+          <Pressable onPress={onClose}>
+            <IconLabel path={mdiArrowLeft} text="Now Playing" color={colors.text} iconSize={18} textStyle={styles.backLink} />
+          </Pressable>
+        }
+        right={headerRight}
+      />
       <View style={styles.content}>
         <View>
           <Animated.View style={{ opacity: nowPlayingOpacity }}>

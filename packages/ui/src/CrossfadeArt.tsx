@@ -1,7 +1,21 @@
 import { memo, useEffect, useId, useRef, useState } from 'react';
-import { Animated, Easing, StyleSheet, View } from 'react-native';
+import { Animated, Easing, Platform, StyleSheet, View } from 'react-native';
 import { useSpin } from './spin/useSpin';
 import type { Colors } from './theme';
+
+/**
+ * The spin layer must be a plain View on web, not Animated.View - useSpin.web.ts's
+ * result is a static-per-render CSS `animationKeyframes` object (no
+ * Animated.Value involved at all, unlike useSpin.ts's native interpolation),
+ * and react-native-web's Animated.View applies style props via direct DOM
+ * assignment rather than running them through the StyleSheet compiler step
+ * that turns `animationKeyframes` into a real `@keyframes` rule with a
+ * matching `animation-name` - confirmed live: animation-duration/-delay/
+ * -timing-function/-iteration-count all landed in the DOM, but animation-name
+ * never did, so the discs sat frozen. Native still needs the real
+ * Animated.View here for its Animated.Value-driven rotation.
+ */
+const SpinLayer = Platform.OS === 'web' ? View : Animated.View;
 
 export interface CrossfadeArtProps {
   colors: Colors;
@@ -188,8 +202,8 @@ const VinylDisc = memo(function VinylDisc({ colors, artUri, progress, turnsPerSe
   const labelCircleStyle = centeredCircleStyle(size, size * LABEL_FRACTION);
   return (
     <Animated.View style={[styles.layer, boxStyle, { opacity, transform: [{ translateX: translateX ?? 0 }] }]}>
-      {/* Spin lives on its own inner layer, separate from the outer translateX/opacity - a web CSS `animation` on this View's transform can't be combined with a second, separately-driven transform on the same element (the animation fully owns `transform` while running), so translateX has to live one level up instead. */}
-      <Animated.View style={[styles.layer, boxStyle, spinStyle]}>
+      {/* Spin lives on its own inner layer, separate from the outer translateX/opacity - a web CSS `animation` on this View's transform can't be combined with a second, separately-driven transform on the same element (the animation fully owns `transform` while running), so translateX has to live one level up instead. See SpinLayer's doc for why this is a plain View on web. */}
+      <SpinLayer style={[styles.layer, boxStyle, spinStyle]}>
         <View style={[styles.layer, styles.vinylBody, boxStyle]} />
         {grooveRadii.map((diameter, i) => (
           <View key={i} style={[styles.layer, styles.groove, centeredCircleStyle(size, diameter)]} />
@@ -199,7 +213,7 @@ const VinylDisc = memo(function VinylDisc({ colors, artUri, progress, turnsPerSe
         {artUri && <Animated.Image source={{ uri: artUri }} style={[styles.layer, labelCircleStyle, { opacity: artOpacity }]} />}
         <View style={[styles.layer, styles.labelRim, labelCircleStyle]} />
         <View style={[styles.layer, styles.hole, centeredCircleStyle(size, size * HOLE_FRACTION)]} />
-      </Animated.View>
+      </SpinLayer>
     </Animated.View>
   );
 },

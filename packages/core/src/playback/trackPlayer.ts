@@ -159,6 +159,23 @@ export class TrackPlayer {
   }
 
   /**
+   * Counterpart to markLoading() for when the decode it was covering never
+   * arrives - PlaylistPlayer.playAt() calls this from its catch block.
+   * Without it, a failed decodeFile() (e.g. the file went missing/unreadable
+   * on disk) left status stuck on 'loading' forever: playAt() does report
+   * the error via onError, but that's a one-shot event, while getState()'s
+   * status is polled continuously by the UI - nothing else ever moved it
+   * off 'loading', so the loading spinner/bar just ran forever with no way
+   * to tell the track had actually failed rather than still being in
+   * flight. Resets to 'idle', same as this player's own initial state -
+   * there is no decoded buffer to fall back to, so there's nothing to be
+   * 'stopped' from.
+   */
+  markLoadFailed(): void {
+    this.status = 'idle';
+  }
+
+  /**
    * Loads an already-decoded buffer synchronously - no decodeFile() round
    * trip. Used by PlaylistPlayer's preload scheduler (Stage 6) to make an
    * advance to a track it already finished decoding ahead of time

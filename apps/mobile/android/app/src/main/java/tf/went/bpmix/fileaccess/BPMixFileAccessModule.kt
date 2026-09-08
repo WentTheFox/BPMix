@@ -140,4 +140,38 @@ class BPMixFileAccessModule(private val reactContext: ReactApplicationContext) :
       promise.reject("WRITE_LOCAL_ERROR", e)
     }
   }
+
+  // Cover art used to be stored as a base64 "data:" URI string directly in
+  // SQLite (see libraryStore.android.ts), which meant every single
+  // getCoverArt() read had to marshal a whole base64-encoded image back
+  // across the JS bridge as part of that query's JSON-serialized result -
+  // react-native-sqlite-2 (a WebSQL polyfill, no JSI/BLOB binding) pays that
+  // cost on every row, not just once. Writing the decoded bytes straight to
+  // a cache file here and storing only the resulting file:// path in SQLite
+  // moves the base64 crossing to write time only (once per track, when art
+  // is first scanned) - every subsequent read is just a short path string,
+  // and <Image source={{uri}}/> reads the file directly via native image
+  // decoding with no JS involvement at all.
+  @ReactMethod
+  fun writeLocalBytesBase64(fileName: String, base64Data: String, promise: Promise) {
+    try {
+      val file = File(reactContext.filesDir, fileName)
+      file.parentFile?.mkdirs()
+      file.writeBytes(Base64.decode(base64Data, Base64.NO_WRAP))
+      promise.resolve(file.absolutePath)
+    } catch (e: Exception) {
+      promise.reject("WRITE_LOCAL_ERROR", e)
+    }
+  }
+
+  /** Best-effort - resolves null even if the file never existed, since callers (e.g. putCoverArt(fileId, null)) treat "nothing to delete" the same as "deleted". */
+  @ReactMethod
+  fun deleteLocalFile(fileName: String, promise: Promise) {
+    try {
+      File(reactContext.filesDir, fileName).delete()
+      promise.resolve(null)
+    } catch (e: Exception) {
+      promise.reject("DELETE_LOCAL_ERROR", e)
+    }
+  }
 }

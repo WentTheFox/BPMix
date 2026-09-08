@@ -25,6 +25,8 @@ class FakeAudioEngine implements AudioEngine {
   private gatedFileIds = new Set<string>();
   private decodeReleasers = new Map<string, () => void>();
   decodeCallCountByFileId = new Map<string, number>();
+  /** fileIds whose decodeFile() call rejects instead of resolving - simulates a missing/unreadable file on disk. */
+  private failDecodeFileIds = new Set<string>();
 
   gateDecode(fileId: string): void {
     this.gatedFileIds.add(fileId);
@@ -35,9 +37,16 @@ class FakeAudioEngine implements AudioEngine {
     this.decodeReleasers.delete(fileId);
   }
 
+  failDecode(fileId: string): void {
+    this.failDecodeFileIds.add(fileId);
+  }
+
   async decodeFile(ref: FileRef): Promise<DecodedAudio> {
     this.decodedFileIds.push(ref.id);
     this.decodeCallCountByFileId.set(ref.id, (this.decodeCallCountByFileId.get(ref.id) ?? 0) + 1);
+    if (this.failDecodeFileIds.has(ref.id)) {
+      throw new Error(`NotFoundError: no such file "${ref.id}"`);
+    }
     if (this.gatedFileIds.has(ref.id)) {
       await new Promise<void>((resolve) => this.decodeReleasers.set(ref.id, resolve));
     }
@@ -629,6 +638,18 @@ describe('PlaylistPlayer volume-only crossfade', () => {
     player.checkPreload();
     await flush();
     expect(onError).toHaveBeenCalledTimes(1);
+  });
+
+  it("resets status off 'loading' when a track's decode fails, instead of leaving the UI's loading spinner stuck forever (regression: markLoading() set status='loading' before the decode, but nothing ever reset it back on failure - onError fired once, but getState().status - what the UI actually polls - stayed on 'loading' indefinitely)", async () => {
+    const engine = new FakeAudioEngine();
+    engine.failDecode('a');
+    const onError = vi.fn();
+    const player = makePlayer(engine, { onError });
+
+    await player.setPlaylist(TRACKS);
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(player.getState().track.status).not.toBe('loading');
   });
 
 });

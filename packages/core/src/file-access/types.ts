@@ -29,6 +29,17 @@ export interface DirectoryEntry {
 export interface GrantedRoot {
   id: string;
   displayName: string;
+  /**
+   * Defaults to 'library' when absent (older stored roots, and every
+   * adapter/root that predates this field). 'lyrics' marks a root granted
+   * purely to hold .lrc files via requestRoot('lyrics') - refresh() must
+   * never scan one of these for playlists/tracks, so picking an independent
+   * lyrics folder via a real OS directory picker doesn't leave a phantom
+   * empty "library" entry behind (the exact problem that used to force
+   * picking a lyrics folder as a subfolder of an already-granted music root
+   * instead - see addLyricsFolder in apps/web/src/App.tsx).
+   */
+  kind?: 'library' | 'lyrics';
 }
 
 /**
@@ -48,16 +59,37 @@ export interface GrantedRoot {
  * .lrc files), that's a deliberate, separate expansion of this interface -
  * not something to bolt on ad hoc in one adapter.
  */
+export interface FileAccessCallOptions {
+  /**
+   * Default true. When false, this call must never prompt the user (no
+   * requestPermission()-equivalent) - it's running from idle/background
+   * scheduling rather than a real user gesture, and browsers reject (throw)
+   * an attempt to prompt outside one. Adapters with no such permission
+   * model (Android, Windows, the self-hosted server backend) ignore this
+   * entirely - only the web adapter's showDirectoryPicker-backed grants
+   * have teeth here. See createBackgroundFileAccess.
+   */
+  allowPrompt?: boolean;
+}
+
+/** Thrown instead of prompting when a call is marked allowPrompt: false and the underlying grant needs re-confirming - see FileAccessCallOptions. */
+export class FileAccessPermissionPendingError extends Error {
+  constructor(rootDisplayName: string) {
+    super(`Read permission for "${rootDisplayName}" needs to be re-granted, but this call isn't allowed to prompt for it.`);
+    this.name = 'FileAccessPermissionPendingError';
+  }
+}
+
 export interface FileAccess {
-  /** Prompts the platform's directory picker and persists the grant. */
-  requestRoot(): Promise<GrantedRoot | null>;
+  /** Prompts the platform's directory picker and persists the grant. `kind` (default 'library') is stored on the resulting GrantedRoot - see its doc. */
+  requestRoot(kind?: 'library' | 'lyrics'): Promise<GrantedRoot | null>;
   /** Roots granted in a previous session, restored without re-prompting. */
   listGrantedRoots(): Promise<GrantedRoot[]>;
   revokeRoot(rootId: string): Promise<void>;
 
   /** Lists one level (immediate children only) of a directory; callers recurse via walkDirectory. */
-  listDirectory(rootId: string, relativePath?: string): Promise<DirectoryEntry[]>;
+  listDirectory(rootId: string, relativePath?: string, opts?: FileAccessCallOptions): Promise<DirectoryEntry[]>;
 
-  readFileBytes(ref: FileRef): Promise<ArrayBuffer>;
-  readFileText(ref: FileRef): Promise<string>;
+  readFileBytes(ref: FileRef, opts?: FileAccessCallOptions): Promise<ArrayBuffer>;
+  readFileText(ref: FileRef, opts?: FileAccessCallOptions): Promise<string>;
 }

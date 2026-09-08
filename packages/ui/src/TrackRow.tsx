@@ -1,5 +1,5 @@
 import { isMetadataCurrent, trackDisplayName, type LibraryStore, type TrackRecord } from '@bpmix/core';
-import { mdiPause, mdiPlay, mdiSubtitles } from '@mdi/js';
+import { mdiAlertCircleOutline, mdiPause, mdiPlay, mdiSubtitles } from '@mdi/js';
 import { memo, useEffect, useRef } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Icon } from './Icon';
@@ -35,6 +35,8 @@ export interface TrackRowProps {
   colors: Colors;
   onPress: (track: TrackRecord) => void;
   libraryStore: LibraryStore;
+  /** True once this track's most recent playback attempt failed to decode (missing/unreadable file - see PlaylistPlayer's onError fileId doc) - fades the row and shows a warning icon on the right, rather than looking identical to a perfectly playable track until tapped. */
+  isMissing?: boolean;
 }
 
 /**
@@ -47,7 +49,7 @@ export interface TrackRowProps {
  * the text. Shared between mobile and web (identical on both, so it lives
  * here rather than being duplicated per-app).
  */
-export const TrackRow = memo(function TrackRow({ track, isCurrent, isPlaying, textColor, colors, onPress, libraryStore }: TrackRowProps) {
+export const TrackRow = memo(function TrackRow({ track, isCurrent, isPlaying, textColor, colors, onPress, libraryStore, isMissing }: TrackRowProps) {
   const metadata = useTrackMetadata(libraryStore, track.fileId);
   // Not just metadata !== null - useTrackMetadata can display a still-stale
   // (older parserVersion) result immediately while it keeps retrying, and
@@ -78,7 +80,7 @@ export const TrackRow = memo(function TrackRow({ track, isCurrent, isPlaying, te
 
   return (
     <Pressable style={styles.trackRow} onPress={() => onPress(track)}>
-      <View style={styles.trackRowContent}>
+      <View style={[styles.trackRowContent, isMissing && styles.trackRowContentMissing]}>
         <View style={styles.art}>
           {artLoading ? <Skeleton style={styles.art} /> : <View style={[styles.art, styles.artPlaceholder]} />}
           {coverArt && <Animated.Image source={{ uri: coverArt }} style={[styles.art, styles.artOverlay, { opacity: artOpacity }]} />}
@@ -103,6 +105,11 @@ export const TrackRow = memo(function TrackRow({ track, isCurrent, isPlaying, te
             artLoading && <Skeleton style={styles.artistSkeleton} />
           )}
         </View>
+        {isMissing && (
+          <View style={styles.missingIcon}>
+            <Icon path={mdiAlertCircleOutline} size={18} color="#dc2626" />
+          </View>
+        )}
       </View>
     </Pressable>
   );
@@ -117,6 +124,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+  },
+  trackRowContentMissing: {
+    opacity: 0.45,
+  },
+  missingIcon: {
+    marginLeft: 'auto',
   },
   art: {
     width: ART_SIZE,

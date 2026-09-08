@@ -1,10 +1,12 @@
-import type { DirectoryEntry, FileAccess, FileRef, GrantedRoot } from '@bpmix/core';
+import { FileAccessPermissionPendingError, type DirectoryEntry, type FileAccess, type FileAccessCallOptions, type FileRef, type GrantedRoot } from '@bpmix/core';
 import { idbDelete, idbGet, idbGetAll, idbPut, openDb } from './indexedDb';
 
 interface StoredRoot {
   id: string;
   displayName: string;
   handle: FileSystemDirectoryHandle;
+  /** Absent on roots stored before this field existed - listGrantedRoots() defaults those to 'library', same as GrantedRoot.kind's own doc. */
+  kind?: 'library' | 'lyrics';
 }
 
 const DB_NAME = 'bpmix-file-access';
@@ -43,13 +45,22 @@ function toFileRef(rootId: string, relativePath: string, file: File): FileRef {
   };
 }
 
-async function getRootOrThrow(db: IDBDatabase, rootId: string): Promise<StoredRoot> {
+async function getRootOrThrow(db: IDBDatabase, rootId: string, allowPrompt: boolean): Promise<StoredRoot> {
   const root = await idbGet<StoredRoot>(db, STORE_NAME, rootId);
   if (!root) {
     throw new Error(`No granted root with id "${rootId}" - it may have been revoked.`);
   }
   const permission = await root.handle.queryPermission({ mode: 'read' });
   if (permission !== 'granted') {
+    // requestPermission() only succeeds when called synchronously off a
+    // real user gesture - calling it from background/idle-scheduled code
+    // (see createBackgroundFileAccess) always throws a SecurityError, so
+    // this must never attempt it for such a call. Surfacing a typed error
+    // instead lets a background pass (matchLibraryLyrics,
+    // ensureLyricsAssignment) catch it and skip quietly rather than crash.
+    if (!allowPrompt) {
+      throw new FileAccessPermissionPendingError(root.displayName);
+    }
     const requested = await root.handle.requestPermission({ mode: 'read' });
     if (requested !== 'granted') {
       throw new Error(`Read permission for "${root.displayName}" was not granted - reconnect it from the library screen.`);
@@ -60,7 +71,7 @@ async function getRootOrThrow(db: IDBDatabase, rootId: string): Promise<StoredRo
 
 export function createFileAccess(): FileAccess {
   return {
-    async requestRoot(): Promise<GrantedRoot | null> {
+    async requestRoot(kind: 'library' | 'lyrics' = 'library'): Promise<GrantedRoot | null> {
       let handle: FileSystemDirectoryHandle;
       try {
         handle = await window.showDirectoryPicker({ mode: 'read' });
@@ -73,15 +84,15 @@ export function createFileAccess(): FileAccess {
 
       const db = await getDb();
       const id = crypto.randomUUID();
-      const stored: StoredRoot = { id, displayName: handle.name, handle };
+      const stored: StoredRoot = { id, displayName: handle.name, handle, kind };
       await idbPut(db, STORE_NAME, stored);
-      return { id, displayName: stored.displayName };
+      return { id, displayName: stored.displayName, kind };
     },
 
     async listGrantedRoots(): Promise<GrantedRoot[]> {
       const db = await getDb();
       const roots = await idbGetAll<StoredRoot>(db, STORE_NAME);
-      return roots.map((r) => ({ id: r.id, displayName: r.displayName }));
+      return roots.map((r) => ({ id: r.id, displayName: r.displayName, kind: r.kind ?? 'library' }));
     },
 
     async revokeRoot(rootId: string): Promise<void> {
@@ -89,9 +100,9 @@ export function createFileAccess(): FileAccess {
       await idbDelete(db, STORE_NAME, rootId);
     },
 
-    async listDirectory(rootId: string, relativePath?: string): Promise<DirectoryEntry[]> {
+    async listDirectory(rootId: string, relativePath?: string, opts?: FileAccessCallOptions): Promise<DirectoryEntry[]> {
       const db = await getDb();
-      const root = await getRootOrThrow(db, rootId);
+      const root = await getRootOrThrow(db, rootId, opts?.allowPrompt ?? true);
       const dirHandle = await resolveDirectoryHandle(root.handle, relativePath);
 
       const entries: DirectoryEntry[] = [];
@@ -113,20 +124,20 @@ export function createFileAccess(): FileAccess {
       return entries;
     },
 
-    async readFileBytes(ref: FileRef): Promise<ArrayBuffer> {
+    async readFileBytes(ref: FileRef, opts?: FileAccessCallOptions): Promise<ArrayBuffer> {
       const [rootId] = ref.id.split(':');
       const db = await getDb();
-      const root = await getRootOrThrow(db, rootId!);
+      const root = await getRootOrThrow(db, rootId!, opts?.allowPrompt ?? true);
       const dir = await resolveDirectoryHandle(root.handle, ref.relativePath.split('/').slice(0, -1).join('/'));
       const fileHandle = await dir.getFileHandle(ref.name);
       const file = await fileHandle.getFile();
       return file.arrayBuffer();
     },
 
-    async readFileText(ref: FileRef): Promise<string> {
+    async readFileText(ref: FileRef, opts?: FileAccessCallOptions): Promise<string> {
       const [rootId] = ref.id.split(':');
       const db = await getDb();
-      const root = await getRootOrThrow(db, rootId!);
+      const root = await getRootOrThrow(db, rootId!, opts?.allowPrompt ?? true);
       const dir = await resolveDirectoryHandle(root.handle, ref.relativePath.split('/').slice(0, -1).join('/'));
       const fileHandle = await dir.getFileHandle(ref.name);
       const file = await fileHandle.getFile();

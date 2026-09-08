@@ -1,4 +1,4 @@
-import type { DirectoryEntry, FileAccess, FileRef, GrantedRoot } from '@bpmix/core';
+import type { DirectoryEntry, FileAccess, FileAccessCallOptions, FileRef, GrantedRoot } from '@bpmix/core';
 import { createFileAccess } from './fileAccess';
 import { createServerFileAccess } from './fileAccess.server';
 
@@ -40,10 +40,33 @@ function rewriteFileRef(scheme: string, file: FileRef): FileRef {
  * no backend, like Cloudflare Pages), the server probe fails once and this
  * behaves exactly like the plain browser adapter from then on.
  */
+// Module-level (not per-createCompositeFileAccess-call) since App.tsx only
+// ever constructs one composite adapter as a singleton anyway, and
+// isServerBackendAvailable below needs to share this same cached result
+// rather than re-probing the server itself.
+let serverAvailable: boolean | undefined;
+
+/**
+ * Whether apps/server is actually backing this deployment (a real mounted-
+ * volume Docker self-host) as opposed to a static-only deploy with no
+ * backend - used to skip the "install this app" onboarding prompt (see
+ * App.tsx), since server-granted roots need no browser permission at all,
+ * so there's nothing for installing as a PWA to help with in that mode.
+ */
+export async function isServerBackendAvailable(): Promise<boolean> {
+  if (serverAvailable !== undefined) return serverAvailable;
+  try {
+    await createServerFileAccess().listGrantedRoots();
+    serverAvailable = true;
+  } catch {
+    serverAvailable = false;
+  }
+  return serverAvailable;
+}
+
 export function createCompositeFileAccess(): FileAccess {
   const browser = createFileAccess();
   const server = createServerFileAccess();
-  let serverAvailable: boolean | undefined;
 
   async function isServerAvailable(): Promise<boolean> {
     if (serverAvailable !== undefined) return serverAvailable;
@@ -57,8 +80,8 @@ export function createCompositeFileAccess(): FileAccess {
   }
 
   return {
-    async requestRoot(): Promise<GrantedRoot | null> {
-      const root = await browser.requestRoot();
+    async requestRoot(kind?: 'library' | 'lyrics'): Promise<GrantedRoot | null> {
+      const root = await browser.requestRoot(kind);
       return root ? { ...root, id: encode(LOCAL, root.id) } : null;
     },
 
@@ -82,25 +105,25 @@ export function createCompositeFileAccess(): FileAccess {
       // user-granted - nothing to revoke client-side.
     },
 
-    async listDirectory(rootId: string, relativePath?: string): Promise<DirectoryEntry[]> {
+    async listDirectory(rootId: string, relativePath?: string, opts?: FileAccessCallOptions): Promise<DirectoryEntry[]> {
       const { scheme, innerId } = decode(rootId);
       const adapter = scheme === SERVER ? server : browser;
-      const entries = await adapter.listDirectory(innerId, relativePath);
+      const entries = await adapter.listDirectory(innerId, relativePath, opts);
       return entries.map((entry) => rewriteEntry(scheme, entry));
     },
 
-    async readFileBytes(ref: FileRef): Promise<ArrayBuffer> {
+    async readFileBytes(ref: FileRef, opts?: FileAccessCallOptions): Promise<ArrayBuffer> {
       const { scheme, innerId } = decode(ref.id);
       const [innerRootId] = innerId.split(':');
       const adapter = scheme === SERVER ? server : browser;
-      return adapter.readFileBytes({ ...ref, id: innerRootId! });
+      return adapter.readFileBytes({ ...ref, id: innerRootId! }, opts);
     },
 
-    async readFileText(ref: FileRef): Promise<string> {
+    async readFileText(ref: FileRef, opts?: FileAccessCallOptions): Promise<string> {
       const { scheme, innerId } = decode(ref.id);
       const [innerRootId] = innerId.split(':');
       const adapter = scheme === SERVER ? server : browser;
-      return adapter.readFileText({ ...ref, id: innerRootId! });
+      return adapter.readFileText({ ...ref, id: innerRootId! }, opts);
     },
   };
 }

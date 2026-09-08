@@ -1,4 +1,4 @@
-import type { FileAccess } from '../file-access/types';
+import { FileAccessPermissionPendingError, type FileAccess } from '../file-access/types';
 import type { LibraryStore, LyricsScope, TrackRecord } from '../library-store/types';
 import { requestIdle } from '../metadata/idleCallback';
 import { scanAllLyricsScopes } from './loadAssignedLyrics';
@@ -57,7 +57,21 @@ export function matchLibraryLyrics(
 
   return new Promise((resolve) => {
     void (async () => {
-      const files = await scanAllLyricsScopes(fileAccess, scopes);
+      let files;
+      try {
+        files = await scanAllLyricsScopes(fileAccess, scopes);
+      } catch (err) {
+        // A lapsed browser grant can't be re-requested from this
+        // background pass (see FileAccessCallOptions.allowPrompt's doc) -
+        // just skip this run entirely rather than crash; it'll pick back up
+        // once something gesture-adjacent re-grants access. Anything else
+        // (a genuinely broken scope) should still surface.
+        if (err instanceof FileAccessPermissionPendingError) {
+          resolve();
+          return;
+        }
+        throw err;
+      }
       const candidates = files.map((file) => ({ fileId: file.id, name: file.name }));
       let matched = 0;
 

@@ -1,9 +1,11 @@
 import type { FileRef, GrantedRoot, LoopMode, LyricsScope, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '@bpmix/core';
 import {
   computeTransitionPlan,
+  createBackgroundFileAccess,
   ensureTrackAnalyzed,
   equalPowerGain,
   errorMessage,
+  FileAccessPermissionPendingError,
   formatTrackTitle,
   isMetadataCurrent,
   LYRICS_MATCHED_COUNT_SETTING_KEY,
@@ -17,49 +19,39 @@ import {
 import {
   AddFolderButton,
   CROSSFADE_ART_TRANSITION_MS,
-  darken,
-  FolderBrowser,
-  Icon,
+  HeaderRow,
   IconLabel,
   LibraryScreen,
-  LoopButton,
   LyricsFolderSection,
   lyricsScopeKey,
   MiniPlayerBar,
+  NotificationBell,
   NowPlayingScreen,
+  PlayerControlsRow,
   RestoringScreen,
-  ShuffleButton,
   TrackList,
   TURNS_PER_SONG,
   useCoverArt,
   useDoublePressHandler,
   useFadeInOnChange,
+  useNotificationCenter,
   RAPID_PLAYBACK_PATCH_DEBOUNCE_MS,
   usePlaybackPersistence,
   useRestoringProgress,
   useThemeColors,
   useTrackMetadata,
-  VolumeButton,
 } from '@bpmix/ui';
 import type { RootWithLibrary } from '@bpmix/ui';
-import {
-  mdiArrowLeft,
-  mdiFastForward10,
-  mdiPause,
-  mdiPlay,
-  mdiRewind10,
-  mdiSkipNext,
-  mdiSkipPrevious,
-  mdiSubtitles,
-} from '@mdi/js';
+import { mdiArrowLeft, mdiSubtitles } from '@mdi/js';
 import type { CSSProperties, ReactNode } from 'react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DimensionValue } from 'react-native';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { createAudioEngine } from './adapters/audioEngine';
 import { createCoverArtResizer } from './adapters/coverArtResizer';
-import { createCompositeFileAccess } from './adapters/fileAccess.composite';
+import { createCompositeFileAccess, isServerBackendAvailable } from './adapters/fileAccess.composite';
 import { createLibraryStore } from './adapters/libraryStore';
+import { isRunningInstalled, promptInstall, usePwaInstallAvailable } from './adapters/pwaInstall';
 
 const TRANSPORT_THROTTLE_MS = 300;
 // A real settings screen (Stage 8) would make this configurable - for now
@@ -71,11 +63,20 @@ const DEFAULT_CROSSFADE_SECONDS = 8;
 // work regardless, but "Add Folder" itself needs this to pick local folders.
 const SUPPORTS_DIRECTORY_PICKER = typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function';
 const SELF_HOSTING_DOCS_URL = 'https://github.com/WentTheFox/BPMix/blob/main/apps/server/README.md';
+/** LibraryStore.getSetting/putSetting key for whether the user dismissed the "install this app" onboarding row - see the installOnboarding block below. */
+const INSTALL_ONBOARDING_DISMISSED_SETTING_KEY = 'installOnboardingDismissed';
 // A real DOM <a>, not an RN Text/Pressable - react-native-web's StyleSheet
 // objects aren't meant for raw DOM elements, so this is a plain CSS object.
 const webLinkStyle: CSSProperties = { color: 'inherit', textDecoration: 'underline', fontWeight: 600 };
 
 const fileAccess = createCompositeFileAccess();
+// A stable singleton (not re-wrapped per call) - scanAllLyricsScopes's scan
+// cache is keyed by FileAccess instance identity, and reusing the same
+// wrapper is what keeps every background caller (matchLibraryLyrics,
+// scanLibraryMetadata) hitting that cache instead of missing it every time.
+// See createBackgroundFileAccess's doc for why background passes need this
+// at all: requestPermission() can't be called off a non-gesture code path.
+const backgroundFileAccess = createBackgroundFileAccess(fileAccess);
 const libraryStore = createLibraryStore();
 const coverArtResizer = createCoverArtResizer();
 const audioEngine = createAudioEngine(fileAccess);
@@ -95,7 +96,10 @@ function trackToFileRef(track: TrackRecord): FileRef {
 // ever one active player/screen in this app). setError is likewise bridged
 // in on mount so the player's async load/decode errors reach the UI.
 let activeTracksById = new Map<string, TrackRecord>();
-let reportError: (error: unknown) => void = () => {};
+/** fileId is the track a decode/playback error actually happened for, when known - see PlaylistPlayer's onError doc. Routed to the notification bell, not a one-shot setError string - see NotificationBell's doc for why. */
+let reportError: (error: unknown, fileId?: string) => void = () => {};
+/** Clears a fileId's "missing" flag once it decodes successfully again (e.g. a sync catches up) - bridged alongside reportError. */
+let reportFileFound: (fileId: string) => void = () => {};
 // Bridged in on mount, same pattern as reportError - lets PlaylistPlayer push
 // an immediate re-render right when position changes outside a manual UI
 // action (a crossfade completing, or a natural end auto-advancing), instead
@@ -111,7 +115,7 @@ const playlistPlayer = new PlaylistPlayer(
     return trackToFileRef(track);
   },
   {
-    onError: (error) => reportError(error),
+    onError: (error, fileId) => reportError(error, fileId),
     resolveGain: async (fileId) => (await libraryStore.getAnalysis(fileId))?.normalizationGain ?? 1,
     onAdvance: () => notifyAdvance(),
     crossfadeSeconds: DEFAULT_CROSSFADE_SECONDS,
@@ -120,6 +124,7 @@ const playlistPlayer = new PlaylistPlayer(
     // batch pass over the whole library.
     onDecoded: (ref, decoded) => {
       void ensureTrackAnalyzed(libraryStore, ref, decoded);
+      reportFileFound(ref.id);
     },
   },
 );
@@ -148,10 +153,60 @@ function App() {
   const [lyricsScopes, setLyricsScopes] = useState<LyricsScope[]>([]);
   const [matchedLyricsCount, setMatchedLyricsCount] = useState<number | null>(null);
   const [busyLyricsScopeKey, setBusyLyricsScopeKey] = useState<string | null>(null);
-  // Set while FolderBrowser is open, picking a lyrics scope within this root.
-  const [lyricsFolderPickerRoot, setLyricsFolderPickerRoot] = useState<GrantedRoot | null>(null);
   const [busyRootId, setBusyRootId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Everything that used to be a one-shot setError(errorMessage(err)) string
+  // (playback/decode failures specifically) now goes here instead - see
+  // NotificationBell's doc for why a raw error string as the *entire*
+  // message ("A requested file or directory could not be found...") wasn't
+  // good enough on its own. `error`/setError above is left alone for the
+  // handful of direct-action error paths (addFolder, rescan, etc.) that
+  // still want an immediate, action-adjacent inline message.
+  const notificationCenter = useNotificationCenter();
+  // fileIds whose most recent decode attempt failed - TrackRow reads this to
+  // show a missing-file indicator instead of pretending everything's fine
+  // until the user taps play and it silently does nothing.
+  const [missingFileIds, setMissingFileIds] = useState<Set<string>>(new Set());
+  // Onboarding: nudges the user to install BPMix as a PWA once they're
+  // actually relying on a browser-granted local folder (SUPPORTS_DIRECTORY_PICKER),
+  // since only an installed PWA gets Chrome's persistent File System Access
+  // permissions - a plain tab always eventually needs a fresh gesture-based
+  // re-grant no matter what. Deliberately skipped entirely for a self-hosted
+  // Docker deployment (isServerBackendAvailable) - server-granted roots need
+  // no browser permission at all, so installing wouldn't help with anything
+  // here and would just be a confusing, irrelevant prompt in that mode.
+  const [installOnboardingDismissed, setInstallOnboardingDismissed] = useState(true);
+  const [showInstallOnboarding, setShowInstallOnboarding] = useState(false);
+  const installPromptAvailable = usePwaInstallAvailable();
+
+  useEffect(() => {
+    let cancelled = false;
+    void libraryStore.getSetting(INSTALL_ONBOARDING_DISMISSED_SETTING_KEY).then((dismissed) => {
+      if (!cancelled) setInstallOnboardingDismissed(dismissed === '1');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!SUPPORTS_DIRECTORY_PICKER || installOnboardingDismissed || !installPromptAvailable || grantedRoots.length === 0 || isRunningInstalled()) {
+      setShowInstallOnboarding(false);
+      return;
+    }
+    let cancelled = false;
+    void isServerBackendAvailable().then((serverAvailable) => {
+      if (!cancelled) setShowInstallOnboarding(!serverAvailable);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [installOnboardingDismissed, installPromptAvailable, grantedRoots.length]);
+
+  const dismissInstallOnboarding = useCallback(() => {
+    setInstallOnboardingDismissed(true);
+    void libraryStore.putSetting(INSTALL_ONBOARDING_DISMISSED_SETTING_KEY, '1');
+  }, []);
   // Drives RestoringScreen's checklist - see refresh()'s and
   // usePlaybackPersistence's onStepChange updates below.
   const { completedSteps, currentStep, hasLyricsScopes, advanceStep, setHasLyricsScopes } = useRestoringProgress();
@@ -177,11 +232,28 @@ function App() {
   };
 
   useEffect(() => {
-    reportError = (err) => setError(errorMessage(err));
+    reportError = (err, fileId) => {
+      notificationCenter.addError(fileId ? `Couldn't play "${fileId.split('/').pop()}"` : 'Playback error', errorMessage(err));
+      if (fileId) {
+        setMissingFileIds((prev) => (prev.has(fileId) ? prev : new Set(prev).add(fileId)));
+      }
+    };
+    reportFileFound = (fileId) => {
+      setMissingFileIds((prev) => {
+        if (!prev.has(fileId)) return prev;
+        const next = new Set(prev);
+        next.delete(fileId);
+        return next;
+      });
+    };
     return () => {
       reportError = () => {};
+      reportFileFound = () => {};
     };
-  }, []);
+    // notificationCenter.addError specifically - see refresh()'s identical
+    // note on why the whole notificationCenter object isn't a safe dep here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notificationCenter.addError]);
 
   const refresh = useCallback(async () => {
     advanceStep('listingFolders');
@@ -198,31 +270,45 @@ function App() {
     // the rest of the library visible.
     const withLibrary = (
       await Promise.all(
-        roots.map(async (root) => {
-          try {
-            let [playlists, tracks] = await Promise.all([
-              libraryStore.listPlaylists(root.id),
-              libraryStore.listTracks(root.id),
-            ]);
-            if (playlists.length === 0 && tracks.length === 0) {
-              // A root can reach listGrantedRoots() without ever going through
-              // addFolder's explicit requestRoot+scanRoot flow - e.g. a
-              // composite-adapter root the self-hosted server exposes just by
-              // having a volume mounted. Scan it now instead of silently
-              // showing an empty library until the user notices and clicks
-              // Rescan themselves.
-              await scanRoot(fileAccess, libraryStore, root.id);
-              [playlists, tracks] = await Promise.all([
+        // A 'lyrics' root (see GrantedRoot.kind's doc) is never a music
+        // library - it's a lyrics-only folder granted via addLyricsFolder's
+        // own requestRoot('lyrics') call, and scanning/listing it here would
+        // just show a permanently-empty "library" entry for it.
+        roots
+          .filter((root) => (root.kind ?? 'library') === 'library')
+          .map(async (root) => {
+            try {
+              let [playlists, tracks] = await Promise.all([
                 libraryStore.listPlaylists(root.id),
                 libraryStore.listTracks(root.id),
               ]);
+              if (playlists.length === 0 && tracks.length === 0) {
+                // A root can reach listGrantedRoots() without ever going through
+                // addFolder's explicit requestRoot+scanRoot flow - e.g. a
+                // composite-adapter root the self-hosted server exposes just by
+                // having a volume mounted. Scan it now instead of silently
+                // showing an empty library until the user notices and clicks
+                // Rescan themselves. Uses backgroundFileAccess, not fileAccess -
+                // refresh() itself runs automatically (on mount, after restore)
+                // with no user gesture behind it, same reasoning as
+                // matchLibraryLyrics/scanLibraryMetadata above.
+                await scanRoot(backgroundFileAccess, libraryStore, root.id);
+                [playlists, tracks] = await Promise.all([
+                  libraryStore.listPlaylists(root.id),
+                  libraryStore.listTracks(root.id),
+                ]);
+              }
+              return { root, playlists, tracksById: new Map(tracks.map((t) => [t.fileId, t])) };
+            } catch (err) {
+              // A lapsed browser grant can't be re-requested from this
+              // non-gesture scan (see FileAccessCallOptions.allowPrompt's doc)
+              // - this root just stays empty until a real click (Rescan,
+              // re-adding the folder) re-grants it, rather than surfacing the
+              // browser's raw permission-error text as if it were a real bug.
+              if (!(err instanceof FileAccessPermissionPendingError)) setError(errorMessage(err));
+              return null;
             }
-            return { root, playlists, tracksById: new Map(tracks.map((t) => [t.fileId, t])) };
-          } catch (err) {
-            setError(errorMessage(err));
-            return null;
-          }
-        }),
+          }),
       )
     ).filter((entry): entry is RootWithLibrary => entry !== null);
     setRootsWithLibrary(withLibrary);
@@ -258,7 +344,7 @@ function App() {
       // restoring track's own assignment is already resolved separately
       // (see usePlaybackPersistence/ensureLyricsAssignment), so nothing here
       // needs to be awaited before refresh() returns.
-      void matchLibraryLyrics(fileAccess, libraryStore, scopes, allTracks, {
+      void matchLibraryLyrics(backgroundFileAccess, libraryStore, scopes, allTracks, {
         onProgress: (matchedCount) => {
           // Only drives the display for a first-ever run (no baseline to
           // start optimistic from yet) - once there's a baseline, onAnomaly/
@@ -298,7 +384,7 @@ function App() {
     // wrapper needed here anymore - that API is deprecated on this RN
     // version, and requestIdle already defers past the current interaction
     // on its own.
-    void scanLibraryMetadata(fileAccess, libraryStore, withLibrary.flatMap(({ tracksById }) => [...tracksById.values()]), {
+    void scanLibraryMetadata(backgroundFileAccess, libraryStore, withLibrary.flatMap(({ tracksById }) => [...tracksById.values()]), {
       resizer: coverArtResizer,
       // Bumps whatever's actually on screen (now playing + up next) ahead
       // of the rest of the library, evaluated fresh on every step - so a
@@ -309,12 +395,30 @@ function App() {
         const nextFileId = playlistPlayer.getNextFileId();
         return [state.currentFileId, nextFileId].filter((id): id is string => id != null);
       },
+      // The one real "ongoing background operation" worth its own
+      // persistent notification row - this can run for a while on a large
+      // stale-parser-version rescan, and previously had no visible status
+      // anywhere at all.
+      onProgress: ({ index, total, skipped }) => {
+        if (skipped) return;
+        notificationCenter.upsertProgress('metadata-scan', 'Scanning track metadata', index + 1, total, index + 1 >= total);
+      },
     });
     return withLibrary;
-  }, []);
+    // notificationCenter.upsertProgress specifically (not the whole
+    // notificationCenter object) - that one property is a stable
+    // useCallback reference regardless of the notification list itself
+    // changing, unlike the wrapper object useNotificationCenter returns
+    // (memoized with `notifications` as a dep) - depending on the whole
+    // object here would recreate refresh (and, downstream, retrigger
+    // usePlaybackPersistence's restore effect, which depends on refresh)
+    // every single time a notification is added/dismissed anywhere in the app.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notificationCenter.upsertProgress]);
 
   const { isRestoring, persistPlaybackPatch, persistPositionIfDue } = usePlaybackPersistence({
     fileAccess,
+    backgroundFileAccess,
     libraryStore,
     playlistPlayer,
     refresh,
@@ -404,40 +508,24 @@ function App() {
     [refresh],
   );
 
-  // Opens FolderBrowser over an already-granted root instead of requesting a
-  // brand-new one - see LyricsScope's doc for why: a fresh top-level SAF
-  // grant hit a real Samsung "My Files" picker bug that rejected every
-  // folder, including freshly-created ones. Picking a subfolder of a root
-  // already granted for music never goes through that picker at all.
-  //
-  // v1 scope: just uses the first granted root rather than showing a
-  // chooser when several exist - fine for the common single-root case, but
-  // worth a real picker if/when multi-root libraries are common.
-  const addLyricsFolder = useCallback(() => {
+  // A real, independent OS directory picker (requestRoot('lyrics')) rather
+  // than FolderBrowser over an already-granted music root - the old
+  // subfolder-only flow existed only because every granted root used to be
+  // unconditionally scanned as a music library (refresh() below), which
+  // would've left a phantom empty "library" entry for a lyrics-only root.
+  // GrantedRoot.kind now lets refresh() skip exactly that, so this can just
+  // grant its own root like addFolder does.
+  const addLyricsFolder = useCallback(async () => {
     setError(null);
-    const root = grantedRoots[0];
-    if (!root) {
-      setError('Add a music folder first - a lyrics folder is picked as a subfolder of one you already granted.');
-      return;
+    try {
+      const root = await fileAccess.requestRoot('lyrics');
+      if (!root) return; // user cancelled the picker
+      await libraryStore.addLyricsScope({ rootId: root.id, relativePath: '' });
+      await refresh();
+    } catch (err) {
+      setError(errorMessage(err));
     }
-    setLyricsFolderPickerRoot(root);
-  }, [grantedRoots]);
-
-  const handleLyricsFolderPicked = useCallback(
-    async (relativePath: string) => {
-      const root = lyricsFolderPickerRoot;
-      setLyricsFolderPickerRoot(null);
-      if (!root) return;
-      setError(null);
-      try {
-        await libraryStore.addLyricsScope({ rootId: root.id, relativePath });
-        await refresh();
-      } catch (err) {
-        setError(errorMessage(err));
-      }
-    },
-    [lyricsFolderPickerRoot, refresh],
-  );
+  }, [refresh]);
 
   const rescanLyricsScope = useCallback(
     async (rootId: string, relativePath: string) => {
@@ -459,12 +547,24 @@ function App() {
       setError(null);
       try {
         await libraryStore.removeLyricsScope(rootId, relativePath);
+        // A lyrics-only root (granted via addLyricsFolder's own
+        // requestRoot('lyrics') - see GrantedRoot.kind's doc) has no other
+        // reason to stay granted once its last scope is removed - revoke it
+        // too rather than leave an orphaned grant sitting in IndexedDB
+        // forever with nothing in the UI ever referencing it again. A root
+        // still used for music, or still holding another lyrics scope,
+        // is left alone.
+        const isLibraryRoot = grantedRoots.some((r) => r.id === rootId && (r.kind ?? 'library') === 'library');
+        const remainingScopes = await libraryStore.getLyricsScopes();
+        if (!isLibraryRoot && !remainingScopes.some((s) => s.rootId === rootId)) {
+          await fileAccess.revokeRoot(rootId);
+        }
         await refresh();
       } catch (err) {
         setError(errorMessage(err));
       }
     },
-    [refresh],
+    [refresh, grantedRoots],
   );
 
   const playFromTrack = useCallback(
@@ -846,57 +946,25 @@ function App() {
         fileAccess={fileAccess}
         libraryStore={libraryStore}
         lyricsScopes={lyricsScopes}
+        headerRight={<NotificationBell colors={colors} center={notificationCenter} />}
         controls={
-          <>
-            {/* Disabled mid-scrub: a rewindTo()/fastForwardTo() effect already tears down (and, for fastForwardTo, recreates) the source once - stacking a second transport action on top of it before it settles risks the same rapid-fire native-source-churn crash the effect itself is built to avoid. */}
-            <View style={styles.playerControlsRow}>
-              <Pressable
-                style={[styles.controlButton, { backgroundColor: colors.accent }, !!scrub && styles.controlButtonDisabled]}
-                onPress={handlePreviousPress}
-                disabled={!!scrub}
-              >
-                <Icon path={mdiSkipPrevious} size={20} color="white" />
-              </Pressable>
-              <Pressable
-                style={[styles.controlButtonWide, { backgroundColor: colors.accent }, !!scrub && styles.controlButtonDisabled]}
-                onPress={() => seekBy(-10)}
-                disabled={!!scrub}
-              >
-                <Icon path={mdiRewind10} size={22} color="white" />
-              </Pressable>
-              <Pressable
-                style={[
-                  styles.controlButton,
-                  styles.controlButtonPrimary,
-                  { backgroundColor: darken(colors.accent, 0.15) },
-                  !!scrub && styles.controlButtonDisabled,
-                ]}
-                onPress={togglePause}
-                disabled={!!scrub}
-              >
-                <Icon path={playerState.track.status === 'playing' ? mdiPause : mdiPlay} size={30} color="white" />
-              </Pressable>
-              <Pressable
-                style={[styles.controlButtonWide, { backgroundColor: colors.accent }, !!scrub && styles.controlButtonDisabled]}
-                onPress={() => seekBy(10)}
-                disabled={!!scrub}
-              >
-                <Icon path={mdiFastForward10} size={22} color="white" />
-              </Pressable>
-              <Pressable
-                style={[styles.controlButton, { backgroundColor: colors.accent }, !!scrub && styles.controlButtonDisabled]}
-                onPress={handleNextPress}
-                disabled={!!scrub}
-              >
-                <Icon path={mdiSkipNext} size={20} color="white" />
-              </Pressable>
-            </View>
-            <View style={styles.transportRow}>
-              <LoopButton colors={colors} loopMode={playerState.loopMode} onPress={cycleLoopMode} disabled={!!scrub} />
-              <ShuffleButton colors={colors} shuffleEnabled={playerState.shuffleEnabled} onPress={toggleShuffle} disabled={!!scrub} />
-              <VolumeButton colors={colors} volume={volume} onChangeVolume={handleVolumeChange} />
-            </View>
-          </>
+          // Disabled mid-scrub: a rewindTo()/fastForwardTo() effect already tears down (and, for fastForwardTo, recreates) the source once - stacking a second transport action on top of it before it settles risks the same rapid-fire native-source-churn crash the effect itself is built to avoid.
+          <PlayerControlsRow
+            colors={colors}
+            loopMode={playerState.loopMode}
+            onCycleLoop={cycleLoopMode}
+            shuffleEnabled={playerState.shuffleEnabled}
+            onToggleShuffle={toggleShuffle}
+            volume={volume}
+            onChangeVolume={handleVolumeChange}
+            isPlaying={playerState.track.status === 'playing'}
+            onTogglePlayPause={togglePause}
+            onPrevious={handlePreviousPress}
+            onNext={handleNextPress}
+            disabled={!!scrub}
+            onSeekBackward={() => seekBy(-10)}
+            onSeekForward={() => seekBy(10)}
+          />
         }
       />
     </View>
@@ -913,29 +981,20 @@ function App() {
     );
   }
 
-  if (lyricsFolderPickerRoot) {
-    return (
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <FolderBrowser
-          colors={colors}
-          fileAccess={fileAccess}
-          rootId={lyricsFolderPickerRoot.id}
-          rootDisplayName={lyricsFolderPickerRoot.displayName}
-          onSelect={(relativePath) => void handleLyricsFolderPicked(relativePath)}
-          onCancel={() => setLyricsFolderPickerRoot(null)}
-        />
-      </View>
-    );
-  }
-
   let screenContent: ReactNode;
   if (screen.kind === 'playlist') {
     const { playlist, tracksById } = screen;
     screenContent = (
       <>
-        <Pressable onPress={() => setScreen({ kind: 'library' })} style={styles.backRow}>
-          <IconLabel path={mdiArrowLeft} text={`Playlist: ${playlist.name}`} color={colors.text} iconSize={18} textStyle={styles.backLink} />
-        </Pressable>
+        <HeaderRow
+          style={styles.backRow}
+          left={
+            <Pressable onPress={() => setScreen({ kind: 'library' })}>
+              <IconLabel path={mdiArrowLeft} text={`Playlist: ${playlist.name}`} color={colors.text} iconSize={18} textStyle={styles.backLink} />
+            </Pressable>
+          }
+          right={<NotificationBell colors={colors} center={notificationCenter} />}
+        />
         {error && <Text style={styles.error}>{error}</Text>}
         <TrackList
           trackFileIds={playlist.trackFileIds}
@@ -947,6 +1006,7 @@ function App() {
           onPressTrack={(t) => void playFromTrack(playlist, tracksById, t)}
           libraryStore={libraryStore}
           initialNumToRender={30}
+          missingFileIds={missingFileIds}
         />
       </>
     );
@@ -962,18 +1022,42 @@ function App() {
         onSelectPlaylist={(root, playlist, tracksById) => setScreen({ kind: 'playlist', root, playlist, tracksById })}
         error={error}
         listStyle={styles.list}
+        headerRight={<NotificationBell colors={colors} center={notificationCenter} />}
         secondaryAddButton={<AddFolderButton colors={colors} icon={mdiSubtitles} text="Add Lyrics Folder" onPress={addLyricsFolder} />}
         bannerContent={
-          !SUPPORTS_DIRECTORY_PICKER && (
-            <Text style={styles.warning}>
-              This browser can't pick local folders. Use the self-hosted Docker server instead to browse a mounted music
-              library -{' '}
-              <a href={SELF_HOSTING_DOCS_URL} target="_blank" rel="noopener noreferrer" style={webLinkStyle}>
-                see the setup guide
-              </a>
-              .
-            </Text>
-          )
+          <>
+            {!SUPPORTS_DIRECTORY_PICKER && (
+              <Text style={styles.warning}>
+                This browser can't pick local folders. Use the self-hosted Docker server instead to browse a mounted music
+                library -{' '}
+                <a href={SELF_HOSTING_DOCS_URL} target="_blank" rel="noopener noreferrer" style={webLinkStyle}>
+                  see the setup guide
+                </a>
+                .
+              </Text>
+            )}
+            {showInstallOnboarding && (
+              <View style={[styles.installOnboarding, { borderColor: colors.accent }]}>
+                <Text style={[styles.installOnboardingText, { color: colors.text }]}>
+                  Install BPMix as an app to keep folder access working across reloads - a browser tab has to ask again every
+                  so often, but an installed app doesn't.
+                </Text>
+                <View style={styles.installOnboardingActions}>
+                  <Pressable
+                    onPress={() => {
+                      void promptInstall();
+                      dismissInstallOnboarding();
+                    }}
+                  >
+                    <Text style={[styles.installOnboardingAction, { color: colors.accent }]}>Install</Text>
+                  </Pressable>
+                  <Pressable onPress={dismissInstallOnboarding}>
+                    <Text style={[styles.installOnboardingAction, { color: colors.subtleText }]}>Not now</Text>
+                  </Pressable>
+                </View>
+              </View>
+            )}
+          </>
         }
         lyricsSection={
           <LyricsFolderSection
@@ -1035,6 +1119,25 @@ const styles = StyleSheet.create({
     maxWidth: 480,
     textAlign: 'center',
   },
+  installOnboarding: {
+    marginTop: 12,
+    maxWidth: 480,
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    gap: 8,
+  },
+  installOnboardingText: {
+    textAlign: 'center',
+  },
+  installOnboardingActions: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 24,
+  },
+  installOnboardingAction: {
+    fontWeight: '600',
+  },
   backRow: {
     width: '100%',
     maxWidth: 480,
@@ -1044,44 +1147,6 @@ const styles = StyleSheet.create({
   backLink: {
     fontSize: 18,
     fontWeight: '600',
-  },
-  transportRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 8,
-  },
-  // The primary play/pause/seek/skip row, styled like a real player's
-  // transport bar: big circular icon buttons, evenly spaced, with
-  // play/pause noticeably larger and centered.
-  playerControlsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 16,
-    marginTop: 12,
-    marginBottom: 4,
-  },
-  controlButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  controlButtonWide: {
-    width: 60,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  controlButtonPrimary: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-  },
-  controlButtonDisabled: {
-    opacity: 0.4,
   },
   // Merged onto LibraryScreen's own base list style - see its listStyle prop's doc.
   list: {

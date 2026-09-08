@@ -180,6 +180,19 @@ export function createAudioEngine(fileAccess: FileAccess): AudioEngine {
       if (!start) {
         throw new Error('scheduleStart called with a SourceNode this engine did not create');
       }
+      // AudioContext is created once, up front (module scope), well before
+      // any user gesture - browsers start it 'suspended' until resumed, and
+      // nothing else in this engine ever calls resume(). now() (below)
+      // returns context.currentTime, which does not advance while
+      // suspended, so a still-suspended context doesn't just play silently -
+      // the whole transport clock looks frozen (confirmed: "gets stuck",
+      // reported specifically from the installed PWA, where the very first
+      // user action after launch can be pressing play, unlike a regular tab
+      // that's usually already had some other click - e.g. Add Folder -
+      // resume the context via the browser's generic gesture-based autoplay
+      // unlock first). Safe/cheap to call on every start regardless of
+      // current state - resume() on an already-running context is a no-op.
+      void context.resume();
       start(whenSeconds, offsetSeconds);
     },
 

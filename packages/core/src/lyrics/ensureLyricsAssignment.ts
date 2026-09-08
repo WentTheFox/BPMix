@@ -1,4 +1,4 @@
-import type { FileAccess } from '../file-access/types';
+import { FileAccessPermissionPendingError, type FileAccess } from '../file-access/types';
 import type { LibraryStore, LyricsScope } from '../library-store/types';
 import { scanAllLyricsScopes } from './loadAssignedLyrics';
 import { findAutoLyricsMatch } from './matchLyrics';
@@ -23,7 +23,16 @@ export async function ensureLyricsAssignment(
   if (scopes.length === 0) return;
   const existing = await store.getLyricsAssignment(trackFileId);
   if (existing) return;
-  const files = await scanAllLyricsScopes(fileAccess, scopes);
+  let files;
+  try {
+    files = await scanAllLyricsScopes(fileAccess, scopes);
+  } catch (err) {
+    // See matchLibraryLyrics's identical catch for why: a lapsed browser
+    // grant can't be re-requested off this non-gesture call - skip quietly
+    // rather than crash the startup restore path.
+    if (err instanceof FileAccessPermissionPendingError) return;
+    throw err;
+  }
   const candidates = files.map((file) => ({ fileId: file.id, name: file.name }));
   const match = findAutoLyricsMatch(trackFileName, candidates);
   if (match) await store.putLyricsAssignment(trackFileId, match.fileId);

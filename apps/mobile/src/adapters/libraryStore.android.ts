@@ -9,26 +9,116 @@ import {
   type TrackMetadata,
   type TrackRecord,
 } from '@bpmix/core';
+import { NativeModules } from 'react-native';
 import SQLite, { type SQLError, type SQLResultSet, type SQLTransaction, type WebsqlDatabase } from 'react-native-sqlite-2';
+
+/** Subset of BPMixFileAccessModule (see its .kt for the rest) used here to cache cover art as real files instead of base64 SQLite TEXT - see putCoverArt's doc. */
+interface NativeLocalFiles {
+  writeLocalBytesBase64(fileName: string, base64Data: string): Promise<string>;
+  deleteLocalFile(fileName: string): Promise<void>;
+}
+const nativeFiles = NativeModules.BPMixFileAccess as NativeLocalFiles;
+
+/**
+ * FNV-1a hash of fileId, used only to build a safe cover-art cache filename -
+ * fileId itself is a full external-storage path (see fileAccess.android.ts),
+ * which can contain "/" and arbitrary characters, none of which are safe to
+ * hand straight to writeLocalBytesBase64 as a filename. Same pattern as
+ * libraryStore.windows.ts's coverArtFileName; collisions are astronomically
+ * unlikely for any real library and would just misattribute one track's art
+ * to another, not corrupt anything.
+ */
+function coverArtFileName(fileId: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < fileId.length; i++) {
+    hash ^= fileId.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `coverArt/cover-${(hash >>> 0).toString(16)}`;
+}
 
 const db: WebsqlDatabase = SQLite.openDatabase('bpmix.db', '1.0', '', 1);
 
-function run(sql: string, params: (string | number | null)[] = []): Promise<SQLResultSet> {
-  return new Promise((resolve, reject) => {
-    db.transaction(
-      (txn: SQLTransaction) => {
-        txn.executeSql(
-          sql,
-          params,
-          (_txn: SQLTransaction, result: SQLResultSet) => resolve(result),
-          (_txn: SQLTransaction, error: SQLError) => {
-            reject(error);
-            return true; // roll back on any error rather than continuing in an inconsistent state
-          },
-        );
+// react-native-sqlite-2 (a WebSQL polyfill) serializes every transaction
+// onto this one connection regardless of call order stability - dozens of
+// TrackRow-driven getCoverArt/getMetadata calls firing at once on library
+// mount used to bury the currently-playing track's own getLyricsAssignment/
+// getMetadata lookup for many seconds behind them (confirmed live via
+// [PERF] timing: ~16s cold, ~6.5s warm just to resolve the now-playing
+// track's lyrics assignment). Fixed by taking explicit control of dispatch
+// order here instead of relying on whatever order db.transaction() calls
+// happened to arrive in: every run() call is queued as a Job first, and a
+// job tagged with the current track's fileId (see setPriorityFileId, called
+// from App.tsx whenever the now-playing track changes) jumps to the front
+// of that queue instead of waiting behind unrelated rows. Doesn't change
+// total throughput (the underlying SQLite connection was already fully
+// serial), just which pending job gets dispatched next.
+interface Job {
+  sql: string;
+  params: (string | number | null)[];
+  fileId: string | undefined;
+  resolve: (result: SQLResultSet) => void;
+  reject: (error: unknown) => void;
+}
+
+const queue: Job[] = [];
+let draining = false;
+let priorityFileId: string | null = null;
+
+/** Called from App.tsx whenever the now-playing track changes, so its own metadata/lyrics-assignment/cover-art reads always jump the queue ahead of unrelated background rows. Windows/web have no equivalent queue to prioritize, so this export is Android-only. */
+export function setPriorityFileId(fileId: string | null): void {
+  priorityFileId = fileId;
+}
+
+function executeJob(job: Job): void {
+  db.transaction(
+    (txn: SQLTransaction) => {
+      txn.executeSql(
+        job.sql,
+        job.params,
+        (_txn: SQLTransaction, result: SQLResultSet) => job.resolve(result),
+        (_txn: SQLTransaction, error: SQLError) => {
+          job.reject(error);
+          return true; // roll back on any error rather than continuing in an inconsistent state
+        },
+      );
+    },
+    (error: SQLError) => job.reject(error),
+  );
+}
+
+function drainQueue(): void {
+  if (draining) return;
+  draining = true;
+  const step = (): void => {
+    // Re-evaluated on every step (not just once at enqueue time) since
+    // priorityFileId can change while older jobs still sit in the queue.
+    const priorityIndex = priorityFileId ? queue.findIndex((j) => j.fileId === priorityFileId) : -1;
+    const job = priorityIndex !== -1 ? queue.splice(priorityIndex, 1)[0]! : queue.shift();
+    if (!job) {
+      draining = false;
+      return;
+    }
+    executeJob({
+      ...job,
+      resolve: (result) => {
+        job.resolve(result);
+        step();
       },
-      (error: SQLError) => reject(error),
-    );
+      reject: (error) => {
+        job.reject(error);
+        step();
+      },
+    });
+  };
+  step();
+}
+
+/** `fileId`, when given, lets a job tagged with the current priority track (see setPriorityFileId) jump the queue ahead of unrelated pending reads. */
+function run(sql: string, params: (string | number | null)[] = [], fileId?: string): Promise<SQLResultSet> {
+  return new Promise((resolve, reject) => {
+    queue.push({ sql, params, fileId, resolve, reject });
+    drainQueue();
   });
 }
 
@@ -251,7 +341,7 @@ export function createLibraryStore(): LibraryStore {
 
     async getMetadata(fileId: string): Promise<TrackMetadata | null> {
       await ready;
-      const result = await run('SELECT * FROM metadata WHERE fileId = ?', [fileId]);
+      const result = await run('SELECT * FROM metadata WHERE fileId = ?', [fileId], fileId);
       const rows = rowsToArray<{
         fileId: string;
         title: string | null;
@@ -289,25 +379,33 @@ export function createLibraryStore(): LibraryStore {
 
     async getCoverArt(fileId: string): Promise<string | null> {
       await ready;
-      const result = await run('SELECT dataUri FROM cover_art WHERE fileId = ?', [fileId]);
+      const result = await run('SELECT dataUri FROM cover_art WHERE fileId = ?', [fileId], fileId);
       const rows = rowsToArray<{ dataUri: string }>(result);
       return rows[0]?.dataUri ?? null;
     },
 
-    // Storage here is TEXT-only (react-native-sqlite-2 is a WebSQL polyfill
-    // - no real BLOB parameter binding), so this encodes to a data: URI
-    // itself - unlike web, which can store the raw bytes directly and skip
-    // base64 entirely (see libraryStore.ts's putCoverArt).
+    // Writes the decoded bytes to a cache file (via the native module) and
+    // stores only the resulting file:// path in SQLite - the dataUri column
+    // name is unchanged (no migration needed: a getCoverArt read just
+    // returns whatever's in that column, and <Image source={{uri}}/> renders
+    // a data: URI or a file:// URI identically, so any pre-existing
+    // base64-data-URI rows from before this change keep working as-is until
+    // they're naturally rewritten by a future rescan). See
+    // BPMixFileAccessModule.kt's writeLocalBytesBase64 doc for why this
+    // beats storing base64 text directly (as Windows's libraryStore still
+    // does, and as this used to).
     async putCoverArt(fileId: string, art: CoverArtBytes | null): Promise<void> {
       await ready;
+      const fileName = coverArtFileName(fileId);
       if (art === null) {
         await run('DELETE FROM cover_art WHERE fileId = ?', [fileId]);
+        await nativeFiles.deleteLocalFile(fileName).catch(() => {});
       } else {
-        const dataUri = `data:${art.mimeType};base64,${encodeBase64(art.data)}`;
+        const path = await nativeFiles.writeLocalBytesBase64(fileName, encodeBase64(art.data));
         await run(
           `INSERT INTO cover_art (fileId, dataUri) VALUES (?, ?)
            ON CONFLICT(fileId) DO UPDATE SET dataUri=excluded.dataUri`,
-          [fileId, dataUri],
+          [fileId, `file://${path}`],
         );
       }
     },
@@ -373,7 +471,7 @@ export function createLibraryStore(): LibraryStore {
 
     async getLyricsAssignment(fileId: string): Promise<string | null> {
       await ready;
-      const result = await run('SELECT lrcFileId FROM lyrics_assignment WHERE fileId = ?', [fileId]);
+      const result = await run('SELECT lrcFileId FROM lyrics_assignment WHERE fileId = ?', [fileId], fileId);
       const rows = rowsToArray<{ lrcFileId: string }>(result);
       return rows[0]?.lrcFileId ?? null;
     },

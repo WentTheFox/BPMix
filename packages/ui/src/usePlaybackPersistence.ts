@@ -1,5 +1,6 @@
 import {
   ensureLyricsAssignment,
+  FileAccessPermissionPendingError,
   loadRootLibrary,
   type FileAccess,
   type GrantedRoot,
@@ -28,6 +29,17 @@ export interface RootWithLibrary {
 
 interface UsePlaybackPersistenceOptions {
   fileAccess: FileAccess;
+  /**
+   * Used specifically for the restoring track's ensureLyricsAssignment call
+   * below - like every other call on this automatic-startup path, there's no
+   * user gesture behind it, so a lapsed grant can't be re-prompted for (see
+   * FileAccessCallOptions.allowPrompt's doc) without throwing and aborting
+   * the whole restore. Defaults to `fileAccess` so a caller that passes a
+   * plain adapter still behaves exactly as before - the two platforms
+   * without this permission model, Android/Windows, ignore allowPrompt
+   * entirely either way.
+   */
+  backgroundFileAccess?: FileAccess;
   libraryStore: LibraryStore;
   playlistPlayer: PlaylistPlayer;
   /**
@@ -66,6 +78,7 @@ interface UsePlaybackPersistenceOptions {
  */
 export function usePlaybackPersistence({
   fileAccess,
+  backgroundFileAccess = fileAccess,
   libraryStore,
   playlistPlayer,
   refresh,
@@ -200,7 +213,21 @@ export function usePlaybackPersistence({
 
         if (targetRoot) {
           onStepChange?.('scanningLibrary');
-          const { playlists, tracksById } = await loadRootLibrary(fileAccess, libraryStore, targetRoot);
+          // Uses backgroundFileAccess, not fileAccess - this whole restore
+          // effect runs automatically on mount, with no user gesture behind
+          // it, so a lapsed browser grant can't be re-requested here (see
+          // FileAccessCallOptions.allowPrompt's doc). A permission-pending
+          // root just fails to resume this session (same as a genuinely
+          // not-found playlist/track below) rather than aborting the rest
+          // of restore.
+          let loaded: { playlists: PlaylistRecord[]; tracksById: Map<string, TrackRecord> };
+          try {
+            loaded = await loadRootLibrary(backgroundFileAccess, libraryStore, targetRoot);
+          } catch (err) {
+            if (!(err instanceof FileAccessPermissionPendingError)) throw err;
+            loaded = { playlists: [], tracksById: new Map() };
+          }
+          const { playlists, tracksById } = loaded;
           if (cancelled) return;
           const playlist = playlists.find((p) => p.id === stored.playlistId);
           const track = playlist ? tracksById.get(stored.currentTrackFileId) : undefined;
@@ -212,7 +239,15 @@ export function usePlaybackPersistence({
             if (scopes.length > 0) {
               onStepChange?.('scanningLyrics');
               const trackName = track.relativePath.split('/').pop() ?? track.relativePath;
-              await ensureLyricsAssignment(fileAccess, libraryStore, scopes, track.fileId, trackName);
+              try {
+                await ensureLyricsAssignment(backgroundFileAccess, libraryStore, scopes, track.fileId, trackName);
+              } catch (err) {
+                // No user gesture backs this automatic-startup call either,
+                // so a lapsed browser grant can't be re-prompted for here -
+                // skip resolving this track's lyrics assignment this run
+                // rather than let it abort the rest of restore (below).
+                if (!(err instanceof FileAccessPermissionPendingError)) throw err;
+              }
               if (cancelled) return;
             }
 

@@ -16,6 +16,8 @@ export interface TrackListProps {
   libraryStore: LibraryStore;
   /** How many rows to render up front - tunable per app since mobile/web have historically used different values here, not because the list itself differs. */
   initialNumToRender?: number;
+  /** fileIds whose most recent playback attempt failed to decode - see TrackRow.isMissing's doc. Omitted entirely (not just empty) by a caller that doesn't track this. */
+  missingFileIds?: Set<string>;
 }
 
 /**
@@ -46,6 +48,7 @@ export function TrackList({
   onPressTrack,
   libraryStore,
   initialNumToRender = 20,
+  missingFileIds,
 }: TrackListProps): React.JSX.Element {
   const [query, setQuery] = useState('');
 
@@ -85,6 +88,7 @@ export function TrackList({
               colors={colors}
               onPress={onPressTrack}
               libraryStore={libraryStore}
+              isMissing={missingFileIds?.has(fileId)}
             />
           );
         }}
@@ -97,7 +101,7 @@ export function TrackList({
         // something else happened to force FlatList to re-render (e.g.
         // scrolling), which read as the highlight lagging a tap by however
         // long that took to happen on its own.
-        extraData={[currentFileId, isPlaying]}
+        extraData={[currentFileId, isPlaying, missingFileIds]}
         // Only valid while filteredFileIds is the unfiltered list - a
         // filtered list's rows keep TRACK_ROW_HEIGHT each, but their offsets
         // no longer correspond to `index * TRACK_ROW_HEIGHT` against the

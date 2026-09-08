@@ -74,7 +74,7 @@ export class PlaylistPlayer {
   private readonly resolveGain?: (fileId: string) => number | Promise<number>;
   private crossfadeSeconds: number;
   private readonly onDecoded?: (ref: FileRef, decoded: DecodedAudio) => void | Promise<void>;
-  private readonly onError?: (error: unknown) => void;
+  private readonly onError?: (error: unknown, fileId?: string) => void;
   /**
    * Fired right when playback position changes outside a manual UI action
    * (a crossfade completing, or a track ending naturally and auto-
@@ -132,7 +132,8 @@ export class PlaylistPlayer {
     engine: AudioEngine,
     resolveTrack: (fileId: string) => FileRef | Promise<FileRef>,
     options: {
-      onError?: (error: unknown) => void;
+      /** `fileId`, when present, is the track the error actually happened for (a decode/read failure) - absent for errors that aren't about any one specific track (e.g. a scheduling conflict). Lets a caller track "this file couldn't be played" per track, e.g. to show a missing-file indicator in a track list. */
+      onError?: (error: unknown, fileId?: string) => void;
       /** Normalization gain (Stage 5) for a track, e.g. from its stored AnalysisResult - defaults to 1 (no change) if omitted or it throws. */
       resolveGain?: (fileId: string) => number | Promise<number>;
       /** Crossfade duration (seconds) - same value used for computeTransitionPlan, so what's scheduled matches what any preview UI shows. Defaults to DEFAULT_CROSSFADE_SECONDS. */
@@ -552,7 +553,7 @@ export class PlaylistPlayer {
       }
     } catch (error) {
       if (token === this.playToken) {
-        this.onError?.(error);
+        this.onError?.(error, fileId);
       }
     }
   }
@@ -586,7 +587,15 @@ export class PlaylistPlayer {
       if (options.autoplay) this.trackPlayer.play();
     } catch (error) {
       if (token === this.playToken) {
-        this.onError?.(error);
+        // markLoading() above put the player in 'loading' for the whole
+        // decode window - without resetting it back here, a genuine decode
+        // failure (missing/unreadable file, corrupt data) left the UI's
+        // loading spinner running forever with no way to tell playback had
+        // actually given up rather than still being in flight. onError
+        // alone isn't enough for that: it's a one-shot event, while status
+        // is what the UI continuously polls.
+        this.trackPlayer.markLoadFailed();
+        this.onError?.(error, fileId);
       }
     }
   }
