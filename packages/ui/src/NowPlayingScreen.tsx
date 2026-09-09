@@ -180,7 +180,6 @@ const styles = StyleSheet.create({
   },
   backRow: {
     paddingHorizontal: 16,
-    paddingVertical: 12,
   },
   backLink: {
     fontSize: 16,

@@ -923,7 +923,17 @@ function AppContent() {
   );
 
   const nowPlayingScreen = nowPlayingScreenOpen && playerState.currentFileId && (
-    <View style={[StyleSheet.absoluteFill, { paddingTop: insets.top, paddingBottom: insets.bottom, backgroundColor: colors.background }]}>
+    // zIndex here must beat HeaderRow's own (1, see its doc) - without an
+    // explicit, higher one, the playlist/library screen underneath's own
+    // HeaderRow (its back-row title + NotificationBell) painted ABOVE this
+    // whole overlay despite being mounted earlier: a nested descendant's
+    // zIndex doesn't just win among its own siblings on this RN/Fabric
+    // version, it also outranks an ancestor-level sibling with no zIndex of
+    // its own - confirmed on-device as two overlapping header rows/bells
+    // ("Playlist: In Order" bleeding through "Now Playing"'s own header),
+    // while everything below the header (screenArea's TrackList, no zIndex
+    // of its own) stayed correctly hidden beneath this overlay as expected.
+    <View style={[StyleSheet.absoluteFill, { paddingTop: insets.top, paddingBottom: insets.bottom, backgroundColor: colors.background, zIndex: 10 }]}>
       <NowPlayingScreen
         colors={colors}
         onClose={() => {
@@ -1150,7 +1160,6 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 480,
     paddingHorizontal: 16,
-    paddingTop: 8,
   },
   backLink: {
     fontSize: 18,

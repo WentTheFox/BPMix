@@ -34,6 +34,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     width: '100%',
     gap: 12,
+    // Baked in here rather than left to each caller's own `style` override -
+    // LibraryScreen's HeaderRow call had none at all while the playlist
+    // screen (both apps) and NowPlayingScreen each separately added their
+    // own slightly different value (paddingTop: 8 vs paddingVertical: 12),
+    // so the three screens' header rows sat at three different vertical
+    // offsets - visible on-device as two overlapping header rows/bells
+    // that were also offset from each other, not just stacked. A caller's
+    // own `style` can still override this if a screen genuinely needs to.
+    paddingVertical: 12,
     // position+zIndex here, not just on NotificationBell's own overlay -
     // confirmed live (via document.elementFromPoint, real hit-testing, not
     // just a screenshot glance) that a high z-index nested deep inside this

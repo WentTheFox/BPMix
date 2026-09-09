@@ -926,7 +926,20 @@ function App() {
   );
 
   const nowPlayingScreen = nowPlayingScreenOpen && playerState.currentFileId && (
-    <View style={StyleSheet.absoluteFill}>
+    // zIndex + backgroundColor here must beat/cover HeaderRow's own zIndex
+    // (1, see its doc) - without an explicit, higher zIndex, the playlist/
+    // library screen underneath's own HeaderRow (its back-row title +
+    // NotificationBell) painted ABOVE this whole overlay despite being
+    // mounted earlier: a nested descendant's zIndex doesn't just win among
+    // its own siblings, it also outranks an ancestor-level sibling with no
+    // zIndex of its own - confirmed on the mobile app as two overlapping
+    // header rows/bells ("Playlist: In Order" bleeding through "Now
+    // Playing"'s own header). Also needed an explicit background (missing
+    // here, unlike mobile's equivalent wrapper) since NowPlayingScreen's
+    // own container has none either - without one this overlay was fully
+    // transparent on web, which would show the exact same bleed-through
+    // for the WHOLE screen, not just the header band.
+    <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.background, zIndex: 10 }]}>
       <NowPlayingScreen
         colors={colors}
         onClose={() => {
@@ -1156,7 +1169,6 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 480,
     paddingHorizontal: 16,
-    paddingTop: 8,
   },
   backLink: {
     fontSize: 18,
