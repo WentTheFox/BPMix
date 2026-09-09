@@ -39,7 +39,7 @@ Notes for tasks that still have to be done/investigated are left here, grouped b
 
 ## UI/UX improvements
 
-* settings page with customizable accent color, ability to turn off volume normalization, and ability to change crossfade duration, wih a reset settings button that sets everything to default
+* settings page with customizable theme (light/flux (warm light)/dark/amoled), accent color, ability to turn off volume normalization, and ability to change crossfade duration, wih a reset settings button that sets everything to default
 * when pressing shuffle the current song is placed at the top of the playlist and other songs should appear below it in the shuffled order, this order must persist across reloads, until shuffle is toggled off (restore original playlist order preserving current track position) or if looping, when the last song ends the playlist should be reshuffled under the last song before switching to the next track
 * The notification icon should only show a red badge if there are any errors or usr-actionable items, background scanning and similar non-threatening actions should result in a grey/muted badge
 * on larger viewports (tablet/dsktop/web) the playlist and now playing views should appear side-by-side, with the now playing bar and its controls becoming center-aligned so they are not spread out across the entire width of the screen (opening resume persists both the current song and the opened playlist, as the now playing song may not be from the same playlist) - on the largest screen sizes even the library view with all folders can be shown 
