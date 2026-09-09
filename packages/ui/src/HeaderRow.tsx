@@ -43,6 +43,14 @@ const styles = StyleSheet.create({
     // that were also offset from each other, not just stacked. A caller's
     // own `style` can still override this if a screen genuinely needs to.
     paddingVertical: 12,
+    // Same reasoning as paddingVertical above - LibraryScreen's title/bell
+    // sat flush against the screen edges with no horizontal inset at all,
+    // while the playlist and Now Playing screens each separately added
+    // their own paddingHorizontal: 16. Matches that existing value (and
+    // MiniPlayerBar's own 12, close enough to read as the same "row of
+    // controls has breathing room" treatment) rather than every screen
+    // guessing its own.
+    paddingHorizontal: 16,
     // position+zIndex here, not just on NotificationBell's own overlay -
     // confirmed live (via document.elementFromPoint, real hit-testing, not
     // just a screenshot glance) that a high z-index nested deep inside this

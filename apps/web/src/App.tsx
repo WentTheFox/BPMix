@@ -1168,7 +1168,6 @@ const styles = StyleSheet.create({
   backRow: {
     width: '100%',
     maxWidth: 480,
-    paddingHorizontal: 16,
   },
   backLink: {
     fontSize: 18,

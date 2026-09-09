@@ -120,6 +120,11 @@ export function TrackList({
 const styles = StyleSheet.create({
   search: {
     marginTop: 16,
+    // Matches HeaderRow's own horizontal inset (16) and TrackRow's - without
+    // this, the search box's border sat flush against the screen edges even
+    // though its placeholder text had its own inset padding, reading as
+    // inconsistent with every other edge-aligned element on the screen.
+    marginHorizontal: 16,
     width: '100%',
     maxWidth: 480,
     alignSelf: 'center',

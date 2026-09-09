@@ -104,7 +104,6 @@ export function NowPlayingScreen({
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <HeaderRow
-        style={styles.backRow}
         left={
           <Pressable onPress={onClose}>
             <IconLabel path={mdiArrowLeft} text="Now Playing" color={colors.text} iconSize={18} textStyle={styles.backLink} />
@@ -177,9 +176,6 @@ export function NowPlayingScreen({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  backRow: {
-    paddingHorizontal: 16,
   },
   backLink: {
     fontSize: 18,
