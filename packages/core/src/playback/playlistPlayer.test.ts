@@ -342,6 +342,67 @@ describe('PlaylistPlayer', () => {
     expect([second, third]).toContain(middleTrackFileId);
   });
 
+  it('getCurrentPlaylistId() tracks the id passed to setPlaylist/loadPlaylist, null if none was given', async () => {
+    expect(player.getCurrentPlaylistId()).toBeNull(); // beforeEach's setPlaylist(TRACKS) passed none
+    await player.setPlaylist(TRACKS, undefined, { playlistId: 'playlist-1' });
+    expect(player.getCurrentPlaylistId()).toBe('playlist-1');
+    await player.loadPlaylist(TRACKS, 'a', { playlistId: 'playlist-2' });
+    expect(player.getCurrentPlaylistId()).toBe('playlist-2');
+  });
+
+  describe('reconcilePlaylist() (the source .m3u8 changed while it is playing)', () => {
+    it('is a no-op when nothing is loaded yet', () => {
+      const freshPlayer = new PlaylistPlayer(engine, (fileId) => makeFileRef(fileId));
+      freshPlayer.reconcilePlaylist(['x', 'y']);
+      expect(freshPlayer.getState().totalTracks).toBe(0);
+    });
+
+    it('sequential: appends a newly added track at its m3u8 position and drops a removed one, keeping the current track playing', async () => {
+      await player.next(); // now on 'b'
+      await flush();
+      engine.fireEnded('source-0'); // let the manual skip's crossfade actually finish - reconcilePlaylist is a no-op while one is in flight
+      player.reconcilePlaylist(['a', 'b', 'd']); // 'c' removed, 'd' added
+      expect(player.getState().currentFileId).toBe('b');
+      expect(player.getState().totalTracks).toBe(3);
+      await player.next();
+      expect(player.getState().currentFileId).toBe('d');
+    });
+
+    it('sequential: keeps the currently playing track alive (appended at the end) if it was itself removed from the playlist', async () => {
+      await player.next(); // now on 'b'
+      await flush();
+      engine.fireEnded('source-0'); // let the manual skip's crossfade actually finish - reconcilePlaylist is a no-op while one is in flight
+      player.reconcilePlaylist(['a', 'c']); // 'b' (currently playing) removed
+      expect(player.getState().currentFileId).toBe('b'); // still reports as current/playing
+      expect(player.getState().totalTracks).toBe(3); // a, c, b(kept alive)
+    });
+
+    it('shuffle: a newly added track is shuffled into the existing order without disturbing survivors\' relative order or the current track', async () => {
+      player.setShuffle(true);
+      const before = player.getShuffleOrder()!;
+      const currentBefore = player.getState().currentFileId;
+      player.reconcilePlaylist([...TRACKS, 'd']);
+      const after = player.getShuffleOrder()!;
+      expect(after.length).toBe(4);
+      expect([...after].sort()).toEqual(['a', 'b', 'c', 'd']);
+      // Survivors keep the same relative order as before - only 'd' is new.
+      expect(after.filter((id) => id !== 'd')).toEqual(before);
+      expect(player.getState().currentFileId).toBe(currentBefore);
+    });
+
+    it('shuffle: a removed track (not the current one) drops out of the order', async () => {
+      player.setShuffle(true);
+      const currentFileId = player.getState().currentFileId!;
+      const remaining = TRACKS.filter((id) => id !== currentFileId);
+      const toRemove = remaining[0]!;
+      player.reconcilePlaylist(TRACKS.filter((id) => id !== toRemove));
+      const after = player.getShuffleOrder()!;
+      expect(after).not.toContain(toRemove);
+      expect(after.length).toBe(2);
+      expect(player.getState().currentFileId).toBe(currentFileId);
+    });
+  });
+
   it('isLoadingForPlayback is true while a user-facing (autoplay) load is decoding', async () => {
     engine.gateDecode('b');
     const promise = player.setPlaylist(TRACKS, 'b');
@@ -742,6 +803,94 @@ describe('PlaylistPlayer volume-only crossfade', () => {
     expect(player.getState().track.status).not.toBe('loading');
   });
 
+  describe('reconcilePlaylist() interaction (regression coverage for the rewritten position/order bookkeeping)', () => {
+    it('is a no-op while a crossfade is actively in flight - the pending transition still completes to the original (not the reconciled) next track', async () => {
+      const engine = new FakeAudioEngine();
+      const player = makePlayer(engine);
+      await player.setPlaylist(TRACKS); // playing 'a' on source-0
+      await flush();
+      player.checkPreload();
+      await flush();
+
+      engine.clock = 5; // remaining 5s - triggers the crossfade into preloaded 'b'
+      player.checkPreload();
+      await flush();
+      expect(player.getState().pendingCrossfadeFileIds).toEqual({ outgoing: 'a', incoming: 'b' });
+
+      const totalTracksBefore = player.getState().totalTracks;
+      // Would normally insert 'x' ahead of 'b' and renumber every position -
+      // must be silently ignored while the transition above is in flight.
+      player.reconcilePlaylist(['a', 'x', 'b', 'c']);
+      expect(player.getState().totalTracks).toBe(totalTracksBefore);
+      expect(player.getState().pendingCrossfadeFileIds).toEqual({ outgoing: 'a', incoming: 'b' });
+
+      engine.fireEnded('source-0'); // the outgoing source's scheduled stop firing
+      expect(player.getState().currentFileId).toBe('b'); // landed on the real next track, unaffected by the ignored reconcile
+      expect(player.getState().position).toBe(1);
+    });
+
+    it('applies normally once no crossfade is in flight, and a subsequent natural crossfade correctly targets the newly-inserted track', async () => {
+      const engine = new FakeAudioEngine();
+      const player = makePlayer(engine);
+      await player.setPlaylist(TRACKS); // playing 'a' on source-0
+      await flush();
+      player.checkPreload();
+      await flush();
+      engine.clock = 5;
+      player.checkPreload();
+      await flush();
+      engine.fireEnded('source-0'); // completes -> now playing 'b', nothing pending
+      expect(player.getState().currentFileId).toBe('b');
+      expect(player.getState().pendingCrossfadeFileIds).toBeNull();
+
+      player.reconcilePlaylist(['a', 'b', 'x', 'c']); // 'x' inserted directly after the current track
+      expect(player.getState().currentFileId).toBe('b'); // unaffected
+      expect(player.getState().totalTracks).toBe(4);
+      expect(player.getNextFileId()).toBe('x'); // preload/crossfade lookahead already sees the reconciled order
+
+      player.checkPreload(); // starts preloading the reconciled next track
+      await flush();
+      expect(engine.decodedFileIds).toContain('x'); // the preload scheduler picked it up from the updated order, not the stale one
+    });
+
+    it('resets the crossfade retry-storm guard, so a since-fixed scheduling failure can retry after a playlist change instead of staying permanently suppressed', async () => {
+      const engine = new FakeAudioEngine();
+      engine.throwOnRampGainCurve = true;
+      const onError = vi.fn();
+      const player = makePlayer(engine, { onError });
+      await player.setPlaylist(TRACKS);
+      await flush();
+      player.checkPreload();
+      await flush();
+
+      engine.clock = 5;
+      player.checkPreload();
+      await flush();
+      expect(onError).toHaveBeenCalledTimes(1); // reported once, then suppressed for this position (see the retry-storm regression test above)
+      // trackPlayer's own pendingIncoming (what reconcilePlaylist actually
+      // gates on) is what correctly reflects "no real transition ever
+      // started" here - unlike PlaylistPlayer's own pendingCrossfadeFileIds,
+      // which is set *before* crossfadeTo() is even called and is left
+      // stale by this exact failure (a separate, pre-existing quirk).
+      expect(player.getState().track.pendingIncoming).toBeNull();
+
+      engine.throwOnRampGainCurve = false; // the underlying problem is "fixed"
+      player.reconcilePlaylist([...TRACKS, 'd']); // a playlist change unrelated to the failure itself
+      // The failed attempt above already consumed 'b's preloaded buffer
+      // (takePreloaded()) before crossfadeTo() threw, so a fresh decode has
+      // to complete first - same multi-tick pattern as "advancing to a
+      // preloaded track does not decode it again" above.
+      for (let i = 0; i < 3; i++) {
+        player.checkPreload();
+        await flush();
+      }
+
+      // Without resetting crossfadeTriggeredForPosition, this evaluation
+      // would still be silently skipped as "already handled" forever.
+      const outgoingCurve = engine.gainCurvesBySourceId.get('source-0')?.[0];
+      expect(outgoingCurve).toBeDefined();
+    });
+  });
 });
 
 describe('PlaylistPlayer manual next()/previous() crossfades instead of hard-cutting', () => {

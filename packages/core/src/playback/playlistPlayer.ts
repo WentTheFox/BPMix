@@ -116,6 +116,8 @@ export class PlaylistPlayer {
   private readonly gainCache = new Map<string, number>();
 
   private trackFileIds: string[] = [];
+  /** The source playlist (.m3u8) the currently loaded trackFileIds came from - see reconcilePlaylist's doc. Null until the first setPlaylist/loadPlaylist call that's given one. */
+  private currentPlaylistId: string | null = null;
   private order: number[] = [];
   private position = -1;
   private loopMode: LoopMode = 'off';
@@ -245,9 +247,15 @@ export class PlaylistPlayer {
     return promise;
   }
 
-  /** Loads a new playlist and starts playing at the given track (default: the first). */
-  async setPlaylist(trackFileIds: string[], startFileId?: string): Promise<void> {
-    await this.loadPlaylistAt(trackFileIds, startFileId, { autoplay: true });
+  /**
+   * Loads a new playlist and starts playing at the given track (default:
+   * the first). `playlistId` (the source .m3u8's PlaylistRecord id), when
+   * given, is remembered for reconcilePlaylist to compare against later -
+   * omit it for anything that isn't really "opening a playlist" (there
+   * isn't a meaningful id to reconcile against).
+   */
+  async setPlaylist(trackFileIds: string[], startFileId?: string, options?: { playlistId?: string }): Promise<void> {
+    await this.loadPlaylistAt(trackFileIds, startFileId, { autoplay: true, playlistId: options?.playlistId });
   }
 
   /**
@@ -266,16 +274,26 @@ export class PlaylistPlayer {
    * dropped; any fileId not in the restored order (added since) is appended
    * in a fresh shuffled tail.
    */
-  async loadPlaylist(trackFileIds: string[], startFileId?: string, options?: { shuffleOrder?: string[] }): Promise<void> {
-    await this.loadPlaylistAt(trackFileIds, startFileId, { autoplay: false, restoredShuffleOrder: options?.shuffleOrder });
+  async loadPlaylist(trackFileIds: string[], startFileId?: string, options?: { shuffleOrder?: string[]; playlistId?: string }): Promise<void> {
+    await this.loadPlaylistAt(trackFileIds, startFileId, {
+      autoplay: false,
+      restoredShuffleOrder: options?.shuffleOrder,
+      playlistId: options?.playlistId,
+    });
+  }
+
+  /** The source playlist id passed to the most recent setPlaylist/loadPlaylist call, or null if none was given - see reconcilePlaylist's doc. */
+  getCurrentPlaylistId(): string | null {
+    return this.currentPlaylistId;
   }
 
   private async loadPlaylistAt(
     trackFileIds: string[],
     startFileId: string | undefined,
-    options: { autoplay: boolean; restoredShuffleOrder?: string[] },
+    options: { autoplay: boolean; restoredShuffleOrder?: string[]; playlistId?: string },
   ): Promise<void> {
     this.trackFileIds = trackFileIds;
+    this.currentPlaylistId = options.playlistId ?? null;
     const startIndex = startFileId ? trackFileIds.indexOf(startFileId) : -1;
     const pinnedIndex = startIndex === -1 ? undefined : startIndex;
     if (!this.shuffleEnabled) {
@@ -369,6 +387,87 @@ export class PlaylistPlayer {
   getShuffleOrder(): string[] | null {
     if (!this.shuffleEnabled) return null;
     return this.order.map((trackIndex) => this.trackFileIds[trackIndex]).filter((id): id is string => id !== undefined);
+  }
+
+  /**
+   * Call this when the source playlist (.m3u8) this instance is currently
+   * playing from - see getCurrentPlaylistId - has been rescanned and may
+   * have gained or lost tracks, so a caller should check
+   * `getCurrentPlaylistId() === theRescannedPlaylistId` before bothering to
+   * call this at all. Diffs `newTrackFileIds` against what's currently
+   * loaded rather than doing a fresh setPlaylist/loadPlaylist (which would
+   * restart shuffle/position bookkeeping from scratch): removed tracks
+   * drop out of the running order; added tracks are appended in their
+   * m3u8 position when not shuffling, or spliced into a random position
+   * among the existing order when shuffling ("shuffled in", not
+   * necessarily played next) - existing tracks' relative order is
+   * otherwise left untouched, so an in-progress shuffle or a listener's
+   * spot in the sequential order survives a rescan instead of jumping
+   * around.
+   *
+   * A no-op if nothing is loaded yet. If the currently playing track was
+   * itself removed from the playlist, it's kept in the running order
+   * anyway (appended at the end) rather than cutting the audio out from
+   * under the listener or leaving `position` pointing at nothing - it
+   * naturally drops out on the next reconcile once a different track
+   * becomes current.
+   *
+   * Also a no-op while a crossfade is actually in flight at the audio
+   * engine level (trackPlayer's own pendingIncoming, not this class's own
+   * pendingCrossfadeFileIds - that field is set slightly earlier, before
+   * crossfadeTo() is even called, and can be left stale if crossfadeTo()
+   * throws without ever starting a real transition, e.g. a repeatable
+   * scheduling failure - see the "resets the crossfade retry-storm guard"
+   * test): handleCrossfadeCompleted advances `position` by simple
+   * arithmetic (`isLast ? 0 : position + 1`) once the transition finishes,
+   * trusting that `position`/`order` still mean what they did when the
+   * crossfade was scheduled - rewriting them out from under it here would
+   * advance to the wrong track, or wrongly wrap/not-wrap, once it
+   * completes. Crossfades are short-lived (a few seconds); the next
+   * refresh() cycle picks up the reconcile once it settles.
+   */
+  reconcilePlaylist(newTrackFileIds: string[]): void {
+    if (this.trackFileIds.length === 0) return;
+    if (this.trackPlayer.getState().pendingIncoming !== null) return;
+    const currentTrackIndex = this.position >= 0 ? this.order[this.position] : undefined;
+    const currentFileId = currentTrackIndex !== undefined ? this.trackFileIds[currentTrackIndex] : undefined;
+
+    const newSet = new Set(newTrackFileIds);
+    const oldSet = new Set(this.trackFileIds);
+    const survivingFileIdsInOrder = this.order
+      .map((i) => this.trackFileIds[i])
+      .filter((id): id is string => id !== undefined && newSet.has(id));
+    const addedFileIds = newTrackFileIds.filter((id) => !oldSet.has(id));
+    const keepCurrentAlive = currentFileId !== undefined && !newSet.has(currentFileId);
+
+    const effectiveTrackFileIds = keepCurrentAlive ? [...newTrackFileIds, currentFileId] : newTrackFileIds;
+
+    let newFileIdOrder: string[];
+    if (!this.shuffleEnabled) {
+      newFileIdOrder = keepCurrentAlive ? [...newTrackFileIds, currentFileId] : newTrackFileIds;
+    } else {
+      newFileIdOrder = [...survivingFileIdsInOrder];
+      if (keepCurrentAlive && !newFileIdOrder.includes(currentFileId)) newFileIdOrder.push(currentFileId);
+      for (const fileId of addedFileIds) {
+        const insertAt = Math.floor(Math.random() * (newFileIdOrder.length + 1));
+        newFileIdOrder.splice(insertAt, 0, fileId);
+      }
+    }
+
+    this.trackFileIds = effectiveTrackFileIds;
+    this.order = newFileIdOrder.map((id) => effectiveTrackFileIds.indexOf(id));
+    if (currentFileId !== undefined) {
+      const newPosition = this.order.findIndex((i) => effectiveTrackFileIds[i] === currentFileId);
+      this.position = newPosition === -1 ? 0 : newPosition;
+    }
+    // `position` is a plain array index, not a stable id - it can come out
+    // pointing at the same track under a different number than before (an
+    // insertion ahead of it, a reshuffle of survivors' indices). A stale
+    // crossfadeTriggeredForPosition could then either wrongly suppress a
+    // crossfade evaluation that's never actually run for this "new"
+    // position, or (less likely) wrongly match and skip one that's now
+    // due - clearing it forces the next preload tick to decide fresh.
+    this.crossfadeTriggeredForPosition = null;
   }
 
   /**

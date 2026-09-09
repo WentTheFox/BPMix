@@ -307,6 +307,7 @@ export function usePlaybackPersistence({
               // completes, same as any other track load.
               const loadPromise = playlistPlayer.loadPlaylist(playlist.trackFileIds, stored.currentTrackFileId, {
                 shuffleOrder: stored.shuffleOrder ?? undefined,
+                playlistId: playlist.id,
               });
               // ?? false covers state persisted before nowPlayingOpen existed
               // (web/Windows store PlaybackState as a plain object, so an

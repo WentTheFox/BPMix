@@ -409,6 +409,29 @@ function App() {
         notificationCenter.upsertProgress('metadata-scan', 'Scanning track metadata', index + 1, total, index + 1 >= total);
       },
     });
+
+    // The now-playing playlist's .m3u8 may have been rescanned (this
+    // refresh() call itself, a manual "Rescan", or a folder sync tool
+    // dropping in a new file) since playback started - reconcile
+    // PlaylistPlayer's running order against whatever this fresh scan
+    // found instead of leaving it stale until the user happens to reopen
+    // the playlist (see reconcilePlaylist's doc for why a plain
+    // setPlaylist() reload isn't used here - it would restart shuffle/
+    // position bookkeeping).
+    const nowPlayingPlaylistId = playlistPlayer.getCurrentPlaylistId();
+    if (nowPlayingPlaylistId) {
+      for (const { playlists, tracksById } of withLibrary) {
+        const nowPlayingPlaylist = playlists.find((p) => p.id === nowPlayingPlaylistId);
+        if (nowPlayingPlaylist) {
+          playlistPlayer.reconcilePlaylist(nowPlayingPlaylist.trackFileIds);
+          activeTracksById = tracksById;
+          setPlayerState(playlistPlayer.getState());
+          persistPlaybackPatch({ shuffleOrder: playlistPlayer.getShuffleOrder() });
+          break;
+        }
+      }
+    }
+
     return withLibrary;
     // notificationCenter.upsertProgress specifically (not the whole
     // notificationCenter object) - that one property is a stable
@@ -598,7 +621,7 @@ function App() {
         // after calling it, rather than only once the whole decode resolves,
         // is what makes the row highlight and "now playing" bar appear the
         // instant you tap instead of waiting out the full decode.
-        const setPlaylistPromise = playlistPlayer.setPlaylist(playlist.trackFileIds, track.fileId);
+        const setPlaylistPromise = playlistPlayer.setPlaylist(playlist.trackFileIds, track.fileId, { playlistId: playlist.id });
         setPlayerState(playlistPlayer.getState());
         await setPlaylistPromise;
       }
