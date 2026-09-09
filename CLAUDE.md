@@ -24,7 +24,7 @@ Notes for tasks that still have to be done/investigated are left here, grouped b
 ## Playback state & playlist persistence
 
   * if the playlist file changed since we last started playback the new entries will need to be shuffled in or if shuffling is off, they must be added to their appropriate positions in the playlist (now playing has to track the source playlist it was derived from) and removed entries must be removed
-  * report playback status to system native media APIs
+  * report playback status to system native media APIs, allow external control
 
 ## Track metadata
 
