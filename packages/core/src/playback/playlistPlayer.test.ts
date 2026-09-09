@@ -273,6 +273,75 @@ describe('PlaylistPlayer', () => {
     expect([...seen].sort()).toEqual(['a', 'b', 'c']);
   });
 
+  it('enabling shuffle pins the currently playing track at the top of the new order (see the "current song to top" UI/UX TODO)', async () => {
+    await player.next(); // now on 'b'
+    player.setShuffle(true);
+    const order = player.getShuffleOrder();
+    expect(order).not.toBeNull();
+    expect(order![0]).toBe('b');
+    expect([...order!].sort()).toEqual(['a', 'b', 'c']);
+    expect(player.getState().position).toBe(0);
+  });
+
+  it('getShuffleOrder() returns null when shuffle is off', () => {
+    expect(player.getShuffleOrder()).toBeNull();
+  });
+
+  it('disabling shuffle restores the original sequential order, keeping the current track playing', async () => {
+    await player.next(); // now on 'b'
+    player.setShuffle(true);
+    player.setShuffle(false);
+    expect(player.getShuffleOrder()).toBeNull();
+    expect(player.getState().currentFileId).toBe('b');
+    expect(player.getState().position).toBe(1); // back to its original sequential index
+  });
+
+  it('loadPlaylist() resumes a persisted shuffle order instead of generating a new one', async () => {
+    player.setShuffle(true);
+    await player.loadPlaylist(TRACKS, 'b', { shuffleOrder: ['c', 'a', 'b'] });
+    await flush();
+    expect(player.getState().currentFileId).toBe('b');
+    // The persisted order is honored verbatim, just re-pinned so the track
+    // we're actually resuming on ('b') leads it - matching what a real
+    // restore (currentTrackFileId + shuffleOrder both persisted together)
+    // should produce, rather than silently reshuffling on every relaunch.
+    expect(player.getShuffleOrder()).toEqual(['b', 'c', 'a']);
+  });
+
+  it('loadPlaylist() drops fileIds no longer in the playlist and shuffles in any that are new, from a persisted shuffle order', async () => {
+    player.setShuffle(true);
+    await player.loadPlaylist(TRACKS, 'a', { shuffleOrder: ['removed-track', 'c', 'b', 'a'] });
+    await flush();
+    const order = player.getShuffleOrder();
+    expect(order).not.toBeNull();
+    expect(order![0]).toBe('a');
+    expect([...order!].sort()).toEqual(['a', 'b', 'c']);
+  });
+
+  it('shuffle + loop "all" reshuffles for the next lap once the last track is reached, instead of hard-wrapping to a fixed index', async () => {
+    player.setLoopMode('all');
+    player.setShuffle(true); // pins 'a' at the top; 'b'/'c' shuffled below it
+    await player.next(); // position 0 -> 1, no reshuffle yet (not the last position)
+    const middleTrackFileId = player.getState().currentFileId;
+    await player.next(); // position 1 -> 2, the last position - triggers the reshuffle-for-next-lap
+    const lastTrackFileId = player.getState().currentFileId;
+    // Re-labeled as position 0 of a freshly shuffled next lap, with the
+    // just-reached last track pinned at its front - see
+    // maybeReshuffleForLoopContinuation's doc.
+    expect(player.getState().position).toBe(0);
+    const order = player.getShuffleOrder();
+    expect(order![0]).toBe(lastTrackFileId);
+    expect([...order!].sort()).toEqual(['a', 'b', 'c']);
+    // The rest of the lap continues as an ordinary position+1 advance -
+    // visiting the other two tracks without ever repeating lastTrackFileId.
+    await player.next();
+    const second = player.getState().currentFileId;
+    await player.next();
+    const third = player.getState().currentFileId;
+    expect(new Set([lastTrackFileId, second, third]).size).toBe(3);
+    expect([second, third]).toContain(middleTrackFileId);
+  });
+
   it('getNextFileId() reports the track that would play next', async () => {
     expect(player.getNextFileId()).toBe('b'); // starts on 'a'
 

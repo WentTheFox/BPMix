@@ -174,9 +174,9 @@ const ready = (async () => {
     )`,
   );
   // Same reasoning/pattern as the analysis table's migration guard above -
-  // a table created before the `volume`/`rootId`/`nowPlayingOpen` columns
-  // existed would silently reject every putPlaybackState() insert with "no
-  // such column".
+  // a table created before the `volume`/`rootId`/`nowPlayingOpen`/
+  // `shuffleOrder` columns existed would silently reject every
+  // putPlaybackState() insert with "no such column".
   const playbackStateTableInfo = await run('PRAGMA table_info(playback_state)');
   const playbackStateColumns = new Set<string>();
   for (let i = 0; i < playbackStateTableInfo.rows.length; i++) {
@@ -184,7 +184,10 @@ const ready = (async () => {
   }
   if (
     playbackStateColumns.size > 0 &&
-    (!playbackStateColumns.has('volume') || !playbackStateColumns.has('rootId') || !playbackStateColumns.has('nowPlayingOpen'))
+    (!playbackStateColumns.has('volume') ||
+      !playbackStateColumns.has('rootId') ||
+      !playbackStateColumns.has('nowPlayingOpen') ||
+      !playbackStateColumns.has('shuffleOrder'))
   ) {
     await run('DROP TABLE playback_state');
   }
@@ -217,6 +220,7 @@ const ready = (async () => {
       positionSeconds REAL NOT NULL,
       loopMode TEXT NOT NULL,
       shuffleEnabled INTEGER NOT NULL,
+      shuffleOrder TEXT,
       volume REAL NOT NULL,
       nowPlayingOpen INTEGER NOT NULL
     )`,
@@ -420,22 +424,29 @@ export function createLibraryStore(): LibraryStore {
         positionSeconds: number;
         loopMode: PlaybackState['loopMode'];
         shuffleEnabled: number;
+        shuffleOrder: string | null;
         volume: number;
         nowPlayingOpen: number;
       }>(result);
       const row = rows[0];
       if (!row) return null;
-      return { ...row, shuffleEnabled: row.shuffleEnabled === 1, nowPlayingOpen: row.nowPlayingOpen === 1 };
+      return {
+        ...row,
+        shuffleEnabled: row.shuffleEnabled === 1,
+        shuffleOrder: row.shuffleOrder ? (JSON.parse(row.shuffleOrder) as string[]) : null,
+        nowPlayingOpen: row.nowPlayingOpen === 1,
+      };
     },
 
     async putPlaybackState(state: PlaybackState): Promise<void> {
       await ready;
       await run(
-        `INSERT INTO playback_state (id, playlistId, currentTrackFileId, rootId, positionSeconds, loopMode, shuffleEnabled, volume, nowPlayingOpen)
-         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO playback_state (id, playlistId, currentTrackFileId, rootId, positionSeconds, loopMode, shuffleEnabled, shuffleOrder, volume, nowPlayingOpen)
+         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET playlistId=excluded.playlistId, currentTrackFileId=excluded.currentTrackFileId,
            rootId=excluded.rootId, positionSeconds=excluded.positionSeconds, loopMode=excluded.loopMode,
-           shuffleEnabled=excluded.shuffleEnabled, volume=excluded.volume, nowPlayingOpen=excluded.nowPlayingOpen`,
+           shuffleEnabled=excluded.shuffleEnabled, shuffleOrder=excluded.shuffleOrder, volume=excluded.volume,
+           nowPlayingOpen=excluded.nowPlayingOpen`,
         [
           state.playlistId,
           state.currentTrackFileId,
@@ -443,6 +454,7 @@ export function createLibraryStore(): LibraryStore {
           state.positionSeconds,
           state.loopMode,
           state.shuffleEnabled ? 1 : 0,
+          state.shuffleOrder ? JSON.stringify(state.shuffleOrder) : null,
           state.volume,
           state.nowPlayingOpen ? 1 : 0,
         ],

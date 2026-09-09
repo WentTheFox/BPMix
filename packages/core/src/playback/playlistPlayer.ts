@@ -243,18 +243,68 @@ export class PlaylistPlayer {
    * surprise. Unlike setPlaylist, which browsers' autoplay policy silently
    * no-ops on web until a real user gesture, native platforms have no such
    * protection - audio would genuinely start playing.
+   *
+   * `shuffleOrder` is the persisted shuffle order (see getShuffleOrder) from
+   * last session, used instead of generating a brand-new random order when
+   * shuffle is enabled - without this, every relaunch would silently
+   * re-shuffle even though the user never touched the shuffle toggle. Any
+   * fileId no longer in trackFileIds (removed from the playlist since) is
+   * dropped; any fileId not in the restored order (added since) is appended
+   * in a fresh shuffled tail.
    */
-  async loadPlaylist(trackFileIds: string[], startFileId?: string): Promise<void> {
-    await this.loadPlaylistAt(trackFileIds, startFileId, { autoplay: false });
+  async loadPlaylist(trackFileIds: string[], startFileId?: string, options?: { shuffleOrder?: string[] }): Promise<void> {
+    await this.loadPlaylistAt(trackFileIds, startFileId, { autoplay: false, restoredShuffleOrder: options?.shuffleOrder });
   }
 
-  private async loadPlaylistAt(trackFileIds: string[], startFileId: string | undefined, options: { autoplay: boolean }): Promise<void> {
+  private async loadPlaylistAt(
+    trackFileIds: string[],
+    startFileId: string | undefined,
+    options: { autoplay: boolean; restoredShuffleOrder?: string[] },
+  ): Promise<void> {
     this.trackFileIds = trackFileIds;
-    this.order = this.shuffleEnabled ? fisherYatesShuffle(trackFileIds.map((_, i) => i)) : trackFileIds.map((_, i) => i);
-    const startPosition = startFileId
-      ? this.order.findIndex((trackIndex) => this.trackFileIds[trackIndex] === startFileId)
-      : 0;
+    const startIndex = startFileId ? trackFileIds.indexOf(startFileId) : -1;
+    const pinnedIndex = startIndex === -1 ? undefined : startIndex;
+    if (!this.shuffleEnabled) {
+      this.order = trackFileIds.map((_, i) => i);
+    } else if (options.restoredShuffleOrder && options.restoredShuffleOrder.length > 0) {
+      this.order = this.buildOrderFromRestoredShuffle(options.restoredShuffleOrder, pinnedIndex);
+    } else {
+      this.order = this.buildShuffledOrder(pinnedIndex);
+    }
+    const startPosition = pinnedIndex !== undefined ? this.order.indexOf(pinnedIndex) : 0;
     await this.playAt(startPosition === -1 ? 0 : startPosition, options);
+  }
+
+  /** A fresh Fisher-Yates order over every track - `pinnedIndex`, when given, is placed first (the "current song goes to the top" rule) with the rest shuffled below it, rather than landing wherever the shuffle happens to put it. */
+  private buildShuffledOrder(pinnedIndex?: number): number[] {
+    const indices = this.trackFileIds.map((_, i) => i);
+    if (pinnedIndex === undefined) return fisherYatesShuffle(indices);
+    const rest = indices.filter((i) => i !== pinnedIndex);
+    return [pinnedIndex, ...fisherYatesShuffle(rest)];
+  }
+
+  /** Maps a persisted shuffle order (fileIds) back onto index space against the current trackFileIds - see loadPlaylist's doc for the add/remove-since-last-session handling. */
+  private buildOrderFromRestoredShuffle(orderFileIds: string[], pinnedIndex?: number): number[] {
+    const indexByFileId = new Map(this.trackFileIds.map((id, i) => [id, i] as const));
+    const seen = new Set<number>();
+    const restored: number[] = [];
+    for (const fileId of orderFileIds) {
+      const index = indexByFileId.get(fileId);
+      if (index !== undefined && !seen.has(index)) {
+        seen.add(index);
+        restored.push(index);
+      }
+    }
+    const missing = this.trackFileIds.map((_, i) => i).filter((i) => !seen.has(i));
+    const order = [...restored, ...fisherYatesShuffle(missing)];
+    if (pinnedIndex !== undefined) {
+      const at = order.indexOf(pinnedIndex);
+      if (at > 0) {
+        order.splice(at, 1);
+        order.unshift(pinnedIndex);
+      }
+    }
+    return order;
   }
 
   setLoopMode(mode: LoopMode): void {
@@ -279,7 +329,14 @@ export class PlaylistPlayer {
     return this.trackPlayer.getVolume();
   }
 
-  /** Re-shuffles (or restores original order) without interrupting the currently playing track. */
+  /**
+   * Re-shuffles (or restores original order) without interrupting the
+   * currently playing track. Enabling shuffle pins the currently playing
+   * track at the top of the new order (position 0) with the rest shuffled
+   * below it, rather than letting it land anywhere at random - see the
+   * "current song to top" UI/UX TODO. Disabling restores the original
+   * playlist order, keeping the current track's position intact.
+   */
   setShuffle(enabled: boolean): void {
     if (this.shuffleEnabled === enabled || this.trackFileIds.length === 0) {
       this.shuffleEnabled = enabled;
@@ -287,13 +344,40 @@ export class PlaylistPlayer {
     }
     const currentTrackIndex = this.position >= 0 ? this.order[this.position] : undefined;
     this.shuffleEnabled = enabled;
-    this.order = enabled
-      ? fisherYatesShuffle(this.trackFileIds.map((_, i) => i))
-      : this.trackFileIds.map((_, i) => i);
+    this.order = enabled ? this.buildShuffledOrder(currentTrackIndex) : this.trackFileIds.map((_, i) => i);
     if (currentTrackIndex !== undefined) {
       const newPosition = this.order.indexOf(currentTrackIndex);
       this.position = newPosition === -1 ? 0 : newPosition;
     }
+  }
+
+  /** The current shuffle order as fileIds (nearest-first from position 0), for persisting across reloads - see loadPlaylist's `shuffleOrder` option. Null when shuffle is off, since sequential order needs no persisting. */
+  getShuffleOrder(): string[] | null {
+    if (!this.shuffleEnabled) return null;
+    return this.order.map((trackIndex) => this.trackFileIds[trackIndex]).filter((id): id is string => id !== undefined);
+  }
+
+  /**
+   * Once shuffle + loop-all reach the last track in the current order, this
+   * immediately regenerates the shuffle for the next lap - re-labeled as
+   * position 0 of the new order with the just-reached last track pinned at
+   * its front - rather than waiting until that track actually ends. Doing
+   * this at entry (before any crossfade lookahead has decided what plays
+   * next), instead of at end-time, means the ordinary position+1/
+   * computeUpcomingFileIds/preload machinery just treats the rest of the
+   * loop as a normal continuation - no special-casing needed anywhere else
+   * for the wrap-around, and no risk of the crossfade having already
+   * committed to a track picked from the pre-reshuffle order.
+   */
+  private maybeReshuffleForLoopContinuation(): void {
+    if (!this.shuffleEnabled || this.loopMode !== 'all') return;
+    if (this.trackFileIds.length <= 1) return;
+    if (this.position !== this.order.length - 1) return;
+    const lastIndex = this.order[this.position];
+    if (lastIndex === undefined) return;
+    const rest = this.trackFileIds.map((_, i) => i).filter((i) => i !== lastIndex);
+    this.order = [lastIndex, ...fisherYatesShuffle(rest)];
+    this.position = 0;
   }
 
   play(): void {
@@ -451,6 +535,7 @@ export class PlaylistPlayer {
     if (!this.crossfadeIsManualSkip) {
       const isLast = this.position >= this.order.length - 1;
       this.position = isLast ? 0 : this.position + 1;
+      this.maybeReshuffleForLoopContinuation();
     }
     this.crossfadeIsManualSkip = false;
     this.pendingCrossfadeFileIds = null;
@@ -521,6 +606,7 @@ export class PlaylistPlayer {
     const outgoingFileId = outgoingTrackIndex !== undefined ? this.trackFileIds[outgoingTrackIndex] : undefined;
 
     this.position = position;
+    this.maybeReshuffleForLoopContinuation();
     const token = ++this.playToken;
     try {
       const preloaded = this.preloadScheduler.takePreloaded(fileId);
@@ -564,6 +650,7 @@ export class PlaylistPlayer {
     const fileId = this.trackFileIds[trackIndex];
     if (fileId === undefined) return;
     this.position = position;
+    this.maybeReshuffleForLoopContinuation();
     this.trackPlayer.markLoading();
     // If a newer playAt() (from a rapid manual skip, or a duplicate/spurious
     // onEnded firing) starts before this one finishes decoding, this call's

@@ -446,7 +446,15 @@ function App() {
       // crossfade completing and a track ending naturally both change
       // currentFileId without going through goNext/goPrevious.
       if (state.currentFileId) {
-        persistPlaybackPatch({ currentTrackFileId: state.currentFileId, positionSeconds: state.track.positionSeconds });
+        // Also re-persists shuffleOrder here, not just on the shuffle toggle
+        // itself - maybeReshuffleForLoopContinuation can silently regenerate
+        // it mid-playback (loop='all' wrapping past the last track), and
+        // this fires on every advance regardless of what triggered it.
+        persistPlaybackPatch({
+          currentTrackFileId: state.currentFileId,
+          positionSeconds: state.track.positionSeconds,
+          shuffleOrder: playlistPlayer.getShuffleOrder(),
+        });
       }
     };
     return () => {
@@ -676,7 +684,7 @@ function App() {
     const nextEnabled = !playerState.shuffleEnabled;
     playlistPlayer.setShuffle(nextEnabled);
     setPlayerState(playlistPlayer.getState());
-    persistPlaybackPatch({ shuffleEnabled: nextEnabled });
+    persistPlaybackPatch({ shuffleEnabled: nextEnabled, shuffleOrder: playlistPlayer.getShuffleOrder() });
   }, [playerState.shuffleEnabled, persistPlaybackPatch]);
 
   const [volume, setVolumeState] = useState(() => playlistPlayer.getVolume());

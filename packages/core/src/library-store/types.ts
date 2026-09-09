@@ -69,6 +69,13 @@ export interface PlaybackState {
   positionSeconds: number;
   loopMode: LoopMode;
   shuffleEnabled: boolean;
+  /**
+   * The shuffle order as fileIds (see PlaylistPlayer.getShuffleOrder), so a
+   * relaunch resumes the exact same shuffled sequence instead of silently
+   * re-shuffling every time shuffleEnabled is true. Null when shuffle is
+   * off, or for state persisted before this field existed.
+   */
+  shuffleOrder: string[] | null;
   /** User-facing master volume [0,1] - see PlaylistPlayer.setVolume. Persisted so the next launch doesn't blast out at whatever volume happened to be in effect (e.g. full, its default) before it's set once. */
   volume: number;
   /** Whether the Now Playing screen (opened from the mini bar's art/title) was showing when last closed - restored so relaunching lands back on it instead of always the playlist/library screen underneath. */

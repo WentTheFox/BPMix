@@ -118,6 +118,7 @@ export function usePlaybackPersistence({
     positionSeconds: 0,
     loopMode: 'off',
     shuffleEnabled: false,
+    shuffleOrder: null,
     volume: 1,
     nowPlayingOpen: false,
   });
@@ -265,7 +266,9 @@ export function usePlaybackPersistence({
             // playlistPlayer.getState()) already picks up the status
             // transition from 'loading' to 'paused' as it completes, same
             // as any other track load.
-            const loadPromise = playlistPlayer.loadPlaylist(playlist.trackFileIds, stored.currentTrackFileId);
+            const loadPromise = playlistPlayer.loadPlaylist(playlist.trackFileIds, stored.currentTrackFileId, {
+              shuffleOrder: stored.shuffleOrder ?? undefined,
+            });
             // ?? false covers state persisted before nowPlayingOpen existed
             // (web/Windows store PlaybackState as a plain object, so an
             // older blob simply lacks the field rather than defaulting it).
