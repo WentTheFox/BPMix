@@ -1,5 +1,11 @@
 import {
+  mdiAlertCircle,
+  mdiAlertCircleOutline,
   mdiArrowLeft,
+  mdiBellOutline,
+  mdiChevronDown,
+  mdiChevronUp,
+  mdiClose,
   mdiFolder,
   mdiFolderMusic,
   mdiFolderPlus,
@@ -7,6 +13,7 @@ import {
   mdiPause,
   mdiPlay,
   mdiPlaylistMusic,
+  mdiProgressClock,
   mdiRefresh,
   mdiRepeat,
   mdiRepeatOnce,
@@ -85,6 +92,16 @@ const CODEPOINTS: Record<string, number> = {
   [mdiVolumeLow]: 0xe993, // "Volume1"
   [mdiVolumeMedium]: 0xe994, // "Volume2"
   [mdiVolumeHigh]: 0xe995, // "Volume3"
+  // Added for the notification bell + missing-track indicator (see
+  // NotificationBell.tsx/TrackRow.tsx) - sourced from the same official
+  // codepoint table as the volume glyphs above, no GDI+ re-verification.
+  [mdiAlertCircle]: 0xeb90, // "StatusErrorFull" - filled error/alert circle, used for the red error rows
+  [mdiAlertCircleOutline]: 0xe783, // "Error" - outline alert glyph, used for the faded missing-track marker
+  [mdiBellOutline]: 0xea8f, // "Ringer" - the font's only bell glyph
+  [mdiChevronDown]: 0xe70d, // "ChevronDown"
+  [mdiChevronUp]: 0xe70e, // "ChevronUp"
+  [mdiClose]: 0xe711, // "Cancel" - the font's "X" close glyph
+  [mdiProgressClock]: 0xe917, // "Clock" - no dedicated "in progress" glyph exists, closest semantic match
 };
 
 const FALLBACK_CODEPOINT = 0xe11b; // "StatusErrorFull" (a "?" in a circle) - visible placeholder for an unmapped icon, not a silent blank.
