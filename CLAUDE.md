@@ -10,7 +10,7 @@
 
 # TODOS
 
-Notes for tasks that still have to be done/investigated are left here, grouped by area:
+Notes for tasks that still have to be done/investigated are left here, grouped by area. **When an item below is actually completed, remove it from this list in the same change** - don't leave finished work sitting here as if it were still outstanding.
 
 ## Crossfade / transition engine rework
 
