@@ -18,14 +18,11 @@ Notes for tasks that still have to be done/investigated are left here, grouped b
   * the current and next songs will have to play in parallel for the bpm analysis until there is an opportune time to fade over with the second one being muted
   * once a transition point is found we will need to fade into the second song immediately with little to no delay
   * we have to forego audio speed manipulation as a first round due to the added complexity and focus solely on getting a smooth volume transition from one song to the next
-  * when fading the track's normalized gain should be taken into account as currently the current track's volume jumps drastically when a transition starts
   * current song stays on screen even after it's past the transition time
   * we need more informative debug visualization, render out the actual audio waveform along with indicators for when a beat is detected for the "past few seconds" and display it in a running timeline
 
 ## Playback state & playlist persistence
 
-  * we have to preserve settings like last opened playlist, last played song, shuffle & looping state across application loads
-  * as soon as a track starts playing we need to create an in-memory "now playing" playlist that also carries with it the shuffled track order
   * if the playlist file changed since we last started playback the new entries will need to be shuffled in or if shuffling is off, they must be added to their appropriate positions in the playlist (now playing has to track the source playlist it was derived from) and removed entries must be removed
   * report playback status to system native media APIs
 
@@ -35,12 +32,10 @@ Notes for tasks that still have to be done/investigated are left here, grouped b
   * we can scan audio metadata asynchronously and update it as playback progresses, showing only the filename until this is done
   * tie metadata to file hash in case the song file changes on disk without a file name change
   * display live waveform of the current and next song
-  * the background metadata scan (both apps' `refresh()` in App.tsx) is deferred via `InteractionManager.runAfterInteractions` - that API is deprecated on the RN version we're on ("Please refactor long tasks into smaller ones, and use 'requestIdleCallback' instead"), so migrate it to `requestIdleCallback` before RN actually removes `InteractionManager`. Not a drop-in swap: `runAfterInteractions` just waits for the interaction queue to drain and runs the callback once, while `requestIdleCallback` fires (possibly repeatedly) whenever there's idle time in a frame and hands you a deadline to chunk work against - `scanLibraryMetadata` already yields cooperatively between tracks (`yieldToEventLoop`), so it's a reasonable fit for real idle-chunked scheduling, not just a like-for-like call swap.
 
 ## UI/UX improvements
 
 * settings page with customizable theme (light/flux (warm light)/dark/amoled), accent color, ability to turn off volume normalization, and ability to change crossfade duration, wih a reset settings button that sets everything to default
-* when pressing shuffle the current song is placed at the top of the playlist and other songs should appear below it in the shuffled order, this order must persist across reloads, until shuffle is toggled off (restore original playlist order preserving current track position) or if looping, when the last song ends the playlist should be reshuffled under the last song before switching to the next track
 * The notification icon should only show a red badge if there are any errors or usr-actionable items, background scanning and similar non-threatening actions should result in a grey/muted badge
 * on larger viewports (tablet/dsktop/web) the playlist and now playing views should appear side-by-side, with the now playing bar and its controls becoming center-aligned so they are not spread out across the entire width of the screen (opening resume persists both the current song and the opened playlist, as the now playing song may not be from the same playlist) - on the largest screen sizes even the library view with all folders can be shown 
 
@@ -50,6 +45,7 @@ Notes for tasks that still have to be done/investigated are left here, grouped b
 * Support for embedded track id3 lyrics/syncedlyrics
 * add an lrc syncing UI for songs with nt synced plaintext lyrics, or a resyn option that reconstructs the plain lyrics from the lrc file (tap to advance sync, swipe up to go bac to previous entry/start on first entry, swipe left to remove a line, swipe right to insert a break) with onscreen controls and instructions, as well as step 5-10seconds buttons forwards/backwards
   * this same editor should also cover the multi-language case: a track's native-language .lrc is sometimes itself unsynced (plain text) while its `<track>.<lang>.lrc` translation sibling (see `matchTranslationLines`/`loadAssignedLyrics` in `packages/core/src/lyrics/`) is fully synced - real example found on-device, "Ester Dean - Rio Music From The Motion Picture/Take You To Rio.lrc" (native, `[lang:pt]`, plain text) vs its `.en.lrc` (synced). Today BPMix just shows the unsynced native text and silently drops the synced translation in this case (a deliberate, simple choice for now). The editor should let the user manually sync the native lyrics later using the translation's existing timestamps as a starting reference/guide (or otherwise carry the translation's timing over) instead of that being a dead end
+  * add a separate time adjust mode, sometimes lyrics just star at different times but other timings might already be consistent, for simple cases like this we can just shift all time entries by a customizable amount instead of having to resync the whole song
 * let the user create a playlist directly from a folder (e.g. via FolderBrowser) instead of requiring an existing .m3u8 - probably a new action alongside "Select This Folder" that generates a playlist from the audio files found in that folder (recursively) and set a sorting criteria before creating (date of file creation, song title, artist name, album) and order (asc, desc) with a preview of what the top of the playlist will looks like
 * advanced: sound recognition-based automatic pre-syncing with manual review (requires large R&D effort, needs eternal library maybe)
 * automatic translated lyrics generation using DeepL API key (translate whole lyrics in timed order, correctly flattening lrc lines with multiple timestamps per line) and writing to file - depends on settings page TODO
