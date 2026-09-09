@@ -39,21 +39,18 @@ Notes for tasks that still have to be done/investigated are left here, grouped b
 
 ## UI/UX improvements
 
+* settings page with customizable accent color, ability to turn off volume normalization, and ability to change crossfade duration, wih a reset settings button that sets everything to default
 * when pressing shuffle the current song is placed at the top of the playlist and other songs should appear below it in the shuffled order, this order must persist across reloads, until shuffle is toggled off (restore original playlist order preserving current track position) or if looping, when the last song ends the playlist should be reshuffled under the last song before switching to the next track
-* move the "now playing" controls to a fixed bar at the bottom of the screen with play-pause-next-previous controls on the right and move everything else to a now playing screen accessible by clicking the album art+song+name+artist displayed on the left of the bar similar to the layout in the playlist
-* Move song progress indicator (time elapsed/remianing next to the playing bar
-* hide currently playing track number and normalized gain
-* display the "previous" track's art somewhere alongside the current/next discs in CrossfadeArt
-* record simulation: freehand finger spinning for record scratching + similar effect on the currently playing song when pausing or resuming playback (increase size of current record for easier manipulation)
+* The notification icon should only show a red badge if there are any errors or usr-actionable items, background scanning and similar non-threatening actions should result in a grey/muted badge
+* on larger viewports (tablet/dsktop/web) the playlist and now playing views should appear side-by-side, with the now playing bar and its controls becoming center-aligned so they are not spread out across the entire width of the screen (opening resume persists both the current song and the opened playlist, as the now playing song may not be from the same playlist) - on the largest screen sizes even the library view with all folders can be shown 
+
 
 ## new features
 
-* Lyrics displayed during playback
 * Support for embedded track id3 lyrics/syncedlyrics
-* Support browsing for a dedicated lyrics folder with .lrc files + auto-assigning to tracks with manual override possibility, one lrc file may be assigned to multiple tracks (e.g. different qualities/files for the same song)
 * add an lrc syncing UI for songs with nt synced plaintext lyrics, or a resyn option that reconstructs the plain lyrics from the lrc file (tap to advance sync, swipe up to go bac to previous entry/start on first entry, swipe left to remove a line, swipe right to insert a break) with onscreen controls and instructions, as well as step 5-10seconds buttons forwards/backwards
   * this same editor should also cover the multi-language case: a track's native-language .lrc is sometimes itself unsynced (plain text) while its `<track>.<lang>.lrc` translation sibling (see `matchTranslationLines`/`loadAssignedLyrics` in `packages/core/src/lyrics/`) is fully synced - real example found on-device, "Ester Dean - Rio Music From The Motion Picture/Take You To Rio.lrc" (native, `[lang:pt]`, plain text) vs its `.en.lrc` (synced). Today BPMix just shows the unsynced native text and silently drops the synced translation in this case (a deliberate, simple choice for now). The editor should let the user manually sync the native lyrics later using the translation's existing timestamps as a starting reference/guide (or otherwise carry the translation's timing over) instead of that being a dead end
-* let the user create a playlist directly from a folder (e.g. via FolderBrowser) instead of requiring an existing .m3u8 - probably a new action alongside "Select This Folder" that generates a playlist from the audio files found in that folder (recursively or not - TBD)
+* let the user create a playlist directly from a folder (e.g. via FolderBrowser) instead of requiring an existing .m3u8 - probably a new action alongside "Select This Folder" that generates a playlist from the audio files found in that folder (recursively) and set a sorting criteria before creating (date of file creation, song title, artist name, album) and order (asc, desc) with a preview of what the top of the playlist will looks like
 * advanced: sound recognition-based automatic pre-syncing with manual review (requires large R&D effort, needs eternal library maybe)
 
 ## housekeeping
@@ -65,3 +62,5 @@ Notes for tasks that still have to be done/investigated are left here, grouped b
      plugins.
     > 
     > For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+* break each platform's App.tsx into smaller components and reusable hooks
+* check for duplications in the extracted components/hooks and try to unify them as much as possible with the use of the shared "ui" package
