@@ -9,6 +9,8 @@ export interface TrackListProps {
   tracksById: Map<string, TrackRecord>;
   currentFileId: string | null;
   isPlaying: boolean;
+  /** See TrackRow.isLoading's doc - passed straight through. */
+  isLoading?: boolean;
   textColor: string;
   /** Only needed for the search box's border/placeholder - see the note above the TextInput below. */
   colors: Colors;
@@ -43,6 +45,7 @@ export function TrackList({
   tracksById,
   currentFileId,
   isPlaying,
+  isLoading,
   textColor,
   colors,
   onPressTrack,
@@ -84,6 +87,7 @@ export function TrackList({
               track={track}
               isCurrent={currentFileId === fileId}
               isPlaying={isPlaying}
+              isLoading={isLoading}
               textColor={textColor}
               colors={colors}
               onPress={onPressTrack}
@@ -101,7 +105,7 @@ export function TrackList({
         // something else happened to force FlatList to re-render (e.g.
         // scrolling), which read as the highlight lagging a tap by however
         // long that took to happen on its own.
-        extraData={[currentFileId, isPlaying, missingFileIds]}
+        extraData={[currentFileId, isPlaying, isLoading, missingFileIds]}
         // Only valid while filteredFileIds is the unfiltered list - a
         // filtered list's rows keep TRACK_ROW_HEIGHT each, but their offsets
         // no longer correspond to `index * TRACK_ROW_HEIGHT` against the

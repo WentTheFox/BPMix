@@ -220,6 +220,11 @@ function AppContent() {
       return false;
     }
     lastTransportActionAtRef.current = now;
+    // Every manual transport action funnels through here - the single
+    // choke point to tell usePlaybackPersistence's on-launch restore to
+    // stop trying to apply itself once the user has taken over. See
+    // notifyUserTookOver's doc for the race this closes.
+    notifyUserTookOver();
     return true;
   };
 
@@ -390,7 +395,7 @@ function AppContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notificationCenter.upsertProgress]);
 
-  const { isRestoring, persistPlaybackPatch, persistPositionIfDue } = usePlaybackPersistence({
+  const { isRestoring, persistPlaybackPatch, persistPositionIfDue, notifyUserTookOver } = usePlaybackPersistence({
     fileAccess,
     libraryStore,
     playlistPlayer,
@@ -760,7 +765,11 @@ function AppContent() {
       ? realTimeForOutgoingPosition(transitionPlan, playerState.track.positionSeconds)
       : null;
 
-  const isLoadingTrack = playerState.track.status === 'loading';
+  // isLoadingForPlayback, not the raw status==='loading' - the latter is
+  // also true for the on-launch restore's silent, non-autoplaying decode
+  // (see PlaylistPlayerState.isLoadingForPlayback's doc), which shouldn't
+  // show a loading bar for a track that isn't actually about to play.
+  const isLoadingTrack = playerState.isLoadingForPlayback;
 
   const outgoingTrack = pendingOutgoingTrack ?? nowPlayingTrack;
   const incomingTrack = pendingIncomingTrack ?? nextTrack;
@@ -1049,6 +1058,7 @@ function AppContent() {
           tracksById={tracksById}
           currentFileId={playerState.currentFileId}
           isPlaying={playerState.track.status === 'playing'}
+          isLoading={playerState.isLoadingForPlayback}
           textColor={colors.text}
           colors={colors}
           onPressTrack={(t) => void playFromTrack(playlist, tracksById, t)}

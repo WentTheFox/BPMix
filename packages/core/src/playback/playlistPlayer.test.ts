@@ -342,6 +342,27 @@ describe('PlaylistPlayer', () => {
     expect([second, third]).toContain(middleTrackFileId);
   });
 
+  it('isLoadingForPlayback is true while a user-facing (autoplay) load is decoding', async () => {
+    engine.gateDecode('b');
+    const promise = player.setPlaylist(TRACKS, 'b');
+    await flush();
+    expect(player.getState().track.status).toBe('loading');
+    expect(player.getState().isLoadingForPlayback).toBe(true);
+    engine.releaseDecode('b');
+    await promise;
+    expect(player.getState().isLoadingForPlayback).toBe(false);
+  });
+
+  it("isLoadingForPlayback is false for a silent restore (loadPlaylist's non-autoplay) load, even while status is 'loading' - a UI loading spinner should gate on this, not raw status, so a restored-but-paused track doesn't look like it's about to play", async () => {
+    engine.gateDecode('b');
+    const promise = player.loadPlaylist(TRACKS, 'b');
+    await flush();
+    expect(player.getState().track.status).toBe('loading');
+    expect(player.getState().isLoadingForPlayback).toBe(false);
+    engine.releaseDecode('b');
+    await promise;
+  });
+
   it('getNextFileId() reports the track that would play next', async () => {
     expect(player.getNextFileId()).toBe('b'); // starts on 'a'
 

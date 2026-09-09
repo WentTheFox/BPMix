@@ -52,6 +52,18 @@ export interface PlaylistPlayerState {
    * this instead of either of those.
    */
   pendingCrossfadeFileIds: { outgoing: string; incoming: string } | null;
+  /**
+   * True while `track.status === 'loading'` AND that decode is actually
+   * heading toward playback (a user tapping a track, a manual/natural
+   * next/previous) - false for a loadPlaylist() decode (e.g. the on-launch
+   * restore, which deliberately leaves the track paused - see
+   * loadPlaylist's doc). A UI showing a per-track loading spinner (as
+   * opposed to a play/pause glyph) should gate on this, not just
+   * `track.status === 'loading'` alone - otherwise the restored track
+   * shows a spinner on launch even though nothing is about to play yet.
+   * Meaningless (false) whenever status isn't 'loading'.
+   */
+  isLoadingForPlayback: boolean;
 }
 
 /**
@@ -109,6 +121,8 @@ export class PlaylistPlayer {
   private loopMode: LoopMode = 'off';
   private shuffleEnabled = false;
   private playToken = 0;
+  /** See PlaylistPlayerState.isLoadingForPlayback's doc - set alongside markLoading() in playAt(), from that call's own autoplay intent. */
+  private loadingForPlayback = false;
   /** The playback position a crossfade has already been triggered (or ruled out as impossible) for - guards against re-triggering every ~200ms tick for the remainder of the same track. */
   private crossfadeTriggeredForPosition: number | null = null;
   /** True while maybeStartCrossfade's async analysis/gain lookups are in flight - guards against a second tick re-entering and double-triggering before the first attempt has committed or bailed. */
@@ -569,14 +583,16 @@ export class PlaylistPlayer {
 
   getState(): PlaylistPlayerState {
     const currentTrackIndex = this.position >= 0 ? this.order[this.position] : undefined;
+    const track = this.trackPlayer.getState();
     return {
       totalTracks: this.trackFileIds.length,
       position: this.position,
       currentFileId: currentTrackIndex !== undefined ? (this.trackFileIds[currentTrackIndex] ?? null) : null,
       loopMode: this.loopMode,
       shuffleEnabled: this.shuffleEnabled,
-      track: this.trackPlayer.getState(),
+      track,
       pendingCrossfadeFileIds: this.pendingCrossfadeFileIds,
+      isLoadingForPlayback: track.status === 'loading' && this.loadingForPlayback,
     };
   }
 
@@ -651,6 +667,7 @@ export class PlaylistPlayer {
     if (fileId === undefined) return;
     this.position = position;
     this.maybeReshuffleForLoopContinuation();
+    this.loadingForPlayback = options.autoplay;
     this.trackPlayer.markLoading();
     // If a newer playAt() (from a rapid manual skip, or a duplicate/spurious
     // onEnded firing) starts before this one finishes decoding, this call's

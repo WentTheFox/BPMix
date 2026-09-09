@@ -228,6 +228,11 @@ function App() {
       return false;
     }
     lastTransportActionAtRef.current = now;
+    // Every manual transport action funnels through here - the single
+    // choke point to tell usePlaybackPersistence's on-launch restore to
+    // stop trying to apply itself once the user has taken over. See
+    // notifyUserTookOver's doc for the race this closes.
+    notifyUserTookOver();
     return true;
   };
 
@@ -416,7 +421,7 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notificationCenter.upsertProgress]);
 
-  const { isRestoring, persistPlaybackPatch, persistPositionIfDue } = usePlaybackPersistence({
+  const { isRestoring, persistPlaybackPatch, persistPositionIfDue, notifyUserTookOver } = usePlaybackPersistence({
     fileAccess,
     backgroundFileAccess,
     libraryStore,
@@ -942,7 +947,7 @@ function App() {
         nextGain={incomingGain}
         nextProgress={incomingProgress}
         nextTurnsPerSecond={incomingTurnsPerSecond}
-        isLoading={playerState.track.status === 'loading'}
+        isLoading={playerState.isLoadingForPlayback}
         positionSeconds={displayPositionSeconds}
         durationSeconds={displayDurationSeconds}
         scrubbing={scrub}
@@ -1009,6 +1014,7 @@ function App() {
           tracksById={tracksById}
           currentFileId={playerState.currentFileId}
           isPlaying={playerState.track.status === 'playing'}
+          isLoading={playerState.isLoadingForPlayback}
           textColor={colors.text}
           colors={colors}
           onPressTrack={(t) => void playFromTrack(playlist, tracksById, t)}

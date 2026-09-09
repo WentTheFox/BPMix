@@ -104,8 +104,37 @@ export function usePlaybackPersistence({
    */
   persistPlaybackPatch: (patch: Partial<PlaybackState>, options?: { debounceMs?: number }) => void;
   persistPositionIfDue: (state: PlaylistPlayerState) => void;
+  /**
+   * Call this from every manual transport action (both apps already funnel
+   * these through a single `transportActionAllowed()` gate - call it there)
+   * as soon as the user does anything that starts/changes playback. The
+   * on-mount restore below is a slow chain (list roots, scan the target
+   * root's library, resolve lyrics assignment, decode the track) that can
+   * still be in flight seconds after the screen is already interactive -
+   * without this, a user who taps a track before restore finishes can watch
+   * their own choice get silently overwritten: PlaylistPlayer is a single
+   * shared instance, and loadPlaylistAt/playAt set position/order/
+   * trackFileIds synchronously before their own async decode even starts,
+   * so a stale restore call reaching that point after a newer manual one
+   * already moved on clobbers the bookkeeping (position, currentFileId)
+   * back to whatever was persisted from last session - even though the
+   * actual audio (correctly guarded by playToken) keeps playing the track
+   * the user actually chose. Confirmed on-device: tapping a track during
+   * the ~3s restore window on an 858-track library left the mini bar
+   * displaying a completely different (stale, previously-playing) track
+   * than what was audibly playing, with no new decode/AAudioStream ever
+   * firing for the display's track.
+   */
+  notifyUserTookOver: () => void;
 } {
   const [isRestoring, setIsRestoring] = useState(true);
+  // Not React state: must take effect synchronously, read from inside the
+  // still-running restore effect's closure, same reasoning as
+  // hasReadInitialStateRef below.
+  const userTookOverRef = useRef(false);
+  const notifyUserTookOver = useCallback(() => {
+    userTookOverRef.current = true;
+  }, []);
 
   // Last known playback state, kept in sync with what's actually persisted -
   // lets every call site merge its own change onto the rest without an
@@ -233,7 +262,13 @@ export function usePlaybackPersistence({
           const playlist = playlists.find((p) => p.id === stored.playlistId);
           const track = playlist ? tracksById.get(stored.currentTrackFileId) : undefined;
 
-          if (playlist && track) {
+          // The user already took a manual playback action (see
+          // notifyUserTookOver's doc) while everything above was still in
+          // flight - applying this restore now would silently stomp
+          // whatever they actually chose. Bails out of resuming a playable
+          // screen only; refresh() below (every other root, lyrics
+          // auto-match, metadata) is unaffected and still runs.
+          if (playlist && track && !userTookOverRef.current) {
             const scopes = await libraryStore.getLyricsScopes();
             if (cancelled) return;
             onLyricsScopesKnown?.(scopes);
@@ -252,34 +287,46 @@ export function usePlaybackPersistence({
               if (cancelled) return;
             }
 
-            setActiveTracksById(tracksById);
-            playlistPlayer.setShuffle(stored.shuffleEnabled);
-            playlistPlayer.setLoopMode(stored.loopMode);
-            onStepChange?.('loadingPlaylist');
-            // loadPlaylist() (unlike setPlaylist()) decodes without starting
-            // playback - restoring on launch shouldn't start audio before
-            // the UI has even rendered controls to stop it with. Not
-            // awaited: decoding the track's audio (real file I/O + codec
-            // work, unlike everything above) isn't needed to show the
-            // restored screen, only to actually play/seek it - the existing
-            // ~200ms poll (see both apps' setInterval calling
-            // playlistPlayer.getState()) already picks up the status
-            // transition from 'loading' to 'paused' as it completes, same
-            // as any other track load.
-            const loadPromise = playlistPlayer.loadPlaylist(playlist.trackFileIds, stored.currentTrackFileId, {
-              shuffleOrder: stored.shuffleOrder ?? undefined,
-            });
-            // ?? false covers state persisted before nowPlayingOpen existed
-            // (web/Windows store PlaybackState as a plain object, so an
-            // older blob simply lacks the field rather than defaulting it).
-            onRestoreScreen(targetRoot, playlist, tracksById, stored.nowPlayingOpen ?? false);
-            loadPromise
-              .then(() => {
-                if (cancelled) return;
-                if (stored.positionSeconds > 0) playlistPlayer.seek(stored.positionSeconds);
-                setPlayerState(playlistPlayer.getState());
-              })
-              .catch(onError);
+            // Re-checked here, not just at the top of this block - the
+            // ensureLyricsAssignment await above is a real gap where the
+            // user's own manual action could have landed in between.
+            if (!userTookOverRef.current) {
+              setActiveTracksById(tracksById);
+              playlistPlayer.setShuffle(stored.shuffleEnabled);
+              playlistPlayer.setLoopMode(stored.loopMode);
+              onStepChange?.('loadingPlaylist');
+              // loadPlaylist() (unlike setPlaylist()) decodes without
+              // starting playback - restoring on launch shouldn't start
+              // audio before the UI has even rendered controls to stop it
+              // with. Not awaited: decoding the track's audio (real file
+              // I/O + codec work, unlike everything above) isn't needed to
+              // show the restored screen, only to actually play/seek it -
+              // the existing ~200ms poll (see both apps' setInterval
+              // calling playlistPlayer.getState()) already picks up the
+              // status transition from 'loading' to 'paused' as it
+              // completes, same as any other track load.
+              const loadPromise = playlistPlayer.loadPlaylist(playlist.trackFileIds, stored.currentTrackFileId, {
+                shuffleOrder: stored.shuffleOrder ?? undefined,
+              });
+              // ?? false covers state persisted before nowPlayingOpen existed
+              // (web/Windows store PlaybackState as a plain object, so an
+              // older blob simply lacks the field rather than defaulting it).
+              onRestoreScreen(targetRoot, playlist, tracksById, stored.nowPlayingOpen ?? false);
+              loadPromise
+                .then(() => {
+                  // One more recheck: the decode itself (loadPromise) can
+                  // take real time (file I/O, codec work) - if the user
+                  // acted during that window, PlaylistPlayer's own
+                  // playToken guard already kept the actual audio correct
+                  // (see notifyUserTookOver's doc), but this callback must
+                  // not then overwrite the UI's state back to this stale
+                  // restore's position/currentFileId regardless.
+                  if (cancelled || userTookOverRef.current) return;
+                  if (stored.positionSeconds > 0) playlistPlayer.seek(stored.positionSeconds);
+                  setPlayerState(playlistPlayer.getState());
+                })
+                .catch(onError);
+            }
           }
         }
       }
@@ -302,5 +349,5 @@ export function usePlaybackPersistence({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refresh]);
 
-  return { isRestoring, persistPlaybackPatch, persistPositionIfDue };
+  return { isRestoring, persistPlaybackPatch, persistPositionIfDue, notifyUserTookOver };
 }

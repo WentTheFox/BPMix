@@ -1,7 +1,7 @@
 import { isMetadataCurrent, trackDisplayName, type LibraryStore, type TrackRecord } from '@bpmix/core';
 import { mdiAlertCircleOutline, mdiPause, mdiPlay, mdiSubtitles } from '@mdi/js';
 import { memo, useEffect, useRef } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Icon } from './Icon';
 import { Skeleton } from './Skeleton';
 import type { Colors } from './theme';
@@ -30,6 +30,8 @@ export interface TrackRowProps {
   track: TrackRecord;
   isCurrent: boolean;
   isPlaying: boolean;
+  /** True while the current track is decoding (PlaylistPlayer status 'loading') - shows a spinner over the art instead of a static play glyph, so tapping a track doesn't look like nothing happened until the decode finishes. Only meaningful when isCurrent. */
+  isLoading?: boolean;
   /** Text color for a non-current row - a current row always uses colors.accent instead, regardless of this. */
   textColor: string;
   colors: Colors;
@@ -49,7 +51,7 @@ export interface TrackRowProps {
  * the text. Shared between mobile and web (identical on both, so it lives
  * here rather than being duplicated per-app).
  */
-export const TrackRow = memo(function TrackRow({ track, isCurrent, isPlaying, textColor, colors, onPress, libraryStore, isMissing }: TrackRowProps) {
+export const TrackRow = memo(function TrackRow({ track, isCurrent, isPlaying, isLoading, textColor, colors, onPress, libraryStore, isMissing }: TrackRowProps) {
   const metadata = useTrackMetadata(libraryStore, track.fileId);
   // Not just metadata !== null - useTrackMetadata can display a still-stale
   // (older parserVersion) result immediately while it keeps retrying, and
@@ -86,7 +88,7 @@ export const TrackRow = memo(function TrackRow({ track, isCurrent, isPlaying, te
           {coverArt && <Animated.Image source={{ uri: coverArt }} style={[styles.art, styles.artOverlay, { opacity: artOpacity }]} />}
           {isCurrent && (
             <View style={[styles.art, styles.artOverlay, styles.artCurrentTint, { backgroundColor: withAlpha(colors.accent, 0.55) }]}>
-              <Icon path={isPlaying ? mdiPause : mdiPlay} size={18} color="#fff" />
+              {isLoading ? <ActivityIndicator size="small" color="#fff" /> : <Icon path={isPlaying ? mdiPause : mdiPlay} size={18} color="#fff" />}
             </View>
           )}
         </View>
