@@ -182,7 +182,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   backLink: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '600',
   },
   content: {
