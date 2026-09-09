@@ -51,6 +51,8 @@ Notes for tasks that still have to be done/investigated are left here, grouped b
 
 ## housekeeping
 
+* verify this session's core playback changes (shuffle order persistence/pin-to-top/reshuffle-under-last-song, the restore-vs-manual-playback race fix, the per-track loading spinner, and reconcilePlaylist-on-rescan) on Web - only tested live on Android so far, and packages/core is shared so a platform-specific regression (e.g. IndexedDB persistence, AudioContext timing) wouldn't show up in the unit tests alone
+* same as above but for Windows (react-native-windows) - also untested this session, and has its own platform quirks already (no react-native-svg, Segoe Fluent Icons glyph mapping) that make it worth checking separately rather than assuming parity with Android/web
 * address this warning log during build
     > Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
     > 
