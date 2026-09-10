@@ -67,6 +67,7 @@ import {
   toRelativeDisplay,
 } from './src/adapters/fileAccess';
 import { createLibraryStore, setPriorityFileId } from './src/adapters/libraryStore';
+import { useMediaSessionNotification } from './src/adapters/mediaSessionNotification';
 import { MemoryOverlay } from './src/debug/MemoryOverlay';
 
 // The overlay's 500ms poll + up to 120 re-rendered bars was noticeably
@@ -924,6 +925,26 @@ function AppContent() {
   const currentTitle = settledCurrentTrack ? formatTrackTitle(settledCurrentMetadata, settledCurrentTrack) : playerState.currentFileId;
   const currentName = settledCurrentTrack ? settledCurrentMetadata?.title || trackDisplayName(settledCurrentTrack) : (playerState.currentFileId ?? '');
   const currentArtist = settledCurrentMetadata?.artists.join(', ') || null;
+
+  useMediaSessionNotification(
+    playerState.currentFileId
+      ? {
+          title: currentName,
+          artist: currentArtist,
+          album: settledCurrentMetadata?.album ?? null,
+          artworkUri: outgoingCoverArt,
+          isPlaying: playerState.track.status === 'playing',
+          positionSeconds: displayPositionSeconds,
+          durationSeconds: displayDurationSeconds,
+        }
+      : null,
+    {
+      onPlayPause: togglePause,
+      onNext: () => void goNext(),
+      onPrevious: () => void goPrevious(),
+      onSeekTo: seekTo,
+    },
+  );
 
   const miniPlayerBar = playerState.currentFileId && (
     <MiniPlayerBar

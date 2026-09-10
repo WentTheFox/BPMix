@@ -13,6 +13,21 @@
         android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
 
+    <!-- Lock-screen/notification-shade playback controls (MediaSession),
+         backed by react-native-audio-api's PlaybackNotificationManager -
+         see apps/mobile/src/adapters/mediaSessionNotification.ts. The
+         library's own AndroidManifest.xml (checked in node_modules)
+         declares neither of these - its Expo config plugin would inject
+         them automatically, but BPMix is a bare RN app, so they're added
+         by hand here instead. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- Runtime-requested on API 33+ (see MediaSessionManager.kt's own
+         checkSelfPermission/requestPermissions calls - no JS-side request
+         flow needed for that part), but the manifest declaration itself is
+         still required regardless of API level. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application
       android:name=".MainApplication"
       android:label="@string/app_name"
@@ -34,5 +49,17 @@
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
       </activity>
+      <!-- The library starts/stops this itself (ForegroundServiceManager,
+           driven from JS via PlaybackNotificationManager.show()/hide()) -
+           it just needs to exist in the manifest for Android to allow
+           starting it at all. foregroundServiceType must match one of
+           androidFSTypes in the library's own config-plugin default
+           ('mediaPlayback') to satisfy Android 14+'s foreground-service
+           type enforcement. -->
+      <service
+        android:name="com.swmansion.audioapi.system.CentralizedForegroundService"
+        android:exported="false"
+        android:stopWithTask="true"
+        android:foregroundServiceType="mediaPlayback" />
     </application>
 </manifest>

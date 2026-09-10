@@ -23,7 +23,7 @@ Notes for tasks that still have to be done/investigated are left here, grouped b
 
 ## Playback state & playlist persistence
 
-  * report playback status to system native media APIs, allow external control
+  * report playback status to system native media APIs, allow external control - done for Android (`apps/mobile/src/adapters/mediaSessionNotification.android.ts`, using react-native-audio-api's built-in PlaybackNotificationManager - no extra native module needed, just AndroidManifest.xml's permission/service declarations), verified live on-device (lock-screen/notification-shade play/pause/next/previous all control real playback, title/artist/art/progress all report correctly). Still needed: web (`navigator.mediaSession` - a browser API, unrelated to react-native-audio-api) and Windows (SMTC, likely its own native module given Windows already has its own audio engine adapter, not react-native-audio-api).
 
 ## Track metadata
 
@@ -37,6 +37,8 @@ Notes for tasks that still have to be done/investigated are left here, grouped b
 * settings page with customizable theme (light/flux (warm light)/dark/amoled), accent color, ability to turn off volume normalization, and ability to change crossfade duration, wih a reset settings button that sets everything to default
 * The notification icon should only show a red badge if there are any errors or usr-actionable items, background scanning and similar non-threatening actions should result in a grey/muted badge
 * on larger viewports (tablet/dsktop/web) the playlist and now playing views should appear side-by-side, with the now playing bar and its controls becoming center-aligned so they are not spread out across the entire width of the screen (opening resume persists both the current song and the opened playlist, as the now playing song may not be from the same playlist) - on the largest screen sizes even the library view with all folders can be shown 
+* Store 5-15s of audio data alongside file metadata records using the most space efficient encoding method to make audio playback on song press more responsive, swap out to the real track seamlessly once it's loaded
+* Start spinning the left disk as soon as a song starts loading while keeping the head on the edge of the disk (bonus points if we can play a record player crackling sound like if a disk was actually just put on to a record player fresh and it's trying to find the grooves)
 
 
 ## new features
