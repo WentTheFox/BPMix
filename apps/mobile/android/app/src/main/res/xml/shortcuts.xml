@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Long-press launcher shortcuts, routed by App.tsx's applyDeepLink (see
+  AndroidManifest.xml's VIEW intent-filter on MainActivity, and
+  MainActivity.onNewIntent for the warm-start case). Only Library and Now
+  Playing: Settings is always one gear tap away regardless of screen, and an
+  individual playlist has no stable identity a static shortcut could target
+  other than "whichever one happens to already be loaded".
+
+  Reuses the app's own launcher icon for both entries rather than
+  commissioning separate per-shortcut artwork.
+-->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="library"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_library_short"
+        android:shortcutLongLabel="@string/shortcut_library_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="tf.went.bpmix"
+            android:targetClass="tf.went.bpmix.MainActivity"
+            android:data="bpmix://library" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="now_playing"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_now_playing_short"
+        android:shortcutLongLabel="@string/shortcut_now_playing_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="tf.went.bpmix"
+            android:targetClass="tf.went.bpmix.MainActivity"
+            android:data="bpmix://now-playing" />
+    </shortcut>
+</shortcuts>

@@ -27,7 +27,7 @@ export function RestoringScreen({ colors, paddingTop, completedSteps, currentSte
   const steps = RESTORING_STEPS.filter((step) => step.key !== 'scanningLyrics' || hasLyricsScopes);
   return (
     <View style={[styles.container, { paddingTop, backgroundColor: colors.background }]}>
-      <AppTitle color={colors.text} />
+      <AppTitle color={colors.text} accentColor={colors.accent} />
       <View style={styles.checklist}>
         {steps.map((step) => {
           const isDone = completedSteps.has(step.key);

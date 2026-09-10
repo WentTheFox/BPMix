@@ -1,5 +1,6 @@
 package tf.went.bpmix
 
+import android.content.Intent
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
@@ -19,4 +20,16 @@ class MainActivity : ReactActivity() {
    */
   override fun createReactActivityDelegate(): ReactActivityDelegate =
       DefaultReactActivityDelegate(this, mainComponentName, fabricEnabled)
+
+  /**
+   * A "bpmix://..." launcher shortcut tap while the app is already running
+   * (this Activity is singleTask, so it's reused rather than recreated)
+   * arrives here instead of as a fresh getIntent() on launch. Replacing the
+   * stored intent is what lets React Native's Linking module pick it up as
+   * a 'url' event - see App.tsx's applyDeepLink.
+   */
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+  }
 }

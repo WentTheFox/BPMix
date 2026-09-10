@@ -10,6 +10,8 @@ import { useColorScheme } from 'react-native';
  */
 export const DEFAULT_ACCENT_COLOR = '#6181b8';
 
+export type ThemeMode = 'light' | 'flux' | 'dark' | 'amoled';
+
 export interface Colors {
   background: string;
   text: string;
@@ -24,6 +26,14 @@ export const lightColors: Colors = {
   accent: DEFAULT_ACCENT_COLOR,
 };
 
+/** Warm-light variant - the same light-mode text/contrast levels as `lightColors`, on a cream background instead of stark white, for reading in low light without going all the way to a dark theme. */
+export const fluxColors: Colors = {
+  background: '#fbf1de',
+  text: '#3a2c17',
+  subtleText: '#3a2c17',
+  accent: DEFAULT_ACCENT_COLOR,
+};
+
 export const darkColors: Colors = {
   background: '#111111',
   text: '#f5f5f5',
@@ -31,9 +41,28 @@ export const darkColors: Colors = {
   accent: DEFAULT_ACCENT_COLOR,
 };
 
-/** Both apps computed this identically from useColorScheme() - shared so a future palette tweak only has one place to land. */
-export function useThemeColors(): Colors {
-  return useColorScheme() === 'dark' ? darkColors : lightColors;
+/** True black background (not just dark gray like `darkColors`) so OLED/AMOLED panels can actually turn those pixels off. */
+export const amoledColors: Colors = {
+  background: '#000000',
+  text: '#f5f5f5',
+  subtleText: '#f5f5f5',
+  accent: DEFAULT_ACCENT_COLOR,
+};
+
+/**
+ * Both apps computed this identically from useColorScheme() before the
+ * settings page existed - `mode`/`accentColor` are now the source of truth
+ * once a user has settings loaded (see useAppSettings), and this still
+ * falls back to the system color scheme when `mode` is omitted so any
+ * caller that hasn't been updated to pass settings keeps its old behavior.
+ */
+export function useThemeColors(mode?: ThemeMode, accentColor?: string): Colors {
+  const systemIsDark = useColorScheme() === 'dark';
+  const resolvedMode = mode ?? (systemIsDark ? 'dark' : 'light');
+  const base =
+    resolvedMode === 'flux' ? fluxColors : resolvedMode === 'dark' ? darkColors : resolvedMode === 'amoled' ? amoledColors : lightColors;
+  if (!accentColor || accentColor === base.accent) return base;
+  return { ...base, accent: accentColor };
 }
 
 /**

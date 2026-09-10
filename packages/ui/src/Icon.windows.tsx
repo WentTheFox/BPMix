@@ -6,6 +6,7 @@ import {
   mdiChevronDown,
   mdiChevronUp,
   mdiClose,
+  mdiCog,
   mdiFolder,
   mdiFolderMusic,
   mdiFolderPlus,
@@ -102,6 +103,9 @@ const CODEPOINTS: Record<string, number> = {
   [mdiChevronUp]: 0xe70e, // "ChevronUp"
   [mdiClose]: 0xe711, // "Cancel" - the font's "X" close glyph
   [mdiProgressClock]: 0xe917, // "Clock" - no dedicated "in progress" glyph exists, closest semantic match
+  // Added for the settings gear button (see HeaderActions.tsx) - sourced
+  // from the same official codepoint table as the volume/bell glyphs above.
+  [mdiCog]: 0xe713, // "Settings" - the font's own gear glyph
 };
 
 const FALLBACK_CODEPOINT = 0xe11b; // "StatusErrorFull" (a "?" in a circle) - visible placeholder for an unmapped icon, not a silent blank.

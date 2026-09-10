@@ -25,23 +25,27 @@ import {
   AppTitle,
   CROSSFADE_ART_TRANSITION_MS,
   FolderBrowser,
+  getAccentColorHex,
+  HeaderActions,
   HeaderRow,
   IconLabel,
   LibraryScreen,
   LyricsFolderSection,
   lyricsScopeKey,
   MiniPlayerBar,
-  NotificationBell,
   NowPlayingScreen,
   PlayerControlsRow,
   RestoringScreen,
+  SettingsScreen,
   TrackList,
   TURNS_PER_SONG,
+  useAppSettings,
   useCoverArt,
   useDoublePressHandler,
   useFadeInOnChange,
   useNotificationCenter,
   RAPID_PLAYBACK_PATCH_DEBOUNCE_MS,
+  useBackNavigation,
   usePlaybackPersistence,
   useRestoringProgress,
   useThemeColors,
@@ -51,7 +55,7 @@ import type { RootWithLibrary } from '@bpmix/ui';
 import { mdiArrowLeft, mdiSubtitles } from '@mdi/js';
 import type { ReactNode } from 'react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, StatusBar, StyleSheet, Text, useColorScheme, View } from 'react-native';
+import { Linking, Pressable, StatusBar, StyleSheet, Text, View } from 'react-native';
 import {
   SafeAreaProvider,
   useSafeAreaInsets,
@@ -77,8 +81,14 @@ import { MemoryOverlay } from './src/debug/MemoryOverlay';
 const SHOW_MEMORY_OVERLAY = false;
 
 const TRANSPORT_THROTTLE_MS = 300;
-// A real settings screen (Stage 8) would make this configurable - for now
-// it's fixed, per CLAUDE.md's TODO to drop the user-facing crossfade control.
+// How long the metadata-scan notification's "done" state stays visible
+// before it dismisses itself - long enough to actually read, not so long it
+// lingers as clutter once there's nothing left to do about it.
+const METADATA_SCAN_AUTO_DISMISS_MS = 4000;
+// Only used to construct playlistPlayer below, before any component (and
+// its settings) exists - useAppSettings' own default and this must agree,
+// since AppContent's crossfadeSeconds effect only re-syncs playlistPlayer
+// once settings finish loading from storage.
 const DEFAULT_CROSSFADE_SECONDS = 8;
 
 const fileAccess = createFileAccess();
@@ -105,6 +115,8 @@ let activeTracksById = new Map<string, TrackRecord>();
 let reportError: (error: unknown, fileId?: string) => void = () => {};
 /** Clears a fileId's "missing" flag once it decodes successfully again (e.g. a sync catches up) - bridged alongside reportError. */
 let reportFileFound: (fileId: string) => void = () => {};
+/** Mirrors the settings screen's volume-normalization toggle into resolveGain below - bridged the same way as reportError, since playlistPlayer is a module-level singleton built before any component (and its settings) exist. */
+let volumeNormalizationEnabled = true;
 // Bridged in on mount, same pattern as reportError - lets PlaylistPlayer push
 // an immediate re-render right when position changes outside a manual UI
 // action (a crossfade completing, or a natural end auto-advancing), instead
@@ -121,7 +133,8 @@ const playlistPlayer = new PlaylistPlayer(
   },
   {
     onError: (error, fileId) => reportError(error, fileId),
-    resolveGain: async (fileId) => (await libraryStore.getAnalysis(fileId))?.normalizationGain ?? 1,
+    resolveGain: async (fileId) =>
+      volumeNormalizationEnabled ? ((await libraryStore.getAnalysis(fileId))?.normalizationGain ?? 1) : 1,
     onAdvance: () => notifyAdvance(),
     crossfadeSeconds: DEFAULT_CROSSFADE_SECONDS,
     // Just-in-time analysis (Stage 4): a track already needed a decode for
@@ -156,19 +169,33 @@ type Screen =
   | { kind: 'playlist'; root: GrantedRoot; playlist: PlaylistRecord; tracksById: Map<string, TrackRecord> };
 
 function App() {
-  const isDarkMode = useColorScheme() === 'dark';
-
   return (
     <SafeAreaProvider>
-      <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
       <AppContent />
     </SafeAreaProvider>
   );
 }
 
+// AppContent rerenders on every ~200ms playback poll tick (see playerState's
+// own comment below) - a plain <StatusBar> inlined straight into its render
+// output would re-invoke the native setStyle call that often even though
+// barStyle itself only ever changes on a theme switch, confirmed on-device
+// as a StatusBarModule call every single tick. Memoized so React skips
+// re-rendering (and re-touching the native module) unless barStyle actually
+// changed.
+const AppStatusBar = memo(function AppStatusBarInner({ barStyle }: { barStyle: 'light-content' | 'dark-content' }) {
+  return <StatusBar barStyle={barStyle} />;
+});
+
 function AppContent() {
   const insets = useSafeAreaInsets();
-  const colors = useThemeColors();
+  const { settings, updateSettings, resetSettings } = useAppSettings(libraryStore);
+  const colors = useThemeColors(settings.themeMode, getAccentColorHex(settings.accentColor));
+  // StatusBar text needs to track the resolved theme, not the raw system
+  // scheme - a user who explicitly picks Dark/AMOLED against a light-mode
+  // system would otherwise get dark-on-dark, unreadable status bar text.
+  const statusBarStyle = settings.themeMode === 'dark' || settings.themeMode === 'amoled' ? 'light-content' : 'dark-content';
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [rootsWithLibrary, setRootsWithLibrary] = useState<RootWithLibrary[]>([]);
   const [grantedRoots, setGrantedRoots] = useState<GrantedRoot[]>([]);
   const [lyricsScopes, setLyricsScopes] = useState<LyricsScope[]>([]);
@@ -208,6 +235,50 @@ function AppContent() {
   const { completedSteps, currentStep, hasLyricsScopes, advanceStep, setHasLyricsScopes } = useRestoringProgress();
   const [screen, setScreen] = useState<Screen>({ kind: 'library' });
   const [playerState, setPlayerState] = useState<PlaylistPlayerState>(playlistPlayer.getState());
+  // Cold-start restore (usePlaybackPersistence) loads the last-played track
+  // and decodes it without starting playback, landing it in status
+  // 'paused' - identical to a track the user actually played and then
+  // paused. Gating the media-session notification on currentFileId alone
+  // therefore showed it (briefly, via the native foreground-service/
+  // MediaStyle machinery, which appears to tear itself back down almost
+  // immediately for a session that reports isPlaying:false right from
+  // its own start) on every launch, whether or not anything was ever
+  // actually played. Latching true the first time real playback starts
+  // (and never back to false - a later pause should still show controls)
+  // distinguishes "merely restored" from "actually played this session".
+  const [hasStartedPlayback, setHasStartedPlayback] = useState(false);
+  useEffect(() => {
+    if (playerState.track.status === 'playing') setHasStartedPlayback(true);
+  }, [playerState.track.status]);
+
+  // Same close-priority order as the web app (see useBackNavigation's doc) -
+  // Settings, then Now Playing, then Playlist back to Library, then (nothing
+  // left of ours to close) the default hardware-back behavior of exiting.
+  // extraHandler runs first: it closes BPMix's Android-only folder-picker
+  // overlays, which the web app has no equivalent of at all.
+  useBackNavigation(
+    { settingsOpen, nowPlayingOpen: nowPlayingScreenOpen, screenKind: screen.kind },
+    {
+      closeSettings: () => setSettingsOpen(false),
+      closeNowPlaying: () => {
+        setNowPlayingScreenOpen(false);
+        persistPlaybackPatch({ nowPlayingOpen: false });
+      },
+      closePlaylist: () => setScreen({ kind: 'library' }),
+    },
+    () => {
+      if (lyricsFolderPickerRoot) {
+        setLyricsFolderPickerRoot(null);
+        return true;
+      }
+      if (rootBrowserRequest) {
+        rootBrowserRequest.resolve(null);
+        setRootBrowserRequest(null);
+        return true;
+      }
+      return false;
+    },
+  );
 
   // Shared cooldown across every action that creates/destroys a native audio
   // source (seek, pause/resume, re-playing a track): a known bug in
@@ -252,6 +323,14 @@ function AppContent() {
     // note on why the whole notificationCenter object isn't a safe dep here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notificationCenter.addError]);
+
+  useEffect(() => {
+    volumeNormalizationEnabled = settings.volumeNormalizationEnabled;
+  }, [settings.volumeNormalizationEnabled]);
+
+  useEffect(() => {
+    playlistPlayer.setCrossfadeSeconds(settings.crossfadeSeconds);
+  }, [settings.crossfadeSeconds]);
 
   useEffect(() => {
     registerRootBrowser(
@@ -386,8 +465,18 @@ function AppContent() {
       // stale-parser-version rescan, and previously had no visible status
       // anywhere at all.
       onProgress: ({ index, total, skipped }) => {
-        if (skipped) return;
-        notificationCenter.upsertProgress('metadata-scan', 'Scanning track metadata', index + 1, total, index + 1 >= total);
+        const done = index + 1 >= total;
+        // Skipped tracks don't otherwise update the notification (they're
+        // already up to date - no point re-rendering the row for each one),
+        // but the very last track always has to, skipped or not - otherwise
+        // a scan whose tail happens to be already-fresh tracks never fires
+        // the update that would mark this notification done, and it's left
+        // permanently showing its last real progress count.
+        if (skipped && !done) return;
+        notificationCenter.upsertProgress('metadata-scan', 'Scanning track metadata', index + 1, total, done);
+        // A finished background scan doesn't need a manual dismiss - leave
+        // the "done" state on screen just long enough to actually read it.
+        if (done) setTimeout(() => notificationCenter.dismiss('metadata-scan'), METADATA_SCAN_AUTO_DISMISS_MS);
       },
     });
 
@@ -438,6 +527,48 @@ function AppContent() {
       setHasLyricsScopes(scopes.length > 0);
     },
   });
+
+  // Routes BPMix's launcher shortcuts (AndroidManifest.xml's intent-filter +
+  // res/xml/shortcuts.xml, both "bpmix://<path>") to the matching screen -
+  // "library" and "now-playing" only. No shortcut for Settings (always one
+  // gear tap away regardless of screen) or an individual playlist (a
+  // playlist has no stable identity a static shortcut could target other
+  // than "whichever one happens to already be loaded", which is already
+  // what the ordinary cold-start restore above does on its own).
+  const applyDeepLink = useCallback((url: string) => {
+    const path = url.replace(/^bpmix:\/\//, '').split(/[/?#]/)[0];
+    if (path === 'library') {
+      setScreen({ kind: 'library' });
+      setNowPlayingScreenOpen(false);
+      setSettingsOpen(false);
+    } else if (path === 'now-playing') {
+      setNowPlayingScreenOpen(true);
+      setSettingsOpen(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Warm start: the app is already running (singleTask launchMode reuses
+    // the Activity) and the user taps a shortcut again - MainActivity's
+    // onNewIntent hands this to RN's Linking module as a 'url' event.
+    const subscription = Linking.addEventListener('url', ({ url }) => applyDeepLink(url));
+    return () => subscription.remove();
+  }, [applyDeepLink]);
+
+  useEffect(() => {
+    // Cold start: only once the restore screen's own async window (scanning
+    // the last-played root/playlist) has settled, so a shortcut tap doesn't
+    // get silently overwritten the moment that restore finishes right after
+    // it. isRestoring flips true -> false exactly once per launch.
+    if (isRestoring) return;
+    let cancelled = false;
+    void Linking.getInitialURL().then((url) => {
+      if (!cancelled && url) applyDeepLink(url);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isRestoring, applyDeepLink]);
 
   useEffect(() => {
     notifyAdvance = () => {
@@ -773,8 +904,8 @@ function AppContent() {
       return { fadeStartSeconds: 0, fadeDurationSeconds: pendingIncoming.fadeDurationSeconds, incomingStartSeconds: 0 };
     }
     if (playerState.track.durationSeconds <= 0) return null;
-    return computeTransitionPlan(playerState.track.durationSeconds, DEFAULT_CROSSFADE_SECONDS);
-  }, [pendingIncoming, playerState.track.durationSeconds]);
+    return computeTransitionPlan(playerState.track.durationSeconds, settings.crossfadeSeconds);
+  }, [pendingIncoming, playerState.track.durationSeconds, settings.crossfadeSeconds]);
 
   // The preview's timeline is relative to the fade start (t=0). While a
   // crossfade is actually in flight, pendingIncoming.positionSeconds IS
@@ -927,7 +1058,7 @@ function AppContent() {
   const currentArtist = settledCurrentMetadata?.artists.join(', ') || null;
 
   useMediaSessionNotification(
-    playerState.currentFileId
+    playerState.currentFileId && hasStartedPlayback
       ? {
           title: currentName,
           artist: currentArtist,
@@ -1009,7 +1140,7 @@ function AppContent() {
         fileAccess={fileAccess}
         libraryStore={libraryStore}
         lyricsScopes={lyricsScopes}
-        headerRight={<NotificationBell colors={colors} center={notificationCenter} />}
+        headerRight={<HeaderActions colors={colors} center={notificationCenter} onOpenSettings={() => setSettingsOpen(true)} />}
         controls={
           // Disabled mid-scrub: a rewindTo()/fastForwardTo() effect already tears down (and, for fastForwardTo, recreates) the source once - stacking a second transport action on top of it before it settles risks the same rapid-fire native-source-churn crash the effect itself is built to avoid.
           <PlayerControlsRow
@@ -1031,6 +1162,22 @@ function AppContent() {
     </View>
   );
 
+  // Higher zIndex than nowPlayingScreen's (10, above) - opened from a header
+  // button reachable on every screen INCLUDING Now Playing, so it has to be
+  // able to sit on top of that overlay too, not just the library/playlist
+  // screen underneath both.
+  const settingsScreen = settingsOpen && (
+    <View style={[StyleSheet.absoluteFill, { paddingTop: insets.top, paddingBottom: insets.bottom, backgroundColor: colors.background, zIndex: 20 }]}>
+      <SettingsScreen
+        colors={colors}
+        settings={settings}
+        onUpdateSettings={updateSettings}
+        onResetSettings={resetSettings}
+        onClose={() => setSettingsOpen(false)}
+      />
+    </View>
+  );
+
   // Covers the library scan + playback-state restore's own async window -
   // without this, the library screen would render first (empty, then
   // populated) and only jump to a restored playlist screen a beat later,
@@ -1038,13 +1185,16 @@ function AppContent() {
   // right screen.
   if (isRestoring) {
     return (
-      <RestoringScreen
-        colors={colors}
-        paddingTop={insets.top}
-        completedSteps={completedSteps}
-        currentStep={currentStep}
-        hasLyricsScopes={hasLyricsScopes}
-      />
+      <>
+        <AppStatusBar barStyle={statusBarStyle} />
+        <RestoringScreen
+          colors={colors}
+          paddingTop={insets.top}
+          completedSteps={completedSteps}
+          currentStep={currentStep}
+          hasLyricsScopes={hasLyricsScopes}
+        />
+      </>
     );
   }
 
@@ -1056,38 +1206,44 @@ function AppContent() {
 
   if (rootBrowserRequest) {
     return (
-      <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom, backgroundColor: colors.background }]}>
-        <FolderBrowser
-          colors={colors}
-          fileAccess={fileAccess}
-          rootId={rootBrowserRequest.storageRootPath}
-          rootDisplayName={rootBrowserRequest.storageRootDisplayName}
-          existingRoots={grantedRoots.map((root) => ({ path: root.id, displayName: root.displayName }))}
-          onSelect={(relativePath) => {
-            rootBrowserRequest.resolve(relativePath);
-            setRootBrowserRequest(null);
-          }}
-          onCancel={() => {
-            rootBrowserRequest.resolve(null);
-            setRootBrowserRequest(null);
-          }}
-        />
-      </View>
+      <>
+        <AppStatusBar barStyle={statusBarStyle} />
+        <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom, backgroundColor: colors.background }]}>
+          <FolderBrowser
+            colors={colors}
+            fileAccess={fileAccess}
+            rootId={rootBrowserRequest.storageRootPath}
+            rootDisplayName={rootBrowserRequest.storageRootDisplayName}
+            existingRoots={grantedRoots.map((root) => ({ path: root.id, displayName: root.displayName }))}
+            onSelect={(relativePath) => {
+              rootBrowserRequest.resolve(relativePath);
+              setRootBrowserRequest(null);
+            }}
+            onCancel={() => {
+              rootBrowserRequest.resolve(null);
+              setRootBrowserRequest(null);
+            }}
+          />
+        </View>
+      </>
     );
   }
 
   if (lyricsFolderPickerRoot) {
     return (
-      <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom, backgroundColor: colors.background }]}>
-        <FolderBrowser
-          colors={colors}
-          fileAccess={fileAccess}
-          rootId={lyricsFolderPickerRoot.id}
-          rootDisplayName={lyricsFolderPickerRoot.displayName}
-          onSelect={(relativePath) => void handleLyricsFolderPicked(relativePath)}
-          onCancel={() => setLyricsFolderPickerRoot(null)}
-        />
-      </View>
+      <>
+        <AppStatusBar barStyle={statusBarStyle} />
+        <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom, backgroundColor: colors.background }]}>
+          <FolderBrowser
+            colors={colors}
+            fileAccess={fileAccess}
+            rootId={lyricsFolderPickerRoot.id}
+            rootDisplayName={lyricsFolderPickerRoot.displayName}
+            onSelect={(relativePath) => void handleLyricsFolderPicked(relativePath)}
+            onCancel={() => setLyricsFolderPickerRoot(null)}
+          />
+        </View>
+      </>
     );
   }
 
@@ -1103,7 +1259,7 @@ function AppContent() {
               <IconLabel path={mdiArrowLeft} text={`Playlist: ${playlist.name}`} color={colors.text} iconSize={18} textStyle={styles.backLink} />
             </Pressable>
           }
-          right={<NotificationBell colors={colors} center={notificationCenter} />}
+          right={<HeaderActions colors={colors} center={notificationCenter} onOpenSettings={() => setSettingsOpen(true)} />}
         />
         {error && <Text style={styles.error}>{error}</Text>}
         <TrackList
@@ -1140,7 +1296,7 @@ function AppContent() {
             </Pressable>
           )
         }
-        headerRight={<NotificationBell colors={colors} center={notificationCenter} />}
+        headerRight={<HeaderActions colors={colors} center={notificationCenter} onOpenSettings={() => setSettingsOpen(true)} />}
         secondaryAddButton={<AddFolderButton colors={colors} icon={mdiSubtitles} text="Add Lyrics Folder" onPress={addLyricsFolder} />}
         lyricsSection={
           <LyricsFolderSection
@@ -1159,12 +1315,16 @@ function AppContent() {
   }
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom, backgroundColor: colors.background }]}>
-      {__DEV__ && SHOW_MEMORY_OVERLAY && <MemoryOverlay />}
-      <View style={styles.screenArea}>{screenContent}</View>
-      {miniPlayerBar}
-      {nowPlayingScreen}
-    </View>
+    <>
+      <AppStatusBar barStyle={statusBarStyle} />
+      <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom, backgroundColor: colors.background }]}>
+        {__DEV__ && SHOW_MEMORY_OVERLAY && <MemoryOverlay />}
+        <View style={styles.screenArea}>{screenContent}</View>
+        {miniPlayerBar}
+        {nowPlayingScreen}
+        {settingsScreen}
+      </View>
+    </>
   );
 }
 

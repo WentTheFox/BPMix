@@ -19,23 +19,27 @@ import {
 import {
   AddFolderButton,
   CROSSFADE_ART_TRANSITION_MS,
+  HeaderActions,
+  getAccentColorHex,
   HeaderRow,
   IconLabel,
   LibraryScreen,
   LyricsFolderSection,
   lyricsScopeKey,
   MiniPlayerBar,
-  NotificationBell,
   NowPlayingScreen,
   PlayerControlsRow,
   RestoringScreen,
+  SettingsScreen,
   TrackList,
   TURNS_PER_SONG,
+  useAppSettings,
   useCoverArt,
   useDoublePressHandler,
   useFadeInOnChange,
   useNotificationCenter,
   RAPID_PLAYBACK_PATCH_DEBOUNCE_MS,
+  useBackNavigation,
   usePlaybackPersistence,
   useRestoringProgress,
   useThemeColors,
@@ -54,8 +58,14 @@ import { createLibraryStore } from './adapters/libraryStore';
 import { isRunningInstalled, promptInstall, usePwaInstallAvailable } from './adapters/pwaInstall';
 
 const TRANSPORT_THROTTLE_MS = 300;
-// A real settings screen (Stage 8) would make this configurable - for now
-// it's fixed, per CLAUDE.md's TODO to drop the user-facing crossfade control.
+// How long the metadata-scan notification's "done" state stays visible
+// before it dismisses itself - long enough to actually read, not so long it
+// lingers as clutter once there's nothing left to do about it.
+const METADATA_SCAN_AUTO_DISMISS_MS = 4000;
+// Only used to construct playlistPlayer below, before any component (and
+// its settings) exists - useAppSettings' own default and this must agree,
+// since App's crossfadeSeconds effect only re-syncs playlistPlayer once
+// settings finish loading from storage.
 const DEFAULT_CROSSFADE_SECONDS = 8;
 
 // File System Access API is Chromium-only (no Firefox/Safari support as of
@@ -100,6 +110,8 @@ let activeTracksById = new Map<string, TrackRecord>();
 let reportError: (error: unknown, fileId?: string) => void = () => {};
 /** Clears a fileId's "missing" flag once it decodes successfully again (e.g. a sync catches up) - bridged alongside reportError. */
 let reportFileFound: (fileId: string) => void = () => {};
+/** Mirrors the settings screen's volume-normalization toggle into resolveGain below - bridged the same way as reportError, since playlistPlayer is a module-level singleton built before any component (and its settings) exist. */
+let volumeNormalizationEnabled = true;
 // Bridged in on mount, same pattern as reportError - lets PlaylistPlayer push
 // an immediate re-render right when position changes outside a manual UI
 // action (a crossfade completing, or a natural end auto-advancing), instead
@@ -116,7 +128,8 @@ const playlistPlayer = new PlaylistPlayer(
   },
   {
     onError: (error, fileId) => reportError(error, fileId),
-    resolveGain: async (fileId) => (await libraryStore.getAnalysis(fileId))?.normalizationGain ?? 1,
+    resolveGain: async (fileId) =>
+      volumeNormalizationEnabled ? ((await libraryStore.getAnalysis(fileId))?.normalizationGain ?? 1) : 1,
     onAdvance: () => notifyAdvance(),
     crossfadeSeconds: DEFAULT_CROSSFADE_SECONDS,
     // Just-in-time analysis (Stage 4): a track already needed a decode for
@@ -147,7 +160,9 @@ type Screen =
   | { kind: 'playlist'; root: GrantedRoot; playlist: PlaylistRecord; tracksById: Map<string, TrackRecord> };
 
 function App() {
-  const colors = useThemeColors();
+  const { settings, updateSettings, resetSettings } = useAppSettings(libraryStore);
+  const colors = useThemeColors(settings.themeMode, getAccentColorHex(settings.accentColor));
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [rootsWithLibrary, setRootsWithLibrary] = useState<RootWithLibrary[]>([]);
   const [grantedRoots, setGrantedRoots] = useState<GrantedRoot[]>([]);
   const [lyricsScopes, setLyricsScopes] = useState<LyricsScope[]>([]);
@@ -216,6 +231,22 @@ function App() {
   const [nowPlayingScreenOpen, setNowPlayingScreenOpen] = useState(false);
   const [playerState, setPlayerState] = useState<PlaylistPlayerState>(playlistPlayer.getState());
 
+  // Same close-priority order as the mobile app (see useBackNavigation's
+  // doc) - Settings, then Now Playing, then Playlist back to Library, then
+  // (nothing left of ours to close) the browser's own back behavior of
+  // leaving the page.
+  useBackNavigation(
+    { settingsOpen, nowPlayingOpen: nowPlayingScreenOpen, screenKind: screen.kind },
+    {
+      closeSettings: () => setSettingsOpen(false),
+      closeNowPlaying: () => {
+        setNowPlayingScreenOpen(false);
+        persistPlaybackPatch({ nowPlayingOpen: false });
+      },
+      closePlaylist: () => setScreen({ kind: 'library' }),
+    },
+  );
+
   // Shared cooldown across every action that creates/destroys a native audio
   // source (seek, pause/resume, re-playing a track): a known bug in
   // react-native-audio-api's Android native cleanup code can crash the app
@@ -259,6 +290,14 @@ function App() {
     // note on why the whole notificationCenter object isn't a safe dep here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notificationCenter.addError]);
+
+  useEffect(() => {
+    volumeNormalizationEnabled = settings.volumeNormalizationEnabled;
+  }, [settings.volumeNormalizationEnabled]);
+
+  useEffect(() => {
+    playlistPlayer.setCrossfadeSeconds(settings.crossfadeSeconds);
+  }, [settings.crossfadeSeconds]);
 
   const refresh = useCallback(async () => {
     advanceStep('listingFolders');
@@ -405,8 +444,18 @@ function App() {
       // stale-parser-version rescan, and previously had no visible status
       // anywhere at all.
       onProgress: ({ index, total, skipped }) => {
-        if (skipped) return;
-        notificationCenter.upsertProgress('metadata-scan', 'Scanning track metadata', index + 1, total, index + 1 >= total);
+        const done = index + 1 >= total;
+        // Skipped tracks don't otherwise update the notification (they're
+        // already up to date - no point re-rendering the row for each one),
+        // but the very last track always has to, skipped or not - otherwise
+        // a scan whose tail happens to be already-fresh tracks never fires
+        // the update that would mark this notification done, and it's left
+        // permanently showing its last real progress count.
+        if (skipped && !done) return;
+        notificationCenter.upsertProgress('metadata-scan', 'Scanning track metadata', index + 1, total, done);
+        // A finished background scan doesn't need a manual dismiss - leave
+        // the "done" state on screen just long enough to actually read it.
+        if (done) setTimeout(() => notificationCenter.dismiss('metadata-scan'), METADATA_SCAN_AUTO_DISMISS_MS);
       },
     });
 
@@ -782,8 +831,8 @@ function App() {
       return { fadeStartSeconds: 0, fadeDurationSeconds: pendingIncoming.fadeDurationSeconds, incomingStartSeconds: 0 };
     }
     if (playerState.track.durationSeconds <= 0) return null;
-    return computeTransitionPlan(playerState.track.durationSeconds, DEFAULT_CROSSFADE_SECONDS);
-  }, [pendingIncoming, playerState.track.durationSeconds]);
+    return computeTransitionPlan(playerState.track.durationSeconds, settings.crossfadeSeconds);
+  }, [pendingIncoming, playerState.track.durationSeconds, settings.crossfadeSeconds]);
 
   // The preview's timeline is relative to the fade start (t=0). While a
   // crossfade is actually in flight, pendingIncoming.positionSeconds IS
@@ -995,7 +1044,7 @@ function App() {
         fileAccess={fileAccess}
         libraryStore={libraryStore}
         lyricsScopes={lyricsScopes}
-        headerRight={<NotificationBell colors={colors} center={notificationCenter} />}
+        headerRight={<HeaderActions colors={colors} center={notificationCenter} onOpenSettings={() => setSettingsOpen(true)} />}
         controls={
           // Disabled mid-scrub: a rewindTo()/fastForwardTo() effect already tears down (and, for fastForwardTo, recreates) the source once - stacking a second transport action on top of it before it settles risks the same rapid-fire native-source-churn crash the effect itself is built to avoid.
           <PlayerControlsRow
@@ -1015,6 +1064,22 @@ function App() {
             onSeekForward={() => seekBy(10)}
           />
         }
+      />
+    </View>
+  );
+
+  // Higher zIndex than nowPlayingScreen's (10, above) - opened from a header
+  // button reachable on every screen INCLUDING Now Playing, so it has to be
+  // able to sit on top of that overlay too, not just the library/playlist
+  // screen underneath both.
+  const settingsScreen = settingsOpen && (
+    <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.background, zIndex: 20 }]}>
+      <SettingsScreen
+        colors={colors}
+        settings={settings}
+        onUpdateSettings={updateSettings}
+        onResetSettings={resetSettings}
+        onClose={() => setSettingsOpen(false)}
       />
     </View>
   );
@@ -1042,7 +1107,7 @@ function App() {
               <IconLabel path={mdiArrowLeft} text={`Playlist: ${playlist.name}`} color={colors.text} iconSize={18} textStyle={styles.backLink} />
             </Pressable>
           }
-          right={<NotificationBell colors={colors} center={notificationCenter} />}
+          right={<HeaderActions colors={colors} center={notificationCenter} onOpenSettings={() => setSettingsOpen(true)} />}
         />
         {error && <Text style={styles.error}>{error}</Text>}
         <TrackList
@@ -1072,7 +1137,7 @@ function App() {
         onSelectPlaylist={(root, playlist, tracksById) => setScreen({ kind: 'playlist', root, playlist, tracksById })}
         error={error}
         listStyle={styles.list}
-        headerRight={<NotificationBell colors={colors} center={notificationCenter} />}
+        headerRight={<HeaderActions colors={colors} center={notificationCenter} onOpenSettings={() => setSettingsOpen(true)} />}
         secondaryAddButton={<AddFolderButton colors={colors} icon={mdiSubtitles} text="Add Lyrics Folder" onPress={addLyricsFolder} />}
         bannerContent={
           <>
@@ -1130,6 +1195,7 @@ function App() {
       <View style={styles.screenArea}>{screenContent}</View>
       {miniPlayerBar}
       {nowPlayingScreen}
+      {settingsScreen}
     </View>
   );
 }

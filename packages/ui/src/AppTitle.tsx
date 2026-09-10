@@ -1,7 +1,10 @@
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { AppIconMark } from './AppIconMark';
 
 export interface AppTitleProps {
   color: string;
+  /** Settings' accent color choice - AppIconMark recolors its disc to match. */
+  accentColor: string;
 }
 
 /**
@@ -11,17 +14,16 @@ export interface AppTitleProps {
  * screen's HeaderRow (the playlist/Now Playing screens) rather than
  * standing out as a much larger logo lockup.
  *
- * The icon itself needs a real bundled image (the app's actual vinyl-record
- * icon, not an mdi glyph) - Metro (mobile) resolves a local require() like
- * this natively, but Vite (web) has no such asset-registry shim configured,
- * so this default only covers mobile - see AppTitle.web.tsx for the web
- * variant pointing at the already-published PWA icon instead.
+ * The icon itself is AppIconMark, not a bundled image - see its own doc for
+ * why. AppTitle.web.tsx used to be a separate file only because Vite has no
+ * RN-style asset-registry shim for a local require('./app-icon.png') the
+ * way Metro does - AppIconMark needs no such require, so this default now
+ * covers both platforms and AppTitle.web.tsx was removed as a duplicate.
  */
-export function AppTitle({ color }: AppTitleProps) {
+export function AppTitle({ color, accentColor }: AppTitleProps) {
   return (
     <View style={styles.row}>
-      {/* eslint-disable-next-line @typescript-eslint/no-require-imports */}
-      <Image source={require('./assets/app-icon.png')} style={styles.icon} />
+      <AppIconMark accentColor={accentColor} size={22} />
       <Text style={[styles.title, { color }]}>BPMix</Text>
     </View>
   );
@@ -32,11 +34,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-  },
-  icon: {
-    width: 22,
-    height: 22,
-    borderRadius: 5,
   },
   title: {
     fontSize: 18,

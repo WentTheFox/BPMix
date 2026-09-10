@@ -116,13 +116,17 @@ export function NotificationBell({ colors, center }: NotificationBellProps) {
   };
 
   const count = center.notifications.length;
+  // Red only for something the user actually needs to look at - a plain
+  // background scan finishing (or still running) isn't a problem, so it
+  // shouldn't compete for attention the way a real error does.
+  const hasActionable = center.notifications.some((n) => n.kind === 'error');
 
   return (
     <View style={styles.container}>
       <Pressable style={styles.bellButton} onPress={() => setOpen((o) => !o)} hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}>
         <Icon path={mdiBellOutline} size={22} color={colors.text} />
         {count > 0 && (
-          <View style={styles.badge}>
+          <View style={[styles.badge, { backgroundColor: hasActionable ? '#dc2626' : '#6b7280' }]}>
             <Text style={styles.badgeText}>{count > 99 ? '99+' : count}</Text>
           </View>
         )}
@@ -191,7 +195,6 @@ const styles = StyleSheet.create({
     height: 14,
     borderRadius: 7,
     paddingHorizontal: 3,
-    backgroundColor: '#dc2626',
     alignItems: 'center',
     justifyContent: 'center',
   },

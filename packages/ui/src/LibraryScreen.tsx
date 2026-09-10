@@ -77,7 +77,7 @@ export function LibraryScreen({
 }: LibraryScreenProps) {
   return (
     <>
-      <HeaderRow left={<AppTitle color={colors.text} />} right={headerRight} />
+      <HeaderRow left={<AppTitle color={colors.text} accentColor={colors.accent} />} right={headerRight} />
       <View style={styles.addButtonRow}>
         <AddFolderButton colors={colors} icon={mdiFolderMusic} text="Add Folder" onPress={onAddFolder} busy={isAddingFolder} busyText="Scanning folder…" />
         {secondaryAddButton}
