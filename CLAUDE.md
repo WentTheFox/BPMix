@@ -39,6 +39,7 @@ Notes for tasks that still have to be done/investigated are left here, grouped b
 * on larger viewports (tablet/dsktop/web) the playlist and now playing views should appear side-by-side, with the now playing bar and its controls becoming center-aligned so they are not spread out across the entire width of the screen (opening resume persists both the current song and the opened playlist, as the now playing song may not be from the same playlist) - on the largest screen sizes even the library view with all folders can be shown 
 * Store 5-15s of audio data alongside file metadata records using the most space efficient encoding method to make audio playback on song press more responsive, swap out to the real track seamlessly once it's loaded
 * Start spinning the left disk as soon as a song starts loading while keeping the head on the edge of the disk (bonus points if we can play a record player crackling sound like if a disk was actually just put on to a record player fresh and it's trying to find the grooves)
+* make seek bar forward and backward jumping as close to instant as possible, remove extra bar and disk animations, jump directly to the expected UI state
 
 
 ## new features
@@ -64,3 +65,4 @@ Notes for tasks that still have to be done/investigated are left here, grouped b
     > For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
 * break each platform's App.tsx into smaller components and reusable hooks
 * check for duplications in the extracted components/hooks and try to unify them as much as possible with the use of the shared "ui" package
+* remove `patches/react-native-audio-api@0.13.3.patch` and its `pnpm-workspace.yaml` entry once upstream PR https://github.com/software-mansion/react-native-audio-api/pull/1281 (fixes the native seek memory leak, issue #1263) lands in a released version and the `react-native-audio-api` dependency is bumped past it
