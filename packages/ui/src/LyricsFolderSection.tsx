@@ -1,5 +1,5 @@
 import type { LyricsScope } from '@bpmix/core';
-import { mdiFolder, mdiRefresh } from '@mdi/js';
+import { mdiRefresh, mdiSubtitles } from '@mdi/js';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { IconLabel } from './IconLabel';
 import { RemoveButton } from './RemoveButton';
@@ -25,13 +25,15 @@ export interface LyricsFolderSectionProps {
 }
 
 /**
- * A lyrics scope is a subfolder of an ALREADY-granted root (relativePath ''
- * meaning the whole root), not a root of its own - see LyricsScope's doc for
- * why: requesting a brand-new top-level grant just for lyrics ran straight
- * into a broken Samsung "My Files" SAF picker that rejected every folder,
- * including freshly-created ones, while its own normal browse mode saw them
- * fine. Picking a scope (via FolderBrowser, over a root the user already
- * granted for music) never goes through that picker at all.
+ * A lyrics scope's rootId may be its own independent grant (web and Windows,
+ * via requestRoot('lyrics') - see GrantedRoot.kind's doc) or, on Android, a
+ * relativePath within the whole-device browse (no per-folder OS grant to
+ * confine it to a subfolder of an already-added root there) - either way
+ * this component only ever renders the resulting scope, never how it was
+ * picked. Uses mdiSubtitles (not mdiFolder, which LibraryScreen's music
+ * roots use) specifically so a scope row reads as "this is a lyrics
+ * location" at a glance instead of looking like an ordinary library folder
+ * with only the trailing match-count caption to tell them apart.
  *
  * The "Add Lyrics Folder" button itself isn't rendered here - it's an
  * AddFolderButton the caller places in LibraryScreen's secondaryAddButton
@@ -68,7 +70,7 @@ export function LyricsFolderSection({
         return (
           <View key={key} style={styles.scopeRow}>
             <IconLabel
-              path={mdiFolder}
+              path={mdiSubtitles}
               text={label}
               color={colors.text}
               iconSize={16}

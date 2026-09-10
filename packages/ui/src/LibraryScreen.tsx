@@ -3,8 +3,8 @@ import { mdiFolder, mdiFolderMusic, mdiPlaylistMusic, mdiRefresh } from '@mdi/js
 import type { ReactNode } from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
-import { AddFolderButton } from './AddFolderButton';
 import { AppTitle } from './AppTitle';
+import { FolderPickerButton } from './FolderPickerButton';
 import { HeaderRow } from './HeaderRow';
 import { IconLabel } from './IconLabel';
 import { RemoveButton } from './RemoveButton';
@@ -20,13 +20,15 @@ export interface LibraryScreenProps {
   rootsWithLibrary: RootWithLibrary[];
   busyRootId: string | null;
   /**
-   * Mobile-only: disables the Add Folder button and swaps its label for a
-   * spinner while a brand-new root's first scan is in flight (see mobile
-   * App.tsx's isAddingFolder). Web has never gated this - `undefined`/false
-   * renders the plain button on both.
+   * Disables the Add Folder button and swaps its label for a spinner while
+   * a brand-new root's first scan is in flight (see App.tsx's
+   * isAddingFolder). `undefined`/false renders the plain button. The
+   * button is also disabled (without the spinner/label swap) whenever its
+   * native folder-picker prompt is open, regardless of this prop - see
+   * FolderPickerButton's doc.
    */
   isAddingFolder?: boolean;
-  onAddFolder: () => void;
+  onAddFolder: () => Promise<void>;
   onRescan: (rootId: string) => void;
   /** Revokes the root's grant and drops it from the library screen - if omitted, no Remove action is shown for roots. */
   onRemoveRoot?: (rootId: string) => void;
@@ -34,7 +36,7 @@ export interface LibraryScreenProps {
   error?: string | null;
   /** Rendered right after the error text - e.g. a "Grant Access" button for Android's AllFilesAccessRequiredError, so the user doesn't have to find Settings on their own. */
   errorAction?: ReactNode;
-  /** Rendered in a row right next to the Add Folder button - the "Add Lyrics Folder" AddFolderButton, so the two sit side by side instead of stacked. */
+  /** Rendered in a row right next to the Add Folder button - the "Add Lyrics Folder" FolderPickerButton, so the two sit side by side instead of stacked. */
   secondaryAddButton?: ReactNode;
   /** Web-only directory-picker-unsupported warning, rendered right after the button row. */
   bannerContent?: ReactNode;
@@ -79,7 +81,14 @@ export function LibraryScreen({
     <>
       <HeaderRow left={<AppTitle color={colors.text} accentColor={colors.accent} />} right={headerRight} />
       <View style={styles.addButtonRow}>
-        <AddFolderButton colors={colors} icon={mdiFolderMusic} text="Add Folder" onPress={onAddFolder} busy={isAddingFolder} busyText="Scanning folder…" />
+        <FolderPickerButton
+          colors={colors}
+          icon={mdiFolderMusic}
+          text="Add Folder"
+          onPress={onAddFolder}
+          busy={isAddingFolder}
+          busyText="Scanning folder…"
+        />
         {secondaryAddButton}
       </View>
       {bannerContent}

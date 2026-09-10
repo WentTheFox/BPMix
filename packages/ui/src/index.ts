@@ -1,4 +1,5 @@
 export * from './AddFolderButton';
+export * from './FolderPickerButton';
 export * from './AppIconMark';
 export * from './AppTitle';
 export * from './CrossfadeArt';

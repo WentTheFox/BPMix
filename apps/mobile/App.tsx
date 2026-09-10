@@ -21,10 +21,10 @@ import {
   trackDisplayName,
 } from '@bpmix/core';
 import {
-  AddFolderButton,
   AppTitle,
   CROSSFADE_ART_TRANSITION_MS,
   FolderBrowser,
+  FolderPickerButton,
   getAccentColorHex,
   HeaderActions,
   HeaderRow,
@@ -206,8 +206,6 @@ function AppContent() {
   // Opened by tapping MiniPlayerBar's art/title area - closes back to
   // whichever screen (library or playlist) was already showing underneath.
   const [nowPlayingScreenOpen, setNowPlayingScreenOpen] = useState(false);
-  // Set while FolderBrowser is open, picking a lyrics scope within this root.
-  const [lyricsFolderPickerRoot, setLyricsFolderPickerRoot] = useState<GrantedRoot | null>(null);
   // Set while FolderBrowser is open picking a brand-new root (Android's
   // MANAGE_EXTERNAL_STORAGE flow only - see registerRootBrowser's doc in
   // fileAccess.android.ts; a no-op registration on Windows means this never
@@ -267,10 +265,6 @@ function AppContent() {
       closePlaylist: () => setScreen({ kind: 'library' }),
     },
     () => {
-      if (lyricsFolderPickerRoot) {
-        setLyricsFolderPickerRoot(null);
-        return true;
-      }
       if (rootBrowserRequest) {
         rootBrowserRequest.resolve(null);
         setRootBrowserRequest(null);
@@ -354,7 +348,14 @@ function AppContent() {
     // every refresh/relaunch until removed).
     const withLibrary = (
       await Promise.all(
-        roots.map(async (root) => {
+        // A 'lyrics' root (see GrantedRoot.kind's doc) is never a music
+        // library - it's a lyrics-only folder granted via addLyricsFolder's
+        // own requestRoot('lyrics') call, and scanning/listing it here would
+        // just show a permanently-empty "library" entry for it. Same filter
+        // as apps/web/src/App.tsx's refresh().
+        roots
+          .filter((root) => (root.kind ?? 'library') === 'library')
+          .map(async (root) => {
           try {
             let [playlists, tracks] = await Promise.all([
               libraryStore.listPlaylists(root.id),
@@ -604,6 +605,12 @@ function AppContent() {
     return () => clearInterval(interval);
   }, [persistPositionIfDue]);
 
+  // Double-click/double-tap invocation guarding (e.g. against opening two
+  // concurrent native folder-picker prompts, observed on Windows to leave
+  // the WinRT broker in a bad state and surface later as an
+  // unrelated-looking "The file is in use" error during a scan) lives in
+  // FolderPickerButton (packages/ui) now, not here - this is just the plain
+  // pick-and-handle operation it wraps.
   const addFolder = useCallback(async () => {
     setError(null);
     setNeedsAllFilesAccess(false);
@@ -656,47 +663,32 @@ function AppContent() {
   // same as Add Folder does - there's no per-folder OS grant to confine a
   // lyrics location to a subfolder of an already-added root, so a lyrics
   // folder can sit right next to (not just inside) a music one.
-  // Windows/web: browseDeviceStorage() always resolves null there (no
-  // unrestricted-storage equivalent), so this falls back to FolderBrowser
-  // over an already-granted root instead of requesting a brand-new one -
-  // see LyricsScope's doc for why, and apps/web/src/App.tsx's
-  // addLyricsFolder for the identical fallback reasoning/v1 scope note
-  // (first granted root only, no chooser yet).
+  // Windows: browseDeviceStorage() always resolves null there (no
+  // unrestricted-storage equivalent), so this falls through to a real,
+  // independent OS directory picker (requestRoot('lyrics')) instead - full
+  // parity with web's addLyricsFolder, which does the same. The old
+  // subfolder-of-an-already-granted-root fallback only existed because every
+  // granted root used to be unconditionally scanned as a music library
+  // (refresh() above); GrantedRoot.kind now lets refresh() skip a
+  // lyrics-only root, so this can just grant its own root like addFolder
+  // does - see GrantedRoot.kind's doc.
   const addLyricsFolder = useCallback(async () => {
     setError(null);
-    const browsed = await browseDeviceStorage();
-    if (browsed) {
-      try {
+    try {
+      const browsed = await browseDeviceStorage();
+      if (browsed) {
         await libraryStore.addLyricsScope({ rootId: browsed.path, relativePath: '' });
         await refresh();
-      } catch (err) {
-        setError(errorMessage(err));
+        return;
       }
-      return;
+      const root = await fileAccess.requestRoot('lyrics');
+      if (!root) return; // user cancelled the picker
+      await libraryStore.addLyricsScope({ rootId: root.id, relativePath: '' });
+      await refresh();
+    } catch (err) {
+      setError(errorMessage(err));
     }
-    const root = grantedRoots[0];
-    if (!root) {
-      setError('Add a music folder first - a lyrics folder is picked as a subfolder of one you already granted.');
-      return;
-    }
-    setLyricsFolderPickerRoot(root);
-  }, [grantedRoots, refresh]);
-
-  const handleLyricsFolderPicked = useCallback(
-    async (relativePath: string) => {
-      const root = lyricsFolderPickerRoot;
-      setLyricsFolderPickerRoot(null);
-      if (!root) return;
-      setError(null);
-      try {
-        await libraryStore.addLyricsScope({ rootId: root.id, relativePath });
-        await refresh();
-      } catch (err) {
-        setError(errorMessage(err));
-      }
-    },
-    [lyricsFolderPickerRoot, refresh],
-  );
+  }, [refresh]);
 
   const rescanLyricsScope = useCallback(
     async (rootId: string, relativePath: string) => {
@@ -718,12 +710,24 @@ function AppContent() {
       setError(null);
       try {
         await libraryStore.removeLyricsScope(rootId, relativePath);
+        // A lyrics-only root (granted via addLyricsFolder's own
+        // requestRoot('lyrics') - see GrantedRoot.kind's doc) has no other
+        // reason to stay granted once its last scope is removed - revoke it
+        // too rather than leave an orphaned grant sitting around forever
+        // with nothing in the UI ever referencing it again. A root still
+        // used for music, or still holding another lyrics scope, is left
+        // alone. Same logic as apps/web/src/App.tsx's removeLyricsScope.
+        const isLibraryRoot = grantedRoots.some((r) => r.id === rootId && (r.kind ?? 'library') === 'library');
+        const remainingScopes = await libraryStore.getLyricsScopes();
+        if (!isLibraryRoot && !remainingScopes.some((s) => s.rootId === rootId)) {
+          await fileAccess.revokeRoot(rootId);
+        }
         await refresh();
       } catch (err) {
         setError(errorMessage(err));
       }
     },
-    [refresh],
+    [refresh, grantedRoots],
   );
 
   const playFromTrack = useCallback(
@@ -1229,24 +1233,6 @@ function AppContent() {
     );
   }
 
-  if (lyricsFolderPickerRoot) {
-    return (
-      <>
-        <AppStatusBar barStyle={statusBarStyle} />
-        <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom, backgroundColor: colors.background }]}>
-          <FolderBrowser
-            colors={colors}
-            fileAccess={fileAccess}
-            rootId={lyricsFolderPickerRoot.id}
-            rootDisplayName={lyricsFolderPickerRoot.displayName}
-            onSelect={(relativePath) => void handleLyricsFolderPicked(relativePath)}
-            onCancel={() => setLyricsFolderPickerRoot(null)}
-          />
-        </View>
-      </>
-    );
-  }
-
   let screenContent: ReactNode;
   if (screen.kind === 'playlist') {
     const { playlist, tracksById } = screen;
@@ -1297,7 +1283,9 @@ function AppContent() {
           )
         }
         headerRight={<HeaderActions colors={colors} center={notificationCenter} onOpenSettings={() => setSettingsOpen(true)} />}
-        secondaryAddButton={<AddFolderButton colors={colors} icon={mdiSubtitles} text="Add Lyrics Folder" onPress={addLyricsFolder} />}
+        secondaryAddButton={
+          <FolderPickerButton colors={colors} icon={mdiSubtitles} text="Add Lyrics Folder" onPress={addLyricsFolder} />
+        }
         lyricsSection={
           <LyricsFolderSection
             colors={colors}

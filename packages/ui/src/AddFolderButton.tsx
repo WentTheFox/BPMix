@@ -7,8 +7,25 @@ export interface AddFolderButtonProps {
   icon: string;
   text: string;
   onPress: () => void;
+  /** Swaps the label for a spinner + busyText - use only once there's real progress to show (e.g. scanning a newly-picked root), not while a native folder-picker prompt is merely open (see `disabled`'s doc for why). */
   busy?: boolean;
   busyText?: string;
+  /**
+   * Disables the button without switching to the busy spinner/text - e.g.
+   * while a native folder-picker prompt is open and there's nothing yet to
+   * show progress for (the OS picker is already its own full-screen modal).
+   * Defaults to `busy` so existing callers passing only `busy` keep
+   * disabling. Was briefly conflated with `busy` for this exact case and
+   * that combination went blank on Windows - render committing a real
+   * ActivityIndicator+Text frame while the native FolderPicker had focus,
+   * then apparently never getting a repaint once the dialog closed and
+   * `busy` flipped back to false, leaving a stale, content-less button
+   * until the next unrelated re-render. Keeping the ordinary icon+text
+   * visible (just non-interactive) instead sidesteps that RNW glitch
+   * entirely, and is the more honest state anyway - nothing is "busy" yet
+   * at that point, the user just can't double-invoke the prompt.
+   */
+  disabled?: boolean;
 }
 
 /**
@@ -17,12 +34,13 @@ export interface AddFolderButtonProps {
  * lay them out side by side (see its buttonRow) without duplicating this
  * markup per button.
  */
-export function AddFolderButton({ colors, icon, text, onPress, busy = false, busyText }: AddFolderButtonProps) {
+export function AddFolderButton({ colors, icon, text, onPress, busy = false, busyText, disabled }: AddFolderButtonProps) {
+  const isDisabled = disabled ?? busy;
   return (
     <Pressable
-      style={[styles.button, { backgroundColor: colors.accent }, busy && styles.buttonDisabled]}
+      style={[styles.button, { backgroundColor: colors.accent }, isDisabled && styles.buttonDisabled]}
       onPress={onPress}
-      disabled={busy}
+      disabled={isDisabled}
     >
       {busy ? (
         <View style={styles.buttonRow}>

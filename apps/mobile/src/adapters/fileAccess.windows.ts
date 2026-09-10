@@ -14,8 +14,8 @@ import { base64ToArrayBuffer } from './base64';
  * unlike Android's opaque content:// URIs which need a client-side cache.
  */
 interface NativeFileAccess {
-  pickFolder(): Promise<{ id: string; displayName: string } | null>;
-  listGrantedRoots(): Promise<Array<{ id: string; displayName: string }>>;
+  pickFolder(kind: string): Promise<{ id: string; displayName: string; kind: string } | null>;
+  listGrantedRoots(): Promise<Array<{ id: string; displayName: string; kind: string }>>;
   revokeRoot(rootId: string): Promise<void>;
   listDirectory(
     rootId: string,
@@ -36,9 +36,10 @@ export function openAllFilesAccessSettings(): void {}
 /**
  * Always null here - Windows has no unrestricted-storage equivalent to
  * MANAGE_EXTERNAL_STORAGE, so a location outside an already-granted root
- * always needs a real FolderPicker prompt (pickFolder above), same as
- * adding a whole new root does. Callers fall back to picking a subfolder
- * of an existing root instead - see addLyricsFolder in apps/mobile/App.tsx.
+ * always needs a real FolderPicker prompt. That's not a problem for
+ * requestRoot('lyrics') (pickFolder above already prompts on its own,
+ * same as adding a whole new root does) - this only matters for Android's
+ * whole-device browse, which Windows has no equivalent of.
  */
 export async function browseDeviceStorage(): Promise<{ path: string; displayName: string } | null> {
   return null;
@@ -69,12 +70,15 @@ export function registerRootBrowser(
 
 export function createFileAccess(): FileAccess {
   return {
-    async requestRoot(): Promise<GrantedRoot | null> {
-      return native.pickFolder();
+    async requestRoot(kind: 'library' | 'lyrics' = 'library'): Promise<GrantedRoot | null> {
+      const root = await native.pickFolder(kind);
+      if (!root) return null;
+      return { id: root.id, displayName: root.displayName, kind: root.kind as 'library' | 'lyrics' };
     },
 
     async listGrantedRoots(): Promise<GrantedRoot[]> {
-      return native.listGrantedRoots();
+      const roots = await native.listGrantedRoots();
+      return roots.map((r) => ({ id: r.id, displayName: r.displayName, kind: (r.kind as 'library' | 'lyrics') ?? 'library' }));
     },
 
     async revokeRoot(rootId: string): Promise<void> {

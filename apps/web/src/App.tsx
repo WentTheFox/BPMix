@@ -17,8 +17,8 @@ import {
   trackDisplayName,
 } from '@bpmix/core';
 import {
-  AddFolderButton,
   CROSSFADE_ART_TRANSITION_MS,
+  FolderPickerButton,
   HeaderActions,
   getAccentColorHex,
   HeaderRow,
@@ -549,6 +549,12 @@ function App() {
     return () => clearInterval(interval);
   }, [persistPositionIfDue]);
 
+  // Double-click invocation guarding (e.g. against opening two concurrent
+  // native folder-picker prompts, observed on Windows to leave the WinRT
+  // broker in a bad state and surface later as an unrelated-looking "file
+  // in use" error during a scan) lives in FolderPickerButton (packages/ui)
+  // now, not here - this is just the plain pick-and-handle operation it
+  // wraps.
   const addFolder = useCallback(async () => {
     setError(null);
     try {
@@ -1131,6 +1137,7 @@ function App() {
         colors={colors}
         rootsWithLibrary={rootsWithLibrary}
         busyRootId={busyRootId}
+        isAddingFolder={busyRootId !== null && !rootsWithLibrary.some(({ root }) => root.id === busyRootId)}
         onAddFolder={addFolder}
         onRescan={rescan}
         onRemoveRoot={(rootId) => void removeRoot(rootId)}
@@ -1138,7 +1145,9 @@ function App() {
         error={error}
         listStyle={styles.list}
         headerRight={<HeaderActions colors={colors} center={notificationCenter} onOpenSettings={() => setSettingsOpen(true)} />}
-        secondaryAddButton={<AddFolderButton colors={colors} icon={mdiSubtitles} text="Add Lyrics Folder" onPress={addLyricsFolder} />}
+        secondaryAddButton={
+          <FolderPickerButton colors={colors} icon={mdiSubtitles} text="Add Lyrics Folder" onPress={addLyricsFolder} />
+        }
         bannerContent={
           <>
             {!SUPPORTS_DIRECTORY_PICKER && (

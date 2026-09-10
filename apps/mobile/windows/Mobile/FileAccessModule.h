@@ -102,8 +102,17 @@ inline int64_t DateTimeToEpochMs(winrt::Windows::Foundation::DateTime const &dat
 
 REACT_MODULE(FileAccessModule, L"BPMixFileAccess")
 struct FileAccessModule {
+  // kind ("library"/"lyrics" - see GrantedRoot.kind's doc) has no dedicated
+  // FutureAccessList field to live in, so it's packed into the one Metadata
+  // string FutureAccessList entries already carry (previously just the
+  // display name) as "<kind>|<displayName>", split back out in
+  // ListGrantedRoots below - same "split on first '|'" convention ParseFileId
+  // above already uses for FileRef.id. An entry from before this existed has
+  // no '|' at all, so the whole string is just its old plain display name -
+  // ListGrantedRoots treats that as kind "library", matching every other
+  // adapter's `kind ?? 'library'` default-fallback for pre-existing roots.
   REACT_METHOD(PickFolder, L"pickFolder")
-  winrt::fire_and_forget PickFolder(ReactPromise<JSValue> result) noexcept {
+  winrt::fire_and_forget PickFolder(std::string kind, ReactPromise<JSValue> result) noexcept {
     try {
       FolderPicker picker;
       picker.FileTypeFilter().Append(L"*");
@@ -118,11 +127,14 @@ struct FileAccessModule {
         co_return;
       }
 
-      auto token = StorageApplicationPermissions::FutureAccessList().Add(folder, folder.DisplayName());
+      std::string displayName = winrt::to_string(folder.DisplayName());
+      std::string metadata = kind + "|" + displayName;
+      auto token = StorageApplicationPermissions::FutureAccessList().Add(folder, winrt::to_hstring(metadata));
 
       JSValueObject obj;
       obj["id"] = winrt::to_string(token);
-      obj["displayName"] = winrt::to_string(folder.DisplayName());
+      obj["displayName"] = displayName;
+      obj["kind"] = kind;
       result.Resolve(JSValue(std::move(obj)));
     } catch (winrt::hresult_error const &e) {
       result.Reject(winrt::to_string(e.message()).c_str());
@@ -136,9 +148,15 @@ struct FileAccessModule {
     try {
       JSValueArray roots;
       for (auto const &entry : StorageApplicationPermissions::FutureAccessList().Entries()) {
+        std::string metadata = winrt::to_string(entry.Metadata);
+        auto sep = metadata.find('|');
+        std::string kind = sep == std::string::npos ? "library" : metadata.substr(0, sep);
+        std::string displayName = sep == std::string::npos ? metadata : metadata.substr(sep + 1);
+
         JSValueObject obj;
         obj["id"] = winrt::to_string(entry.Token);
-        obj["displayName"] = winrt::to_string(entry.Metadata);
+        obj["displayName"] = displayName;
+        obj["kind"] = kind;
         roots.push_back(JSValue(std::move(obj)));
       }
       result.Resolve(JSValue(std::move(roots)));
