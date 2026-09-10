@@ -2,6 +2,7 @@ import type { AudioEngine, DecodedAudio } from '../audio-engine/types';
 import { computeTransitionPlan } from '../crossfade/computeTransitionPlan';
 import type { FileRef } from '../file-access/types';
 import type { LoopMode } from '../library-store/types';
+import { logPlayback, logPlaybackWithHeapStats } from './playbackLog';
 import { PreloadScheduler } from './preloadScheduler';
 import { fisherYatesShuffle } from './shuffle';
 import { TrackPlayer, type TrackPlayerState } from './trackPlayer';
@@ -192,7 +193,16 @@ export class PlaylistPlayer {
   /** Decodes a track and fires onDecoded - the single decode path shared by playAt()'s cache-miss case and the preload scheduler, so both feed the same just-in-time analysis hook. */
   private async decodeAndNotify(fileId: string): Promise<DecodedAudio> {
     const ref = await this.resolveTrack(fileId);
+    const decodeStartedAtMs = Date.now();
     const decoded = await this.engine.decodeFile(ref);
+    // Approximate resident size of this decode's raw PCM data (Float32, 4
+    // bytes/sample) - logged so a memory-growth issue (e.g. the Hermes
+    // heap-OOM crash on 2026-09-10) can be correlated against how many
+    // buffers were decoded and roughly how large they were, without
+    // needing a full heap snapshot to get a first read on the shape of the
+    // problem.
+    const approxBytes = decoded.channelData.reduce((sum, channel) => sum + channel.length * 4, 0);
+    logPlaybackWithHeapStats('decode', { fileId, decodeMs: Date.now() - decodeStartedAtMs, approxBytes, inFlightDecodes: this.decodingByFileId.size });
     // See AudioEngine.prepareBuffer's doc - does createSource()'s otherwise-
     // lazy native-buffer setup now. For the preload scheduler (this decode
     // finishing well ahead of when the track is actually needed), that
@@ -511,6 +521,7 @@ export class PlaylistPlayer {
    */
   seek(positionSeconds: number): void {
     const current = this.trackPlayer.getState().positionSeconds;
+    logPlayback('seek', { fileId: this.currentFileId(), fromSeconds: current, toSeconds: positionSeconds });
     if (positionSeconds < current && this.trackPlayer.rewindTo(positionSeconds)) {
       return;
     }
@@ -518,6 +529,12 @@ export class PlaylistPlayer {
       return;
     }
     this.trackPlayer.seek(positionSeconds);
+  }
+
+  /** Current track's fileId, or null if nothing is loaded - shared by logPlayback call sites so they don't each re-derive it from order/trackFileIds. */
+  private currentFileId(): string | null {
+    const trackIndex = this.position >= 0 ? this.order[this.position] : undefined;
+    return trackIndex !== undefined ? (this.trackFileIds[trackIndex] ?? null) : null;
   }
 
   async next(options: { force?: boolean } = {}): Promise<void> {
@@ -642,6 +659,7 @@ export class PlaylistPlayer {
    * immediately rather than leaving callers to notice on their next poll.
    */
   private handleCrossfadeCompleted(): void {
+    const wasManualSkip = this.crossfadeIsManualSkip;
     // See crossfadeIsManualSkip's doc - a manual skip already advanced
     // `position` to its target up front; only the natural end-of-track
     // path still needs it advanced here.
@@ -650,6 +668,7 @@ export class PlaylistPlayer {
       this.position = isLast ? 0 : this.position + 1;
       this.maybeReshuffleForLoopContinuation();
     }
+    logPlayback('handleCrossfadeCompleted', { wasManualSkip, position: this.position, fileId: this.currentFileId() });
     this.crossfadeIsManualSkip = false;
     this.pendingCrossfadeFileIds = null;
     this.crossfadeTriggeredForPosition = null;
@@ -719,6 +738,7 @@ export class PlaylistPlayer {
     // just be re-derived from currentFileId afterward.
     const outgoingTrackIndex = this.order[this.position];
     const outgoingFileId = outgoingTrackIndex !== undefined ? this.trackFileIds[outgoingTrackIndex] : undefined;
+    logPlayback('crossfadeToPosition', { fromPosition: this.position, toPosition: position, outgoingFileId, incomingFileId: fileId });
 
     this.position = position;
     this.maybeReshuffleForLoopContinuation();
@@ -729,7 +749,10 @@ export class PlaylistPlayer {
         preloaded ? Promise.resolve(preloaded) : this.decodeDeduped(fileId),
         this.resolveGainFor(fileId),
       ]);
-      if (token !== this.playToken) return;
+      if (token !== this.playToken) {
+        logPlayback('crossfadeToPosition:superseded', { incomingFileId: fileId, toPosition: position });
+        return;
+      }
 
       const plan = {
         fadeStartSeconds: trackState.positionSeconds,
@@ -764,6 +787,8 @@ export class PlaylistPlayer {
     if (trackIndex === undefined) return;
     const fileId = this.trackFileIds[trackIndex];
     if (fileId === undefined) return;
+    const preloaded = this.preloadScheduler.takePreloaded(fileId);
+    logPlayback('playAt', { position, fileId, autoplay: options.autoplay, preloaded: preloaded !== undefined });
     this.position = position;
     this.maybeReshuffleForLoopContinuation();
     this.loadingForPlayback = options.autoplay;
@@ -775,16 +800,20 @@ export class PlaylistPlayer {
     // guards against (the first half was TrackPlayer's own stop-vs-onEnded
     // ordering bug).
     const token = ++this.playToken;
+    const decodeStartedAtMs = Date.now();
     try {
       // A track the preload scheduler already finished decoding skips
       // straight to loadDecoded() - no redundant decodeFile() round trip,
       // and effectively instant since there's nothing left to await there.
-      const preloaded = this.preloadScheduler.takePreloaded(fileId);
       const [decoded, gain] = await Promise.all([
         preloaded ? Promise.resolve(preloaded) : this.decodeDeduped(fileId),
         this.resolveGainFor(fileId),
       ]);
-      if (token !== this.playToken) return;
+      if (token !== this.playToken) {
+        logPlayback('playAt:superseded', { fileId, position });
+        return;
+      }
+      logPlayback('playAt:decoded', { fileId, position, decodeMs: Date.now() - decodeStartedAtMs });
       this.trackPlayer.setGain(gain);
       this.trackPlayer.loadDecoded(decoded);
       if (options.autoplay) this.trackPlayer.play();
@@ -797,6 +826,7 @@ export class PlaylistPlayer {
         // actually given up rather than still being in flight. onError
         // alone isn't enough for that: it's a one-shot event, while status
         // is what the UI continuously polls.
+        logPlayback('playAt:failed', { fileId, position, error: String(error) });
         this.trackPlayer.markLoadFailed();
         this.onError?.(error, fileId);
       }
@@ -819,6 +849,7 @@ export class PlaylistPlayer {
 
   /** Auto-advance on natural end (as opposed to a manual next()/previous()/setPlaylist() call) - fires onAdvance once the new track is actually loaded, same as handleCrossfadeCompleted, for the same immediate-refresh reason (see onAdvance's doc). */
   private handleTrackEnded(): void {
+    logPlayback('handleTrackEnded', { position: this.position, fileId: this.currentFileId(), loopMode: this.loopMode });
     if (this.loopMode === 'one') {
       void this.playAt(this.position).then(() => this.onAdvance?.());
       return;
@@ -827,6 +858,8 @@ export class PlaylistPlayer {
     if (isLast) {
       if (this.loopMode === 'all') {
         void this.playAt(0).then(() => this.onAdvance?.());
+      } else {
+        logPlayback('handleTrackEnded:stopped', { position: this.position });
       }
       return;
     }

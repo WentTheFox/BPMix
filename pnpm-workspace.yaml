@@ -24,4 +24,5 @@ minimumReleaseAge: 20160
 
 patchedDependencies:
   '@react-native/gradle-plugin@0.85.0': patches/@react-native__gradle-plugin@0.85.0.patch
+  react-native-audio-api@0.13.3: patches/react-native-audio-api@0.13.3.patch
   react-native-scoped-storage: patches/react-native-scoped-storage.patch

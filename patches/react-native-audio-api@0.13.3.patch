@@ -1,0 +1,121 @@
+diff --git a/common/cpp/audioapi/HostObjects/sources/AudioBufferHostObject.cpp b/common/cpp/audioapi/HostObjects/sources/AudioBufferHostObject.cpp
+index 34826456ea255f236c5a03154ee92fa3583f2ba8..f1f55c740d8039e2922a7b4ff8abc229054bb4df 100644
+--- a/common/cpp/audioapi/HostObjects/sources/AudioBufferHostObject.cpp
++++ b/common/cpp/audioapi/HostObjects/sources/AudioBufferHostObject.cpp
+@@ -41,6 +41,13 @@ JSI_PROPERTY_GETTER_IMPL(AudioBufferHostObject, numberOfChannels) {
+ }
+ 
+ JSI_HOST_FUNCTION_IMPL(AudioBufferHostObject, getChannelData) {
++  // The returned Float32Array is a live, JS-writable view straight into
++  // audioBuffer_'s storage, and the caller can hold onto it indefinitely - any
++  // cached copy handed to a source node from here on can no longer be trusted
++  // to stay in sync, so stop caching for the rest of this buffer's lifetime.
++  channelDataExposed_ = true;
++  immutableCopyCache_ = nullptr;
++
+   auto channel = static_cast<int>(args[0].getNumber());
+   auto audioArrayBuffer = audioBuffer_->getSharedChannel(channel);
+   auto arrayBuffer = jsi::ArrayBuffer(runtime, audioArrayBuffer);
+@@ -67,6 +74,9 @@ JSI_HOST_FUNCTION_IMPL(AudioBufferHostObject, copyFromChannel) {
+ }
+ 
+ JSI_HOST_FUNCTION_IMPL(AudioBufferHostObject, copyToChannel) {
++  // Mutates audioBuffer_ in place - any previously cached copy is now stale.
++  immutableCopyCache_ = nullptr;
++
+   auto arrayBuffer =
+       args[0].getObject(runtime).getPropertyAsObject(runtime, "buffer").getArrayBuffer(runtime);
+   auto *source = reinterpret_cast<float *>(arrayBuffer.data(runtime));
+diff --git a/common/cpp/audioapi/HostObjects/sources/AudioBufferHostObject.h b/common/cpp/audioapi/HostObjects/sources/AudioBufferHostObject.h
+index b03b988f38ef8f703f5f446f0a7a8d475f8bbfe2..dbc47af7f5347cdaaa3fadefd6d92f7d4962672e 100644
+--- a/common/cpp/audioapi/HostObjects/sources/AudioBufferHostObject.h
++++ b/common/cpp/audioapi/HostObjects/sources/AudioBufferHostObject.h
+@@ -34,6 +34,28 @@ class AudioBufferHostObject : public JsiHostObject {
+     return audioBuffer_->getSize() * audioBuffer_->getNumberOfChannels() * sizeof(float) * 2;
+   }
+ 
++  /// @brief Returns a defensive copy of `audioBuffer_` suitable for handing to an
++  /// `AudioBufferSourceNode`, reusing a cached copy across repeated `.buffer = x`
++  /// reassignments of this same JS-visible buffer (e.g. seeking, which recreates the
++  /// source node but keeps reusing the already-decoded buffer). Without this, every
++  /// reassignment allocated a brand-new full-size copy, which is where
++  /// https://github.com/software-mansion/react-native-audio-api/issues/1263 came from.
++  /// @note The cache is invalidated whenever the buffer's data could have been mutated
++  /// from JS (`copyToChannel`, or ever having handed out a live `getChannelData` view),
++  /// since a cached copy must never be shared while its source can still be written to.
++  [[nodiscard]] std::shared_ptr<AudioBuffer> getOrCreateImmutableCopy() {
++    if (channelDataExposed_) {
++      // A live, JS-writable view into audioBuffer_ has escaped - we can no longer
++      // prove a cached copy won't go stale, so fall back to copying every time.
++      return std::make_shared<AudioBuffer>(*audioBuffer_);
++    }
++
++    if (immutableCopyCache_ == nullptr) {
++      immutableCopyCache_ = std::make_shared<AudioBuffer>(*audioBuffer_);
++    }
++    return immutableCopyCache_;
++  }
++
+   JSI_PROPERTY_GETTER_DECL(sampleRate);
+   JSI_PROPERTY_GETTER_DECL(length);
+   JSI_PROPERTY_GETTER_DECL(duration);
+@@ -42,5 +64,9 @@ class AudioBufferHostObject : public JsiHostObject {
+   JSI_HOST_FUNCTION_DECL(getChannelData);
+   JSI_HOST_FUNCTION_DECL(copyFromChannel);
+   JSI_HOST_FUNCTION_DECL(copyToChannel);
++
++ private:
++  std::shared_ptr<AudioBuffer> immutableCopyCache_;
++  bool channelDataExposed_ = false;
+ };
+ } // namespace audioapi
+diff --git a/common/cpp/audioapi/HostObjects/sources/AudioBufferSourceNodeHostObject.cpp b/common/cpp/audioapi/HostObjects/sources/AudioBufferSourceNodeHostObject.cpp
+index de6562f8f3d4d1fb037ef01287d22827b25b67bb..e5ff39ed4bc00f817e292a6418d6574aaf5e850f 100644
+--- a/common/cpp/audioapi/HostObjects/sources/AudioBufferSourceNodeHostObject.cpp
++++ b/common/cpp/audioapi/HostObjects/sources/AudioBufferSourceNodeHostObject.cpp
+@@ -145,13 +145,15 @@ JSI_HOST_FUNCTION_IMPL(AudioBufferSourceNodeHostObject, setBuffer) {
+     thisValue.asObject(runtime).setExternalMemoryPressure(
+         runtime, bufferHostObject->getSizeInBytes());
+ 
+-    setBuffer(bufferHostObject->audioBuffer_);
++    setBuffer(bufferHostObject->audioBuffer_, bufferHostObject);
+   }
+ 
+   return jsi::Value::undefined();
+ }
+ 
+-void AudioBufferSourceNodeHostObject::setBuffer(const std::shared_ptr<AudioBuffer> &buffer) {
++void AudioBufferSourceNodeHostObject::setBuffer(
++    const std::shared_ptr<AudioBuffer> &buffer,
++    const std::shared_ptr<AudioBufferHostObject> &bufferHostObject) {
+   // TODO: add optimized memory management for buffer changes, e.g.
+   //  when the same buffer is reused across threads and
+   // buffer modification is not allowed on JS thread
+@@ -174,6 +176,12 @@ void AudioBufferSourceNodeHostObject::setBuffer(const std::shared_ptr<AudioBuffe
+           totalSize, buffer->getNumberOfChannels(), buffer->getSampleRate());
+       copiedBuffer->copy(*buffer, 0, 0, buffer->getSize());
+       copiedBuffer->zero(buffer->getSize(), extraTailFrames);
++    } else if (bufferHostObject != nullptr) {
++      // Reuse a cached copy across repeated `.buffer = x` reassignments of the same
++      // JS-visible buffer (e.g. seeking, which recreates the source node but keeps
++      // reusing the already-decoded buffer) instead of deep-copying every time -
++      // see https://github.com/software-mansion/react-native-audio-api/issues/1263.
++      copiedBuffer = bufferHostObject->getOrCreateImmutableCopy();
+     } else {
+       copiedBuffer = std::make_shared<AudioBuffer>(*buffer);
+     }
+diff --git a/common/cpp/audioapi/HostObjects/sources/AudioBufferSourceNodeHostObject.h b/common/cpp/audioapi/HostObjects/sources/AudioBufferSourceNodeHostObject.h
+index f20fde6237fb4ffd769da70580edaf24da79f816..3090d408cb50f4c6b97a690ece74e82df1c56edd 100644
+--- a/common/cpp/audioapi/HostObjects/sources/AudioBufferSourceNodeHostObject.h
++++ b/common/cpp/audioapi/HostObjects/sources/AudioBufferSourceNodeHostObject.h
+@@ -40,7 +40,9 @@ class AudioBufferSourceNodeHostObject : public AudioBufferBaseSourceNodeHostObje
+   double loopStart_;
+   double loopEnd_;
+ 
+-  void setBuffer(const std::shared_ptr<AudioBuffer> &buffer);
++  void setBuffer(
++      const std::shared_ptr<AudioBuffer> &buffer,
++      const std::shared_ptr<AudioBufferHostObject> &bufferHostObject = nullptr);
+ };
+ 
+ } // namespace audioapi
