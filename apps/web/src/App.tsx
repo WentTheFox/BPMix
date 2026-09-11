@@ -704,7 +704,12 @@ function App() {
 
   const togglePause = useCallback(() => {
     if (!transportActionAllowed()) return;
-    if (playerState.track.status === 'playing') {
+    // isAudible (not raw status) - a new track can be decoding in the
+    // background (status 'loading') while the previous one is still
+    // genuinely playing (see TrackPlayerState.isAudible's doc), and this
+    // should still pause that instead of falling through to play() just
+    // because status itself isn't literally 'playing' right now.
+    if (playerState.track.isAudible) {
       playlistPlayer.pause();
       // Captures the exact stop point immediately rather than waiting on the
       // next throttled poll-tick persist, which no longer fires once paused.
@@ -713,7 +718,7 @@ function App() {
       playlistPlayer.play();
     }
     setPlayerState(playlistPlayer.getState());
-  }, [playerState.track.status, persistPlaybackPatch]);
+  }, [playerState.track.isAudible, persistPlaybackPatch]);
 
   const seekTo = useCallback(
     (positionSeconds: number) => {

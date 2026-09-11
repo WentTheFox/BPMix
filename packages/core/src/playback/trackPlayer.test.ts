@@ -101,13 +101,13 @@ describe('TrackPlayer', () => {
   });
 
   it('starts stopped with the decoded duration and zero position', () => {
-    expect(player.getState()).toEqual({ status: 'stopped', positionSeconds: 0, durationSeconds: 10, pendingIncoming: null });
+    expect(player.getState()).toEqual({ status: 'stopped', isAudible: false, positionSeconds: 0, durationSeconds: 10, pendingIncoming: null });
   });
 
   it('play() advances position with the engine clock', () => {
     player.play();
     engine.clock = 3;
-    expect(player.getState()).toEqual({ status: 'playing', positionSeconds: 3, durationSeconds: 10, pendingIncoming: null });
+    expect(player.getState()).toEqual({ status: 'playing', isAudible: true, positionSeconds: 3, durationSeconds: 10, pendingIncoming: null });
   });
 
   it('pause() freezes position and stops the underlying source', () => {
@@ -115,7 +115,7 @@ describe('TrackPlayer', () => {
     engine.clock = 4;
     player.pause();
     engine.clock = 10; // should have no further effect while paused
-    expect(player.getState()).toEqual({ status: 'paused', positionSeconds: 4, durationSeconds: 10, pendingIncoming: null });
+    expect(player.getState()).toEqual({ status: 'paused', isAudible: false, positionSeconds: 4, durationSeconds: 10, pendingIncoming: null });
     expect(engine.stoppedSourceIds).toEqual(['source-0']);
   });
 
@@ -165,20 +165,20 @@ describe('TrackPlayer', () => {
     player.play();
     player.pause();
     player.seek(6);
-    expect(player.getState()).toEqual({ status: 'paused', positionSeconds: 6, durationSeconds: 10, pendingIncoming: null });
+    expect(player.getState()).toEqual({ status: 'paused', isAudible: false, positionSeconds: 6, durationSeconds: 10, pendingIncoming: null });
   });
 
   it('stop() resets position to zero', () => {
     player.play();
     engine.clock = 5;
     player.stop();
-    expect(player.getState()).toEqual({ status: 'stopped', positionSeconds: 0, durationSeconds: 10, pendingIncoming: null });
+    expect(player.getState()).toEqual({ status: 'stopped', isAudible: false, positionSeconds: 0, durationSeconds: 10, pendingIncoming: null });
   });
 
   it('transitions to stopped when the source reports it ended naturally', () => {
     player.play();
     engine.fireEnded('source-0');
-    expect(player.getState()).toEqual({ status: 'stopped', positionSeconds: 10, durationSeconds: 10, pendingIncoming: null });
+    expect(player.getState()).toEqual({ status: 'stopped', isAudible: false, positionSeconds: 10, durationSeconds: 10, pendingIncoming: null });
   });
 
   it('ignores an ended callback from a source already superseded by seek/pause', () => {
@@ -238,7 +238,68 @@ describe('TrackPlayer', () => {
     player.seek(Number.NaN);
     player.seek(Number.POSITIVE_INFINITY);
     // Unaffected - both calls were no-ops.
-    expect(player.getState()).toEqual({ status: 'playing', positionSeconds: 3, durationSeconds: 10, pendingIncoming: null });
+    expect(player.getState()).toEqual({ status: 'playing', isAudible: true, positionSeconds: 3, durationSeconds: 10, pendingIncoming: null });
+  });
+
+  describe('pause() while a new track is loading in the background', () => {
+    // Regression coverage: markLoading() only flips status - it never
+    // touches the previous track's still-playing source - so pause() used
+    // to silently no-op while status read 'loading', leaving a genuinely
+    // audible previous track impossible to pause until the new one's
+    // decode finished.
+    it('silences the still-playing previous source and freezes its position', () => {
+      player.play(); // source-0
+      engine.clock = 4;
+      player.markLoading(); // simulates PlaylistPlayer.playAt() starting a new decode
+      player.pause();
+
+      expect(player.getState()).toEqual({
+        status: 'loading',
+        isAudible: false,
+        positionSeconds: 4,
+        durationSeconds: 10,
+        pendingIncoming: null,
+      });
+      expect(engine.stoppedSourceIds).toEqual(['source-0']);
+      engine.clock = 9; // shouldn't move the now-frozen position
+      expect(player.getState().positionSeconds).toBe(4);
+    });
+
+    it('is a harmless no-op if nothing was actually playing yet (e.g. the very first load)', async () => {
+      const freshEngine = new FakeAudioEngine();
+      const freshPlayer = new TrackPlayer(freshEngine);
+      freshPlayer.markLoading();
+      expect(() => freshPlayer.pause()).not.toThrow();
+      expect(freshEngine.stoppedSourceIds).toEqual([]);
+    });
+
+    it("lands the pending track paused instead of autoplaying once its decode completes, undoing the user's pause", () => {
+      player.play(); // source-0
+      engine.clock = 4;
+      player.markLoading();
+      player.pause(); // silences source-0, remembers the pause
+
+      // Simulates playAt()'s own decode-complete sequence: loadDecoded()
+      // followed by play() for its autoplay:true intent.
+      player.loadDecoded({ sampleRate: 44100, numberOfChannels: 2, channelData: [], durationSeconds: 20 });
+      player.play();
+
+      expect(player.getState().status).toBe('paused');
+      expect(player.getState().positionSeconds).toBe(0); // the new track, never started
+    });
+
+    it("a fresh markLoading() (the user skipped again before the paused-for load finished) discards the stale pause, so THAT track still autoplays", () => {
+      player.play(); // source-0
+      engine.clock = 4;
+      player.markLoading();
+      player.pause();
+
+      player.markLoading(); // a second, unrelated skip supersedes the first pending load
+      player.loadDecoded({ sampleRate: 44100, numberOfChannels: 2, channelData: [], durationSeconds: 15 });
+      player.play();
+
+      expect(player.getState().status).toBe('playing');
+    });
   });
 
   it('recovers instead of getting stuck if the engine rejects a start (e.g. throws on a bad offset)', async () => {
@@ -370,7 +431,7 @@ describe('TrackPlayer', () => {
     player.loadDecoded({ sampleRate: 44100, numberOfChannels: 2, channelData: [], durationSeconds: 30 });
 
     expect(engine.decodeCallCount).toBe(decodeCallsBefore); // no new decode
-    expect(player.getState()).toEqual({ status: 'stopped', positionSeconds: 0, durationSeconds: 30, pendingIncoming: null });
+    expect(player.getState()).toEqual({ status: 'stopped', isAudible: false, positionSeconds: 0, durationSeconds: 30, pendingIncoming: null });
 
     player.play();
     expect(player.getState().status).toBe('playing');
@@ -382,7 +443,7 @@ describe('TrackPlayer', () => {
 
     player.loadDecoded({ sampleRate: 44100, numberOfChannels: 2, channelData: [], durationSeconds: 5 });
 
-    expect(player.getState()).toEqual({ status: 'stopped', positionSeconds: 0, durationSeconds: 5, pendingIncoming: null });
+    expect(player.getState()).toEqual({ status: 'stopped', isAudible: false, positionSeconds: 0, durationSeconds: 5, pendingIncoming: null });
   });
 
   it('loadDecoded() invalidates a still-in-flight async load(), like a newer load() would', () => {
@@ -473,6 +534,7 @@ describe('TrackPlayer', () => {
       cfEngine.clock = 6;
       expect(cfPlayer.getState()).toEqual({
         status: 'playing',
+        isAudible: true,
         positionSeconds: 6,
         durationSeconds: 10,
         pendingIncoming: { positionSeconds: 2, durationSeconds: 20, fadeDurationSeconds: 3 }, // incomingStartSeconds(1) + (now(6)-fadeWhen(5))*rate(1)
@@ -486,7 +548,7 @@ describe('TrackPlayer', () => {
       expect(ended).toEqual([]); // not a natural end - must not be reported as one
       expect(crossfadeCompletions).toEqual([0]);
       // positionSeconds = incomingStartSeconds(1) + (now(6) - fadeWhen(5)) * rate(1) = 1 + 1 = 2
-      expect(cfPlayer.getState()).toEqual({ status: 'playing', positionSeconds: 2, durationSeconds: 20, pendingIncoming: null });
+      expect(cfPlayer.getState()).toEqual({ status: 'playing', isAudible: true, positionSeconds: 2, durationSeconds: 20, pendingIncoming: null });
 
       cfEngine.clock = 8;
       expect(cfPlayer.getState().positionSeconds).toBeCloseTo(1 + (8 - 5), 6);

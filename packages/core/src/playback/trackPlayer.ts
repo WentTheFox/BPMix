@@ -22,6 +22,18 @@ export type TrackPlayerStatus = 'idle' | 'loading' | 'playing' | 'paused' | 'sto
 
 export interface TrackPlayerState {
   status: TrackPlayerStatus;
+  /**
+   * True whenever a real source is actually generating sound right now -
+   * independent of `status`, which describes the CURRENT track's own
+   * lifecycle (a fresh `playAt()` sets status to 'loading' for the track
+   * it's decoding, but never touches whatever source is already playing -
+   * see markLoading()'s doc). Lets a caller tell "genuinely silent" apart
+   * from "the next track is loading while the previous one is still
+   * audible", which `status` alone can't distinguish - used to decide
+   * whether the play/pause control should show/act as pause even while
+   * status reads 'loading'.
+   */
+  isAudible: boolean;
   positionSeconds: number;
   durationSeconds: number;
   /**
@@ -90,6 +102,18 @@ export class TrackPlayer {
   /** User-facing master volume [0,1], independent of currentGain (per-track normalization) - the two multiply together into whatever's actually sent to the engine. Persists across tracks (unlike currentGain, which is per-track), same reasoning as currentRate/currentGain: sources are torn down and recreated on every seek/pause/resume, so this has to be remembered and re-applied each time. */
   private masterVolume = 1;
   private pendingCrossfade: PendingCrossfade | null = null;
+  /**
+   * Set by pause() when it's called during status 'loading' - see pause()'s
+   * own doc for why that's a real, distinct case (the previous track can
+   * still be genuinely audible for the whole decode window) rather than
+   * nothing-to-do. Consumed by play() once the pending decode actually
+   * lands, so playAt()'s own autoplay intent doesn't un-pause a track the
+   * user explicitly silenced while it was still loading. Reset by
+   * markLoading() too, so a stale pause from a superseded load (the user
+   * skipped again before the first one finished) can't leak onto the new
+   * one it has nothing to do with.
+   */
+  private pausedWhileLoading = false;
 
   constructor(engine: AudioEngine, callbacks: TrackPlayerCallbacks = {}) {
     this.engine = engine;
@@ -123,6 +147,12 @@ export class TrackPlayer {
    */
   markLoading(): void {
     this.status = 'loading';
+    // A fresh load supersedes whatever pause intent applied to a PREVIOUS
+    // pending load (the user skipped again before that one's decode even
+    // finished) - without this, a stale flag from that abandoned load
+    // could wrongly land THIS unrelated one paused instead of autoplaying
+    // it as actually requested.
+    this.pausedWhileLoading = false;
   }
 
   /**
@@ -177,6 +207,15 @@ export class TrackPlayer {
     if (this.status === 'playing') {
       return;
     }
+    if (this.pausedWhileLoading) {
+      // This decode's own pending playAt() autoplay is what's calling
+      // play() right now - the user explicitly paused (see pause()'s own
+      // 'loading' branch) while it was still in flight, so land here
+      // paused instead of autoplaying out from under that.
+      this.pausedWhileLoading = false;
+      this.status = 'paused';
+      return;
+    }
     // Only a genuine resume-from-pause fades in - a fresh track start
     // (status 'stopped'/'idle', e.g. tapping a track in the list, or
     // PlaylistPlayer.playAt loading the next one) should still begin at
@@ -186,6 +225,25 @@ export class TrackPlayer {
   }
 
   pause(): void {
+    if (this.status === 'loading') {
+      // A new track is decoding in the background while the previous one
+      // may still be genuinely audible right now - markLoading() only
+      // flips status, it never touches this.source, so there's real audio
+      // to silence here even though status already reads 'loading' for
+      // the track that's still on its way in. The pending decode itself
+      // has nothing to pause yet; pausedWhileLoading is what stops its
+      // own eventual autoplay from undoing this the instant it lands (see
+      // play()'s own check).
+      this.pausedWhileLoading = true;
+      const source = this.source;
+      if (!source) return;
+      const position = this.getPositionSeconds();
+      this.cancelPendingCrossfade();
+      this.source = null;
+      this.startOffsetSeconds = position;
+      this.fadeOutAndStop(source);
+      return;
+    }
     if (this.status !== 'playing') {
       return;
     }
@@ -203,15 +261,20 @@ export class TrackPlayer {
     this.startOffsetSeconds = position;
     this.status = 'paused';
     if (source) {
-      const when = this.engine.now();
-      try {
-        source.rampGain({ toValue: 0, atTimeSeconds: when, durationSeconds: PAUSE_RESUME_FADE_SECONDS });
-        source.stop(when + PAUSE_RESUME_FADE_SECONDS + STOP_TAIL_SECONDS);
-      } catch {
-        // A scheduling conflict or bad engine state - fall back to an
-        // immediate stop rather than leaving the source playing forever.
-        source.stop();
-      }
+      this.fadeOutAndStop(source);
+    }
+  }
+
+  /** Fades a still-audible source out and schedules its stop rather than cutting it immediately - an instant gain cut is an audible pop/click. Shared by pause()'s two branches (a normal 'playing' pause, and pausing the previous track while a new one loads in the background). */
+  private fadeOutAndStop(source: SourceNode): void {
+    const when = this.engine.now();
+    try {
+      source.rampGain({ toValue: 0, atTimeSeconds: when, durationSeconds: PAUSE_RESUME_FADE_SECONDS });
+      source.stop(when + PAUSE_RESUME_FADE_SECONDS + STOP_TAIL_SECONDS);
+    } catch {
+      // A scheduling conflict or bad engine state - fall back to an
+      // immediate stop rather than leaving the source playing forever.
+      source.stop();
     }
   }
 
@@ -401,6 +464,7 @@ export class TrackPlayer {
   getState(): TrackPlayerState {
     return {
       status: this.status,
+      isAudible: this.source !== null,
       positionSeconds: this.getPositionSeconds(),
       durationSeconds: this.decoded?.durationSeconds ?? 0,
       pendingIncoming: this.pendingCrossfade
@@ -413,8 +477,16 @@ export class TrackPlayer {
     };
   }
 
+  /**
+   * Keyed on `this.source` (see isAudible's doc), not `status` - a fresh
+   * playAt() sets status to 'loading' for the track it's decoding without
+   * touching whatever source is already playing, so gating on status alone
+   * would freeze the reported position of a still-genuinely-playing
+   * previous track for the whole background-load window instead of
+   * continuing to advance it.
+   */
   private getPositionSeconds(): number {
-    if (this.status !== 'playing') {
+    if (!this.source) {
       return this.startOffsetSeconds;
     }
     return this.startOffsetSeconds + (this.engine.now() - this.startedAtEngineTime) * this.currentRate;
