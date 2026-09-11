@@ -1,10 +1,9 @@
-import { mdiArrowLeft } from '@mdi/js';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { CrossfadeSlider } from './CrossfadeSlider';
+import { BackButton } from '../BackButton';
 import { HeaderRow } from '../HeaderRow';
-import { IconLabel } from '../IconLabel';
 import type { Colors } from '../theme';
 import { withAlpha } from '../theme';
 import type { ThemeMode } from '../theme';
@@ -47,11 +46,7 @@ export function SettingsScreen({ colors, settings, onUpdateSettings, onResetSett
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <HeaderRow
         style={styles.header}
-        left={
-          <Pressable onPress={onClose}>
-            <IconLabel path={mdiArrowLeft} text="Settings" color={colors.text} iconSize={18} textStyle={styles.title} />
-          </Pressable>
-        }
+        left={<BackButton text="Settings" color={colors.text} onPress={onClose} />}
       />
       <ScrollView contentContainerStyle={styles.content}>
         <Section title="Theme" colors={colors}>
@@ -160,10 +155,6 @@ const styles = StyleSheet.create({
   header: {
     maxWidth: 480,
     alignSelf: 'center',
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '600',
   },
   content: {
     width: '100%',

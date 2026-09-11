@@ -17,12 +17,12 @@ import {
   trackDisplayName,
 } from '@bpmix/core';
 import {
+  BackButton,
   CROSSFADE_ART_TRANSITION_MS,
   FolderPickerButton,
   HeaderActions,
   getAccentColorHex,
   HeaderRow,
-  IconLabel,
   LibraryScreen,
   LyricsFolderSection,
   lyricsScopeKey,
@@ -46,7 +46,7 @@ import {
   useTrackMetadata,
 } from '@bpmix/ui';
 import type { RootWithLibrary } from '@bpmix/ui';
-import { mdiArrowLeft, mdiSubtitles } from '@mdi/js';
+import { mdiSubtitles } from '@mdi/js';
 import type { CSSProperties, ReactNode } from 'react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DimensionValue } from 'react-native';
@@ -1123,11 +1123,7 @@ function App() {
       <>
         <HeaderRow
           style={styles.backRow}
-          left={
-            <Pressable onPress={() => setScreen({ kind: 'library' })}>
-              <IconLabel path={mdiArrowLeft} text={`Playlist: ${playlist.name}`} color={colors.text} iconSize={18} textStyle={styles.backLink} />
-            </Pressable>
-          }
+          left={<BackButton text={`Playlist: ${playlist.name}`} color={colors.text} onPress={() => setScreen({ kind: 'library' })} />}
           right={<HeaderActions colors={colors} center={notificationCenter} onOpenSettings={() => setSettingsOpen(true)} />}
         />
         {error && <Text style={styles.error}>{error}</Text>}
@@ -1281,10 +1277,6 @@ const styles = StyleSheet.create({
   backRow: {
     width: '100%',
     maxWidth: 480,
-  },
-  backLink: {
-    fontSize: 18,
-    fontWeight: '600',
   },
   // Merged onto LibraryScreen's own base list style - see its listStyle prop's doc.
   list: {

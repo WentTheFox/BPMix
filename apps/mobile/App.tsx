@@ -22,13 +22,13 @@ import {
 } from '@bpmix/core';
 import {
   AppTitle,
+  BackButton,
   CROSSFADE_ART_TRANSITION_MS,
   FolderBrowser,
   FolderPickerButton,
   getAccentColorHex,
   HeaderActions,
   HeaderRow,
-  IconLabel,
   LibraryScreen,
   LyricsFolderSection,
   lyricsScopeKey,
@@ -52,7 +52,7 @@ import {
   useTrackMetadata,
 } from '@bpmix/ui';
 import type { RootWithLibrary } from '@bpmix/ui';
-import { mdiArrowLeft, mdiSubtitles } from '@mdi/js';
+import { mdiSubtitles } from '@mdi/js';
 import type { ReactNode } from 'react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, Pressable, StatusBar, StyleSheet, Text, View } from 'react-native';
@@ -1236,11 +1236,7 @@ function AppContent() {
       <>
         <HeaderRow
           style={styles.backRow}
-          left={
-            <Pressable onPress={() => setScreen({ kind: 'library' })}>
-              <IconLabel path={mdiArrowLeft} text={`Playlist: ${playlist.name}`} color={colors.text} iconSize={18} textStyle={styles.backLink} />
-            </Pressable>
-          }
+          left={<BackButton text={`Playlist: ${playlist.name}`} color={colors.text} onPress={() => setScreen({ kind: 'library' })} />}
           right={<HeaderActions colors={colors} center={notificationCenter} onOpenSettings={() => setSettingsOpen(true)} />}
         />
         {error && <Text style={styles.error}>{error}</Text>}
@@ -1346,10 +1342,6 @@ const styles = StyleSheet.create({
   backRow: {
     width: '100%',
     maxWidth: 480,
-  },
-  backLink: {
-    fontSize: 18,
-    fontWeight: '600',
   },
 });
 

@@ -1,7 +1,8 @@
 import type { FileRef } from '@bpmix/core';
-import { mdiArrowLeft, mdiSubtitles, mdiTrashCanOutline } from '@mdi/js';
+import { mdiSubtitles, mdiTrashCanOutline } from '@mdi/js';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { BackButton } from './BackButton';
 import { IconLabel } from './IconLabel';
 import type { Colors } from './theme';
 
@@ -38,9 +39,7 @@ export function LyricsPickerScreen({ colors, candidates, currentFileId, saving, 
 
   return (
     <View style={styles.container}>
-      <Pressable style={styles.backRow} onPress={onCancel} disabled={saving}>
-        <IconLabel path={mdiArrowLeft} text="Link Lyrics File" color={colors.text} iconSize={18} textStyle={styles.backLink} />
-      </Pressable>
+      <BackButton text="Link Lyrics File" color={colors.text} onPress={onCancel} disabled={saving} fontSize={16} style={styles.backRow} />
 
       <TextInput
         style={[styles.search, { color: colors.text, borderColor: colors.subtleText }]}
@@ -104,10 +103,6 @@ const styles = StyleSheet.create({
   },
   backRow: {
     marginBottom: 8,
-  },
-  backLink: {
-    fontSize: 16,
-    fontWeight: '600',
   },
   search: {
     borderWidth: StyleSheet.hairlineWidth,

@@ -1,11 +1,10 @@
 import type { FileAccess, LibraryStore, LyricsScope } from '@bpmix/core';
-import { mdiArrowLeft } from '@mdi/js';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { BackButton } from './BackButton';
 import { CrossfadeArt } from './CrossfadeArt';
 import { HeaderRow } from './HeaderRow';
-import { IconLabel } from './IconLabel';
 import { LoadingBar } from './LoadingBar';
 import { LyricsSection } from './LyricsSection';
 import { MarqueeText } from './MarqueeText';
@@ -107,11 +106,7 @@ export function NowPlayingScreen({
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <HeaderRow
-        left={
-          <Pressable onPress={onClose}>
-            <IconLabel path={mdiArrowLeft} text="Now Playing" color={colors.text} iconSize={18} textStyle={styles.backLink} />
-          </Pressable>
-        }
+        left={<BackButton text="Now Playing" color={colors.text} onPress={onClose} />}
         right={headerRight}
       />
       <View style={styles.content}>
@@ -171,10 +166,6 @@ export function NowPlayingScreen({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  backLink: {
-    fontSize: 18,
-    fontWeight: '600',
   },
   content: {
     flex: 1,
