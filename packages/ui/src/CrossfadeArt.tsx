@@ -519,18 +519,30 @@ export function CrossfadeArt({
   // would put three discs on screen at once instead of two).
   useEffect(() => {
     if (transitioning) return;
-    if (nextTrackKey === displayed.nextKey) {
-      if (nextArtUri !== displayed.nextArt) {
-        setDisplayed((d) => ({ ...d, nextArt: nextArtUri }));
-      }
-      return;
-    }
+    if (nextTrackKey === displayed.nextKey) return;
     setDisplayed((d) => ({ ...d, nextKey: nextTrackKey, nextArt: nextArtUri }));
     nextOpacity.setValue(0);
     Animated.timing(nextOpacity, { toValue: 1, duration: CROSSFADE_ART_TRANSITION_MS, easing: Easing.linear, useNativeDriver: true }).start();
-    // Only nextTrackKey/transitioning should retrigger this.
+    // Only nextTrackKey/transitioning should retrigger this - nextArtUri is
+    // only captured as a starting value here (see the re-sync effect below
+    // for picking up a later-arriving fetch).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nextTrackKey, transitioning]);
+
+  // Freshest art for whichever key is already settled as next (e.g.
+  // useCoverArt's fetch resolves after nextTrackKey already settled) - the
+  // same "settled key, late-arriving URI" case currentArtUri's own re-sync
+  // effect above handles, needed here for the identical reason: nextArtUri
+  // is essentially always still null at the moment nextTrackKey changes
+  // (useCoverArt fetches asynchronously), so without this the effect above
+  // would permanently capture that null and the next disc would never get
+  // past its accent-color placeholder.
+  useEffect(() => {
+    if (transitioning) return;
+    if (nextTrackKey === displayed.nextKey && nextArtUri !== displayed.nextArt) {
+      setDisplayed((d) => ({ ...d, nextArt: nextArtUri }));
+    }
+  }, [nextArtUri, nextTrackKey, displayed.nextKey, displayed.nextArt, transitioning]);
 
   const containerStyle = { width: size * 2 + GAP, height: size };
   const boxStyle = { width: size, height: size };
