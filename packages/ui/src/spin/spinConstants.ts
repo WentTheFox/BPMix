@@ -8,6 +8,17 @@
 export const TURNS_PER_SONG = 30;
 
 /**
+ * Disc spin rate to use while a track is loading, before its real duration
+ * (and therefore its real TURNS_PER_SONG/durationSeconds rate) is known -
+ * see CrossfadeArtProps.currentTurnsPerSecond's doc for why loading spins
+ * at all rather than staying frozen. Picked to roughly match a typical
+ * track's own steady-state rate (TURNS_PER_SONG over an assumed ~3-minute
+ * track) so the switch from this placeholder rate to the real one once
+ * loading finishes isn't a jarring speed change.
+ */
+export const LOADING_TURNS_PER_SECOND = TURNS_PER_SONG / 180;
+
+/**
  * Native leg length (a single Animated.timing call's fixed wall-clock
  * duration) for useSpin.ts - NOT scaled by rate, unlike an earlier version
  * of this that fixed a number of *turns* per leg instead: at a very low

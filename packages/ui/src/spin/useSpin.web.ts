@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { StyleSheet, type ViewStyle } from 'react-native';
 import { TURNS_PER_SONG } from './spinConstants';
 
@@ -43,24 +43,41 @@ function webSpinStyle(durationMs: number, delayMs: number): WebSpinStyle {
 export function useSpin(turnsPerSecond: number, progress: number, _spinId: string): object {
   const durationMs = turnsPerSecond > 0 ? 1000 / turnsPerSecond : 0;
 
+  // Tracks the real angle/rate/timestamp of whatever segment is currently
+  // running, so a rate change while ALREADY spinning (e.g. the loading
+  // placeholder rate handing off to the real duration-based one) can
+  // continue from wherever the disc actually is instead of jumping to
+  // progress's angle - see the branch below and useSpin.ts's matching
+  // wasSpinningRef for why: progress stays ~0 for the whole loading spin,
+  // so anchoring to it here would visibly rewind the disc by however far
+  // that placeholder spin had already turned.
+  const segmentRef = useRef({ rate: 0, angleDeg: 0, startedAtMs: Date.now() });
+
   // Recomputed only when durationMs actually changes (useMemo's whole
   // point here), reading whatever progress is current AT that moment -
   // spinId isn't used for anything here, but every call site supplies one
   // (see useSpin.ts, which does need it) so both platforms share a call
   // shape.
   return useMemo(() => {
-    const angleNow = progress * TURNS_PER_SONG * 360;
+    const prev = segmentRef.current;
+    const angleNow =
+      prev.rate > 0
+        ? prev.angleDeg + prev.rate * 360 * ((Date.now() - prev.startedAtMs) / 1000)
+        : // Was frozen (or this is the very first run) - progress is the only
+          // source of truth for the angle in that case, same as the native
+          // version's reset-from-a-stop branch.
+          progress * TURNS_PER_SONG * 360;
+    segmentRef.current = { rate: turnsPerSecond, angleDeg: angleNow, startedAtMs: Date.now() };
 
     if (durationMs <= 0) {
-      // Not spinning at all - freeze wherever progress currently says it
-      // should be, same as the native version's "return early, leave the
-      // Animated.Value alone".
+      // Not spinning at all - freeze wherever it actually is, same as the
+      // native version's "return early, leave the Animated.Value alone".
       return { transform: [{ rotate: `${angleNow}deg` }] };
     }
 
     // A negative delay starts the animation as if it had already been
     // running for that long - i.e. already angleNow/360 of the way through
-    // - so it picks up exactly where progress says it should be instead of
+    // - so it picks up exactly where the disc already is instead of
     // restarting from 0deg.
     const delayMs = -(angleNow / 360) * durationMs;
     // react-native-web only expands `animationKeyframes` into a real

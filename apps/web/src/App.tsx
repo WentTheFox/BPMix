@@ -32,6 +32,7 @@ import {
   RestoringScreen,
   SettingsScreen,
   TrackList,
+  LOADING_TURNS_PER_SECOND,
   TURNS_PER_SONG,
   useAppSettings,
   useCoverArt,
@@ -897,13 +898,18 @@ function App() {
   const incomingProgress = pendingIncoming && pendingIncoming.durationSeconds > 0 ? pendingIncoming.positionSeconds / pendingIncoming.durationSeconds : 0;
   // Feeds CrossfadeArt's disc spin (a real turns-per-second rate, not a
   // per-tick progress retarget - see CrossfadeArtProps.currentTurnsPerSecond's
-  // doc): 0 while paused, TURNS_PER_SONG spread over the track's own
-  // duration during ordinary playback.
-  const currentTurnsPerSecond = !isPlaying
-    ? 0
-    : playerState.track.durationSeconds > 0
-      ? TURNS_PER_SONG / playerState.track.durationSeconds
-      : 0;
+  // doc): spins at a placeholder rate as soon as a track starts loading
+  // (like a real platter already turning before the needle drops - the
+  // tonearm itself stays lifted off the disc throughout, since currentGain
+  // is 0 until isPlaying), TURNS_PER_SONG spread over the track's own
+  // duration once it's actually playing, 0 while paused/idle.
+  const currentTurnsPerSecond = playerState.isLoadingForPlayback
+    ? LOADING_TURNS_PER_SECOND
+    : !isPlaying
+      ? 0
+      : playerState.track.durationSeconds > 0
+        ? TURNS_PER_SONG / playerState.track.durationSeconds
+        : 0;
   // The next slot only actually spins once a crossfade is genuinely
   // bringing it in - otherwise it hasn't started playing at all yet.
   const incomingTurnsPerSecond =

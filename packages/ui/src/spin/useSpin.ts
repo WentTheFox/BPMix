@@ -35,14 +35,32 @@ export function useSpin(
   // scratch, defeating the whole point of running it continuously.
   const progressRef = useRef(progress);
   progressRef.current = progress;
+  // Whether the previous effect run left the disc actually spinning (rate
+  // > 0) - see the reset-vs-continue branch below.
+  const wasSpinningRef = useRef(false);
 
   useEffect(() => {
     if (turnsPerSecond <= 0) {
       // Freezes wherever the last leg's stop() below already left it -
       // reads as the record actually coming to a stop, not resetting.
+      wasSpinningRef.current = false;
       return;
     }
-    rotationDeg.setValue(progressRef.current * TURNS_PER_SONG * 360);
+    if (!wasSpinningRef.current) {
+      // Only jump to the progress-implied angle when spinning is actually
+      // starting from a stop (a fresh track, or resuming from pause, where
+      // progress hasn't moved since the disc froze). A rate change while
+      // ALREADY spinning - e.g. the loading placeholder rate handing off to
+      // the real duration-based one once a track finishes loading - must
+      // NOT re-anchor here: the disc's angle during loading isn't meant to
+      // track real progress at all (progress is still ~0 the whole time),
+      // so snapping to progress's angle would visibly rewind the disc by
+      // however far the loading spin had already turned. Continuing from
+      // wherever it already is (runBatch below reads rotationDeg's current
+      // value) keeps the spin uninterrupted across that handoff.
+      rotationDeg.setValue(progressRef.current * TURNS_PER_SONG * 360);
+    }
+    wasSpinningRef.current = true;
     const legDegrees = turnsPerSecond * 360 * (NATIVE_SPIN_LEG_MS / 1000);
     let anim: Animated.CompositeAnimation | null = null;
     let cancelled = false;
