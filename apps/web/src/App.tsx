@@ -716,16 +716,6 @@ function App() {
     setPlayerState(playlistPlayer.getState());
   }, [playerState.track.status, persistPlaybackPatch]);
 
-  const seekBy = useCallback(
-    (deltaSeconds: number) => {
-      if (!transportActionAllowed()) return;
-      playlistPlayer.seek(playerState.track.positionSeconds + deltaSeconds);
-      setPlayerState(playlistPlayer.getState());
-      persistPlaybackPatch({ positionSeconds: playlistPlayer.getState().track.positionSeconds });
-    },
-    [playerState.track.positionSeconds, persistPlaybackPatch],
-  );
-
   const seekTo = useCallback(
     (positionSeconds: number) => {
       if (!transportActionAllowed()) return;
@@ -1061,6 +1051,7 @@ function App() {
         nowPlayingOpacity={nowPlayingOpacity}
         upNextOpacity={upNextOpacity}
         currentTrackKey={outgoingTrack?.fileId ?? null}
+        lyricsTrackKey={(pendingIncoming ? incomingTrack?.fileId : outgoingTrack?.fileId) ?? null}
         currentArtUri={outgoingCoverArt}
         currentGain={outgoingGain}
         currentProgress={outgoingProgress}
@@ -1095,8 +1086,6 @@ function App() {
             onTogglePlayPause={togglePause}
             onPrevious={handlePreviousPress}
             onNext={handleNextPress}
-            onSeekBackward={() => seekBy(-10)}
-            onSeekForward={() => seekBy(10)}
           />
         }
       />

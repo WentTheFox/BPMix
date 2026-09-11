@@ -1124,6 +1124,7 @@ function AppContent() {
         nowPlayingOpacity={nowPlayingOpacity}
         upNextOpacity={upNextOpacity}
         currentTrackKey={outgoingTrack?.fileId ?? null}
+        lyricsTrackKey={(pendingIncoming ? incomingTrack?.fileId : outgoingTrack?.fileId) ?? null}
         currentArtUri={outgoingCoverArt}
         currentGain={outgoingGain}
         currentProgress={outgoingProgress}

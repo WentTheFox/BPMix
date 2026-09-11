@@ -1,5 +1,5 @@
 import type { LoopMode } from '@bpmix/core';
-import { mdiFastForward10, mdiPause, mdiPlay, mdiRewind10, mdiSkipNext, mdiSkipPrevious } from '@mdi/js';
+import { mdiPause, mdiPlay, mdiSkipNext, mdiSkipPrevious } from '@mdi/js';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Icon } from './Icon';
 import { LoopButton, ShuffleButton } from './LoopShuffleButtons';
@@ -19,28 +19,17 @@ export interface PlayerControlsRowProps {
   onTogglePlayPause: () => void;
   onPrevious: () => void;
   onNext: () => void;
-  /**
-   * Web-only seek-by-10-seconds pair, rendered between Previous/Play and
-   * Play/Next respectively - omit both (mobile's call site) to render
-   * Android's plain 6-button row with nothing between them. Kept optional
-   * rather than a separate mobile/web component so this stays the single
-   * source of truth for the row's actual layout (order, spacing, sizing) -
-   * see this file's own history: LoopShuffleButtons.tsx used to argue no
-   * single component could cover both apps' differing button placements,
-   * which is exactly the drift this component now exists to close.
-   */
-  onSeekBackward?: () => void;
-  onSeekForward?: () => void;
 }
 
 /**
- * The Now Playing screen's full transport row - Loop, Previous, (web-only
- * seek back), Play/Pause, (web-only seek forward), Next, Shuffle, Volume -
- * shared so mobile and web can't independently drift in button order,
- * spacing, or sizing the way they did before this was extracted (mobile's
- * single-row layout is the source of truth; web used to split this into two
- * separate rows with its own seek-by-10s buttons wedged in a different
- * place entirely).
+ * The Now Playing screen's full transport row - Loop, Previous, Play/Pause,
+ * Next, Shuffle, Volume - shared so mobile and web can't independently drift
+ * in button order, spacing, or sizing the way they did before this was
+ * extracted (web used to split this into two separate rows with its own
+ * seek-by-10s buttons wedged in a different place entirely - removed
+ * outright rather than kept as a web-only deviation, per this project's
+ * full-platform-parity preference; ±10s seeking is still reachable via the
+ * seek bar itself on both platforms).
  */
 export function PlayerControlsRow({
   colors,
@@ -54,8 +43,6 @@ export function PlayerControlsRow({
   onTogglePlayPause,
   onPrevious,
   onNext,
-  onSeekBackward,
-  onSeekForward,
 }: PlayerControlsRowProps) {
   return (
     <View style={styles.row}>
@@ -63,22 +50,12 @@ export function PlayerControlsRow({
       <Pressable style={[styles.button, { backgroundColor: colors.accent }]} onPress={onPrevious}>
         <Icon path={mdiSkipPrevious} size={20} color="white" />
       </Pressable>
-      {onSeekBackward && (
-        <Pressable style={[styles.buttonWide, { backgroundColor: colors.accent }]} onPress={onSeekBackward}>
-          <Icon path={mdiRewind10} size={22} color="white" />
-        </Pressable>
-      )}
       <Pressable
         style={[styles.button, styles.buttonPrimary, { backgroundColor: darken(colors.accent, 0.15) }]}
         onPress={onTogglePlayPause}
       >
         <Icon path={isPlaying ? mdiPause : mdiPlay} size={30} color="white" />
       </Pressable>
-      {onSeekForward && (
-        <Pressable style={[styles.buttonWide, { backgroundColor: colors.accent }]} onPress={onSeekForward}>
-          <Icon path={mdiFastForward10} size={22} color="white" />
-        </Pressable>
-      )}
       <Pressable style={[styles.button, { backgroundColor: colors.accent }]} onPress={onNext}>
         <Icon path={mdiSkipNext} size={20} color="white" />
       </Pressable>
@@ -99,13 +76,6 @@ const styles = StyleSheet.create({
   },
   button: {
     width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  buttonWide: {
-    width: 60,
     height: 48,
     borderRadius: 24,
     alignItems: 'center',

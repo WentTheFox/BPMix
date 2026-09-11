@@ -31,6 +31,21 @@ export interface NowPlayingScreenProps {
   nowPlayingOpacity: Animated.Value;
   upNextOpacity: Animated.Value;
   currentTrackKey: string | null;
+  /**
+   * Which track's lyrics to show - kept distinct from currentTrackKey
+   * (which drives CrossfadeArt's disc/tonearm identity and stays pinned to
+   * the outgoing track for the whole crossfade, matching its own
+   * gain/progress props) because positionSeconds below already switches to
+   * the INCOMING track's timeline as soon as a crossfade starts (see each
+   * app's displayPositionSeconds). Feeding LyricsSection the outgoing
+   * track's identity alongside the incoming track's position looked up
+   * lines against the wrong (usually longer, already-past) song's
+   * timestamps - confirmed on-device as old lyrics visibly jumping back
+   * and re-scrolling mid-crossfade. Callers should compute this the same
+   * way as displayPositionSeconds: the incoming track's key once a
+   * crossfade is in flight, the outgoing/current one otherwise.
+   */
+  lyricsTrackKey: string | null;
   currentArtUri: string | null;
   currentGain: number;
   currentProgress: number;
@@ -71,6 +86,7 @@ export function NowPlayingScreen({
   nowPlayingOpacity,
   upNextOpacity,
   currentTrackKey,
+  lyricsTrackKey,
   currentArtUri,
   currentGain,
   currentProgress,
@@ -160,7 +176,7 @@ export function NowPlayingScreen({
           fileAccess={fileAccess}
           libraryStore={libraryStore}
           lyricsScopes={lyricsScopes}
-          trackFileId={currentTrackKey}
+          trackFileId={lyricsTrackKey}
           positionSeconds={displayPositionSeconds}
           onSeekTo={onSeekTo}
         />
