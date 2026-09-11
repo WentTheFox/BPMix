@@ -2,6 +2,9 @@ import { useEffect, useRef } from 'react';
 import { Animated, Easing } from 'react-native';
 import { NATIVE_SPIN_LEG_MS, TURNS_PER_SONG } from './spinConstants';
 
+/** How many NATIVE_SPIN_LEG_MS legs to queue in one native-driven Animated.sequence before the JS thread needs to be serviced again - see runBatch's doc. 30 legs * 20s/leg = 10 real minutes between JS round trips, comfortably past almost any single track's length. */
+const LEGS_PER_BATCH = 30;
+
 /**
  * Native (Android/iOS) disc spin - a continuously-running, native-driver
  * Animated.timing (chained in fixed-duration legs, re-timed only when
@@ -43,7 +46,17 @@ export function useSpin(
     const legDegrees = turnsPerSecond * 360 * (NATIVE_SPIN_LEG_MS / 1000);
     let anim: Animated.CompositeAnimation | null = null;
     let cancelled = false;
-    const runLeg = () => {
+    // Batched into one Animated.sequence rather than each leg individually
+    // starting the next from its own JS completion callback (the previous
+    // approach here) - useNativeDriver:true means every leg in a single
+    // sequence chains entirely on the native thread with no JS round trip
+    // in between, so a JS-thread hiccup right as one leg ends (a background
+    // metadata-scan chunk, a GC pause, anything) can no longer leave the
+    // disc visibly frozen at that leg's target angle until JS gets around
+    // to starting the next one - confirmed on-device as random multi-second
+    // pauses during otherwise smooth playback. JS only needs to be serviced
+    // once per LEGS_PER_BATCH legs now, not once per leg.
+    const runBatch = () => {
       if (cancelled) return;
       // Animated.Value has no public synchronous getter - reading the
       // private field is a well-worn, deliberate exception here (there's
@@ -51,17 +64,23 @@ export function useSpin(
       // angle instead of resetting it).
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const current = (rotationDeg as any)._value ?? 0;
-      anim = Animated.timing(rotationDeg, {
-        toValue: current + legDegrees,
-        duration: NATIVE_SPIN_LEG_MS,
-        easing: Easing.linear,
-        useNativeDriver: true,
-      });
+      // Absolute per-leg targets (current + legDegrees*(i+1)), not each leg
+      // relative to the previous - avoids compounding floating-point drift
+      // across a long batch.
+      const legs = Array.from({ length: LEGS_PER_BATCH }, (_, i) =>
+        Animated.timing(rotationDeg, {
+          toValue: current + legDegrees * (i + 1),
+          duration: NATIVE_SPIN_LEG_MS,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }),
+      );
+      anim = Animated.sequence(legs);
       anim.start(({ finished }) => {
-        if (finished) runLeg();
+        if (finished) runBatch();
       });
     };
-    runLeg();
+    runBatch();
     return () => {
       cancelled = true;
       anim?.stop();
