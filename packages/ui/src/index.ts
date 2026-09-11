@@ -41,7 +41,6 @@ export * from './VolumeButton';
 export * from './useCoverArt';
 export * from './useHasLyrics';
 export * from './useDoublePressHandler';
-export * from './useFadeInOnChange';
 export * from './usePlaybackPersistence';
 export * from './useRestoringProgress';
 export * from './useTrackAnalysis';

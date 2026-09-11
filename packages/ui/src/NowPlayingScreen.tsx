@@ -2,7 +2,7 @@ import type { FileAccess, LibraryStore, LyricsScope } from '@bpmix/core';
 import { mdiArrowLeft } from '@mdi/js';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { CrossfadeArt } from './CrossfadeArt';
 import { HeaderRow } from './HeaderRow';
 import { IconLabel } from './IconLabel';
@@ -31,9 +31,6 @@ export interface NowPlayingScreenProps {
   /** Already-formatted title text (or a bare fileId fallback) - callers own formatTrackTitle/useTrackMetadata, this just renders the result. */
   title: string;
   upNextTitle?: string | null;
-  /** Drives the title/up-next block's fade-in on a settled track change - see each app's useFadeInOnChange call. */
-  nowPlayingOpacity: Animated.Value;
-  upNextOpacity: Animated.Value;
   /**
    * Which track's lyrics to show - since positionSeconds below already
    * switches to the INCOMING track's timeline as soon as a crossfade
@@ -82,8 +79,6 @@ export function NowPlayingScreen({
   onClose,
   title,
   upNextTitle,
-  nowPlayingOpacity,
-  upNextOpacity,
   lyricsTrackKey,
   currentArtUri,
   currentGain,
@@ -121,15 +116,13 @@ export function NowPlayingScreen({
       />
       <View style={styles.content}>
         <View>
-          <Animated.View style={{ opacity: nowPlayingOpacity }}>
-            <MarqueeText text={title} style={[styles.nowPlayingName, { color: colors.text }]} />
-          </Animated.View>
+          <MarqueeText text={title} style={[styles.nowPlayingName, { color: colors.text }]} />
           {upNextTitle && (
-            <Animated.View style={[styles.upNext, { opacity: upNextOpacity }]}>
+            <View style={styles.upNext}>
               <Text style={[styles.upNextText, { color: colors.subtleText }]} numberOfLines={1}>
                 Up next: {upNextTitle}
               </Text>
-            </Animated.View>
+            </View>
           )}
           <View style={styles.artRow}>
             <CrossfadeArt

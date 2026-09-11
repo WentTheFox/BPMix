@@ -37,7 +37,6 @@ import {
   useAppSettings,
   useCoverArt,
   useDoublePressHandler,
-  useFadeInOnChange,
   useNotificationCenter,
   RAPID_PLAYBACK_PATCH_DEBOUNCE_MS,
   useBackNavigation,
@@ -981,14 +980,6 @@ function App() {
   const settledNextTrack = settledNextKey ? activeTracksById.get(settledNextKey) : undefined;
   const settledNextMetadata = useTrackMetadata(libraryStore, settledNextKey);
 
-  // Fades the now-playing block in on every settled track change, keyed on
-  // identity (fileId) rather than on what triggered the change - the same
-  // fade plays whether it arrived via a manual skip, a natural
-  // end-of-track advance, or picking a different track in the list
-  // outright.
-  const nowPlayingOpacity = useFadeInOnChange(settledCurrentKey);
-  const upNextOpacity = useFadeInOnChange(settledNextKey);
-
   const currentTitle = settledCurrentTrack ? formatTrackTitle(settledCurrentMetadata, settledCurrentTrack) : playerState.currentFileId;
   const currentName = settledCurrentTrack ? settledCurrentMetadata?.title || trackDisplayName(settledCurrentTrack) : (playerState.currentFileId ?? '');
   const currentArtist = settledCurrentMetadata?.artists.join(', ') || null;
@@ -1055,8 +1046,6 @@ function App() {
         }}
         title={currentTitle ?? ''}
         upNextTitle={settledNextTrack ? formatTrackTitle(settledNextMetadata, settledNextTrack) : null}
-        nowPlayingOpacity={nowPlayingOpacity}
-        upNextOpacity={upNextOpacity}
         lyricsTrackKey={(pendingIncoming ? incomingTrack?.fileId : outgoingTrack?.fileId) ?? null}
         currentArtUri={outgoingCoverArt}
         currentGain={outgoingGain}
