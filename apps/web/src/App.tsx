@@ -56,6 +56,7 @@ import { createAudioEngine } from './adapters/audioEngine';
 import { createCoverArtResizer } from './adapters/coverArtResizer';
 import { createCompositeFileAccess, isServerBackendAvailable } from './adapters/fileAccess.composite';
 import { createLibraryStore } from './adapters/libraryStore';
+import { useMediaSessionNotification } from './adapters/mediaSessionNotification';
 import { isRunningInstalled, promptInstall, usePwaInstallAvailable } from './adapters/pwaInstall';
 
 const TRANSPORT_THROTTLE_MS = 300;
@@ -231,6 +232,16 @@ function App() {
   // whichever screen (library or playlist) was already showing underneath.
   const [nowPlayingScreenOpen, setNowPlayingScreenOpen] = useState(false);
   const [playerState, setPlayerState] = useState<PlaylistPlayerState>(playlistPlayer.getState());
+  // Distinguishes "merely restored on launch" from "actually played this
+  // session" - see the mobile app's identical hasStartedPlayback for why:
+  // gating the media session on currentFileId alone would surface OS/
+  // browser media controls (and a playbackState) on every page load,
+  // whether or not anything was ever actually played, since the restore
+  // path decodes the last track silently without autoplaying it.
+  const [hasStartedPlayback, setHasStartedPlayback] = useState(false);
+  useEffect(() => {
+    if (playerState.track.status === 'playing') setHasStartedPlayback(true);
+  }, [playerState.track.status]);
 
   // Same close-priority order as the mobile app (see useBackNavigation's
   // doc) - Settings, then Now Playing, then Playlist back to Library, then
@@ -984,6 +995,26 @@ function App() {
   const currentTitle = settledCurrentTrack ? formatTrackTitle(settledCurrentMetadata, settledCurrentTrack) : playerState.currentFileId;
   const currentName = settledCurrentTrack ? settledCurrentMetadata?.title || trackDisplayName(settledCurrentTrack) : (playerState.currentFileId ?? '');
   const currentArtist = settledCurrentMetadata?.artists.join(', ') || null;
+
+  useMediaSessionNotification(
+    playerState.currentFileId && hasStartedPlayback
+      ? {
+          title: currentName,
+          artist: currentArtist,
+          album: settledCurrentMetadata?.album ?? null,
+          artworkUri: outgoingCoverArt,
+          isPlaying: playerState.track.status === 'playing',
+          positionSeconds: displayPositionSeconds,
+          durationSeconds: displayDurationSeconds,
+        }
+      : null,
+    {
+      onPlayPause: togglePause,
+      onNext: () => void goNext(),
+      onPrevious: () => void goPrevious(),
+      onSeekTo: seekTo,
+    },
+  );
 
   const miniPlayerBar = playerState.currentFileId && (
     <MiniPlayerBar
