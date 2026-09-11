@@ -977,13 +977,13 @@ function AppContent() {
   const incomingGain = crossfadeFraction == null ? 0 : equalPowerGain(crossfadeFraction, false, fadeDurationSeconds);
   const displayPositionSeconds = pendingIncoming ? pendingIncoming.positionSeconds : playerState.track.positionSeconds;
   const displayDurationSeconds = pendingIncoming ? pendingIncoming.durationSeconds : playerState.track.durationSeconds;
-  // Feeds CrossfadeArt's tonearm needle positions - the outgoing track's
-  // own position/duration regardless of any pending crossfade (it keeps
-  // playing/advancing independently of the incoming preview), and the
-  // incoming track's only once a crossfade is actually bringing it in
-  // (otherwise it hasn't started, so its needle stays parked at the edge).
+  // Feeds CrossfadeArt's tonearm needle position - the outgoing track's own
+  // position/duration regardless of any pending crossfade (it keeps
+  // playing/advancing independently of the incoming preview; the tonearm
+  // itself sweeps back to the edge on its own once a crossfade starts, see
+  // CrossfadeArtProps.nextGain's doc, so this doesn't need an "incoming"
+  // counterpart any more).
   const outgoingProgress = playerState.track.durationSeconds > 0 ? playerState.track.positionSeconds / playerState.track.durationSeconds : 0;
-  const incomingProgress = pendingIncoming && pendingIncoming.durationSeconds > 0 ? pendingIncoming.positionSeconds / pendingIncoming.durationSeconds : 0;
   // Feeds CrossfadeArt's disc spin (a real turns-per-second rate, not a
   // per-tick progress retarget - see CrossfadeArtProps.currentTurnsPerSecond's
   // doc): spins at a placeholder rate as soon as a track starts loading
@@ -998,10 +998,6 @@ function AppContent() {
       : playerState.track.durationSeconds > 0
         ? TURNS_PER_SONG / playerState.track.durationSeconds
         : 0;
-  // The next slot only actually spins once a crossfade is genuinely
-  // bringing it in - otherwise it hasn't started playing at all yet.
-  const incomingTurnsPerSecond =
-    pendingIncoming && pendingIncoming.durationSeconds > 0 ? TURNS_PER_SONG / pendingIncoming.durationSeconds : 0;
 
   // Title/"up next" text only actually changes CROSSFADE_ART_TRANSITION_MS
   // after outgoingTrack/incomingTrack do, not the instant playback state
@@ -1134,17 +1130,13 @@ function AppContent() {
         upNextTitle={settledNextTrack ? formatTrackTitle(settledNextMetadata, settledNextTrack) : null}
         nowPlayingOpacity={nowPlayingOpacity}
         upNextOpacity={upNextOpacity}
-        currentTrackKey={outgoingTrack?.fileId ?? null}
         lyricsTrackKey={(pendingIncoming ? incomingTrack?.fileId : outgoingTrack?.fileId) ?? null}
         currentArtUri={outgoingCoverArt}
         currentGain={outgoingGain}
         currentProgress={outgoingProgress}
         currentTurnsPerSecond={currentTurnsPerSecond}
-        nextTrackKey={incomingTrack?.fileId ?? null}
         nextArtUri={incomingCoverArt}
         nextGain={incomingGain}
-        nextProgress={incomingProgress}
-        nextTurnsPerSecond={incomingTurnsPerSecond}
         isLoading={isLoadingTrack}
         positionSeconds={displayPositionSeconds}
         durationSeconds={displayDurationSeconds}

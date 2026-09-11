@@ -1,5 +1,5 @@
-import { memo, useEffect, useId, useRef, useState } from 'react';
-import { Animated, Easing, Platform, StyleSheet, View } from 'react-native';
+import { useEffect, useId, useRef } from 'react';
+import { Animated, Easing, Image, Platform, StyleSheet, View } from 'react-native';
 import { useSpin } from './spin/useSpin';
 import type { Colors } from './theme';
 
@@ -19,8 +19,6 @@ const SpinLayer = Platform.OS === 'web' ? View : Animated.View;
 
 export interface CrossfadeArtProps {
   colors: Colors;
-  /** Identity (fileId) of whatever should be in the "current" slot right now. */
-  currentTrackKey: string | null;
   currentArtUri: string | null;
   /** [0,1] - how audible the current track is right now (its actual crossfade gain). Drives only the tonearm's lift (down once genuinely audible) - disc rotation itself tracks currentProgress/currentTurnsPerSecond instead, not this. */
   currentGain: number;
@@ -43,32 +41,40 @@ export interface CrossfadeArtProps {
    * that distinction matters to how it animates. Defaults to false.
    */
   currentSeeking?: boolean;
-  /** Identity (fileId) of whatever should be in the "next" slot right now. */
-  nextTrackKey: string | null;
-  nextArtUri: string | null;
-  /** [0,1] - how audible the next track is right now. Drives only the tonearm's lift the same way currentGain does. */
-  nextGain: number;
-  /** Same as currentProgress, for the next slot's tonearm - 0 whenever the next track hasn't actually started playing yet (i.e. outside an in-progress crossfade), which is most of the time, so its needle stays parked at the outer edge until a crossfade actually brings it in. */
-  nextProgress?: number;
-  /** Same as currentTurnsPerSecond, for the next slot's disc - 0 outside an in-progress crossfade, same as nextProgress. */
-  nextTurnsPerSecond?: number;
+  /**
+   * The upcoming track's cover art, cross-dissolved in on top of the same
+   * disc as nextGain rises - null whenever nothing's crossfading in (most
+   * of the time). There is deliberately no second disc/tonearm for the
+   * next track any more - only a single physical disc is ever shown; a
+   * separate next-slot disc plus its own slide/fade swap animation looked
+   * like more UI flicker than the "what's coming up" preview was worth
+   * (see NowPlayingScreen's own "Up next" text for that instead).
+   */
+  nextArtUri?: string | null;
+  /** [0,1] - how audible the incoming track is right now, i.e. exactly how far the crossfade has progressed. Directly drives the incoming art's cross-dissolve opacity on top of the current art (0 = fully hidden, 1 = fully covering it) - the visual fade always matches the real audio fade curve exactly, no separate timing to keep in sync. Also what tells the tonearm a crossfade is actually in flight (see Tonearm's own doc). Defaults to 0. */
+  nextGain?: number;
   size?: number;
 }
 
 const DEFAULT_SIZE = 84;
-const GAP = 16;
 /**
- * How long the swap/fade transition takes when the current or next slot's
- * content actually changes. Exported so callers can time their own
- * title/"up next" text swap to land in the same beat as the disc (see
- * usePlaybackPersistence's sibling apps, which use this instead of trying
- * to hook into the animation's own completion - a plain setTimeout on this
- * constant is far more robust than threading a callback through Animated's
- * completion handling, which can be interrupted/re-triggered under rapid
- * track changes).
+ * How long to debounce the "settled" track title/"up next" text before
+ * committing to a track change (see each app's useSettledKey-equivalent
+ * effect) - historically also timed CrossfadeArt's own disc swap/fade
+ * animation, back when there was one to keep in sync with; kept here as
+ * the single source of that timing even though the disc itself no longer
+ * has any transition of its own to match (a rapid run of manual skips
+ * flickering the title through every intermediate track was the actual
+ * problem this debounce solves, independent of the disc).
  */
 export const CROSSFADE_ART_TRANSITION_MS = 450;
-const LABEL_FRACTION = 0.38;
+// Bumped up from 0.38 now that there's only one disc to look at (more
+// screen real estate to give the actual album art) - TONEARM_ANGLE_INNER_DEG
+// and the groove ring positions below are both derived FROM this constant
+// (see tonearmAngleForRadius/grooveRingDiameterFraction), so the tonearm's
+// resting angle over the label edge and the decorative grooves move
+// outward with it automatically; nothing else needed updating by hand.
+const LABEL_FRACTION = 0.5;
 const HOLE_FRACTION = 0.09;
 const GROOVE_RING_COUNT = 3;
 /** Diameter fraction (of disc size) of groove ring index `i` (0 = innermost, evenly spaced out to the disc's own edge) - shared by VinylDisc's rendering and OUTER_GROOVE_DIAMETER_FRACTION below so they can't drift apart. */
@@ -155,96 +161,23 @@ function centeredCircleStyle(discSize: number, circleSize: number): { width: num
   };
 }
 
-interface VinylDiscProps {
-  colors: Colors;
-  artUri: string | null;
-  /** [0,1] through the track - anchors the spin's starting angle whenever turnsPerSecond changes; see useSpin's doc. */
-  progress: number;
-  /** Real turns/second the spin should be continuously running at right now (0 = frozen) - see CrossfadeArtProps.currentTurnsPerSecond's doc. */
-  turnsPerSecond: number;
-  /** Stable identity for this disc's spin across a mount/unmount (see useSpin.web.ts) - not used natively, but required regardless so every call site supplies one. */
-  spinId: string;
-  size: number;
-  opacity?: Animated.Value | number;
-  translateX?: Animated.Value | number;
-}
-
 /**
- * Memoized with a comparator that deliberately excludes `progress` - once
- * a rate is set, useSpin's continuous native/CSS animation runs entirely
- * off the JS thread and progress is only ever read again to re-anchor
- * *when turnsPerSecond changes*, never on its own. Without this, every
- * ~200ms position poll (which updates progress on every render regardless
- * of whether the rate actually changed) would still re-render this
- * component and re-run its effects for no visual benefit, competing with
- * the JS thread for no reason and risking exactly the stutter this
- * continuous-animation design exists to avoid.
- */
-const VinylDisc = memo(function VinylDisc({ colors, artUri, progress, turnsPerSecond, spinId, size, opacity = 1, translateX }: VinylDiscProps) {
-  const spinStyle = useSpin(turnsPerSecond, progress, spinId);
-  const boxStyle = { width: size, height: size, borderRadius: size / 2 };
-  // The placeholder stays underneath throughout (disc is never literally
-  // empty), and the art image cross-dissolves in on top of it once it
-  // resolves - useCoverArt already starts fetching well ahead of when a
-  // disc actually needs to show it (as soon as the next track is known,
-  // not when this component mounts), so this only actually animates
-  // anything on the rarer case the fetch hasn't resolved yet by the time
-  // the disc becomes visible.
-  const artOpacity = useRef(new Animated.Value(artUri ? 1 : 0)).current;
-  useEffect(() => {
-    if (artUri) {
-      Animated.timing(artOpacity, { toValue: 1, duration: 250, useNativeDriver: true }).start();
-    } else {
-      artOpacity.setValue(0);
-    }
-  }, [artUri, artOpacity]);
-  // Groove rings sit between the label and the disc's outer edge, evenly
-  // spaced - purely decorative, drawn as plain bordered circles rather than
-  // an actual radial texture. This is also the record's actual playable
-  // surface (see tonearmAngleForRadius's doc) - a real record has no art
-  // printed on the vinyl itself out here, just grooves over plain black
-  // vinyl, so the art only appears on the label (below) instead of behind
-  // these rings.
-  const grooveRadii = Array.from({ length: GROOVE_RING_COUNT }, (_, i) => size * grooveRingDiameterFraction(i));
-  const labelCircleStyle = centeredCircleStyle(size, size * LABEL_FRACTION);
-  return (
-    <Animated.View style={[styles.layer, boxStyle, { opacity, transform: [{ translateX: translateX ?? 0 }] }]}>
-      {/* Spin lives on its own inner layer, separate from the outer translateX/opacity - a web CSS `animation` on this View's transform can't be combined with a second, separately-driven transform on the same element (the animation fully owns `transform` while running), so translateX has to live one level up instead. See SpinLayer's doc for why this is a plain View on web. */}
-      <SpinLayer style={[styles.layer, boxStyle, spinStyle]}>
-        <View style={[styles.layer, styles.vinylBody, boxStyle]} />
-        {grooveRadii.map((diameter, i) => (
-          <View key={i} style={[styles.layer, styles.groove, centeredCircleStyle(size, diameter)]} />
-        ))}
-        {/* Sits under the art (cropped to this same circle) so a track with no art yet, or art with transparency, shows the accent color instead of bare vinyl poking through. */}
-        <View style={[styles.layer, labelCircleStyle, { backgroundColor: colors.accent }]} />
-        {artUri && <Animated.Image source={{ uri: artUri }} style={[styles.layer, labelCircleStyle, { opacity: artOpacity }]} />}
-        <View style={[styles.layer, styles.labelRim, labelCircleStyle]} />
-        <View style={[styles.layer, styles.hole, centeredCircleStyle(size, size * HOLE_FRACTION)]} />
-      </SpinLayer>
-    </Animated.View>
-  );
-},
-// Deliberately omits `progress` - see VinylDisc's own doc for why.
-(prev, next) =>
-  prev.artUri === next.artUri &&
-  prev.turnsPerSecond === next.turnsPerSecond &&
-  prev.spinId === next.spinId &&
-  prev.size === next.size &&
-  prev.opacity === next.opacity &&
-  prev.translateX === next.translateX,
-);
-
-/**
- * The needle/tonearm resting over a slot - one per slot (current, next),
- * NOT one per VinylDisc instance, so it doesn't spin with the record and
- * doesn't multiply into several arms while outgoing/incoming ghost discs
- * are mounted mid-transition. Pivots at its own top-right corner, flush
- * with the disc's edge. Its rotation continuously tracks `progress` (see
- * CrossfadeArtProps' doc) - starting near the rim, sweeping in toward the
- * center as the track plays, same as a real record - independent of
- * `down`, which only lifts the whole assembly a few px clear of the disc
- * (see TONEARM_LIFT_FRACTION's doc) rather than resetting its position, so
- * a paused tonearm stays parked over wherever it actually stopped.
+ * The needle/tonearm resting over the disc. Pivots at its own top-right
+ * corner, flush with the disc's edge. Its rotation continuously tracks
+ * `progress` (see CrossfadeArtProps' doc) - starting near the rim, sweeping
+ * in toward the center as the track plays, same as a real record -
+ * independent of `down`, which only lifts the whole assembly a few px
+ * clear of the disc (see TONEARM_LIFT_FRACTION's doc) rather than resetting
+ * its position, so a paused tonearm stays parked over wherever it actually
+ * stopped.
+ *
+ * While `crossfading` (see CrossfadeArtProps.nextGain's doc), the target
+ * angle is forced back to progress 0 (the outer edge) regardless of the
+ * real `progress` value - the same real record player behavior this whole
+ * component is modeled on: the arm lifts and swings back out before a new
+ * record starts, rather than staying parked wherever the outgoing track
+ * happened to be. Uses the exact same eased tween as any other progress
+ * change, just retargeted.
  *
  * `seeking` (see CrossfadeArtProps.currentSeeking's doc) doesn't change the
  * progress-to-angle mapping at all - only how the needle gets there.
@@ -258,8 +191,20 @@ const VinylDisc = memo(function VinylDisc({ colors, artUri, progress, turnsPerSe
  * new target instead - still the exact same eased progress-to-angle curve
  * below, just applied instantly rather than smoothed toward over time.
  */
-function Tonearm({ down, progress, seeking, size }: { down: boolean; progress: number; seeking: boolean; size: number }) {
-  const clampedProgress = Math.max(0, Math.min(1, progress));
+function Tonearm({
+  down,
+  progress,
+  crossfading,
+  seeking,
+  size,
+}: {
+  down: boolean;
+  progress: number;
+  crossfading: boolean;
+  seeking: boolean;
+  size: number;
+}) {
+  const clampedProgress = crossfading ? 0 : Math.max(0, Math.min(1, progress));
   // Eased rather than linear - same start (outer rim) and end (label edge)
   // positions, but a real record's constant angular velocity means the
   // needle covers the same time span in a smaller, faster-shrinking arc as
@@ -295,309 +240,55 @@ function Tonearm({ down, progress, seeking, size }: { down: boolean; progress: n
   );
 }
 
-interface DiscSnapshot {
-  key: string;
-  artUri: string | null;
-  /** Captured once, at the moment this snapshot is taken - a fade-out/fade-in ghost only lives for CROSSFADE_ART_TRANSITION_MS, so freezing its rotation at whatever angle it had is imperceptible. */
-  progress: number;
-}
-
-interface DisplayedState {
-  currentKey: string | null;
-  currentArt: string | null;
-  nextKey: string | null;
-  nextArt: string | null;
-}
-
 /**
- * The current and next tracks' cover art, each circle-cropped like a
- * record - center label, spindle hole, and a few faint groove rings over
- * the art - shown side by side. Each disc's rotation is a pure function of
- * its own progress (see spinConstants.ts's TURNS_PER_SONG) rather than an
- * open-ended, audibility-driven animation - always exactly consistent with
- * playback position, and freezes for free on pause. Audibility (whether a
- * disc is actually contributing to what's audible right now) instead only
- * drives the tonearm's lift.
- *
- * What's actually on screen (`displayed`) only changes via one of two
- * animated transitions, never a silent prop-driven pop:
- * - Natural progression (currentTrackKey becomes whatever nextTrackKey
- *   already was): the next-slot disc - already fully loaded and visible -
- *   slides left into the current slot while the old current disc fades out
- *   in place. Nothing needs to wait on new data for this to look smooth.
- * - Any other current-slot change (a manual track pick, restoring on
- *   launch, ...): the old current disc fades out while the new one
- *   (rendered from the live props, not yet "displayed") fades in over it,
- *   same timing, just no slide since there's no "next" continuity to
- *   animate from.
- * A next-slot change (only picked up once idle - never mid-transition,
- * which would put three discs on screen at once) always just fades in
- * place, independent of whichever animation the current slot is doing.
- *
- * State commits (what `displayed` actually becomes) are scheduled with a
- * plain setTimeout(CROSSFADE_ART_TRANSITION_MS), not the Animated
- * completion callback - deliberately: an Animated .start(callback) can
- * report finished:false if anything re-triggers the same value before it
- * naturally completes, which would otherwise leave the commit (and the
- * component out of "transitioning" state) stuck indefinitely. The
- * setTimeout still lines up with the animation's own duration, so visually
- * it lands at the same moment either way.
+ * The current track's cover art, circle-cropped like a record - center
+ * label, spindle hole, and a few faint groove rings over the art. Rotation
+ * is a pure function of currentProgress/currentTurnsPerSecond (see
+ * spinConstants.ts's TURNS_PER_SONG) rather than an open-ended,
+ * audibility-driven animation - always exactly consistent with playback
+ * position, and freezes for free on pause. There is only ever this one
+ * disc: a real crossfade cross-dissolves the incoming track's art directly
+ * on top of it (opacity tracking nextGain, so the visual fade always
+ * matches the real audio fade exactly) and the tonearm sweeps back to the
+ * outer edge, rather than showing a second disc sliding/fading in - see
+ * CrossfadeArtProps' own docs for why.
  */
 export function CrossfadeArt({
   colors,
-  currentTrackKey,
   currentArtUri,
   currentGain,
   currentProgress = 0,
   currentTurnsPerSecond = 0,
   currentSeeking = false,
-  nextTrackKey,
-  nextArtUri,
-  nextGain,
-  nextProgress = 0,
-  nextTurnsPerSecond = 0,
+  nextArtUri = null,
+  nextGain = 0,
   size = DEFAULT_SIZE,
 }: CrossfadeArtProps): React.JSX.Element {
-  const [displayed, setDisplayed] = useState<DisplayedState>({
-    currentKey: currentTrackKey,
-    currentArt: currentArtUri,
-    nextKey: nextTrackKey,
-    nextArt: nextArtUri,
-  });
-  const [outgoing, setOutgoing] = useState<DiscSnapshot | null>(null);
-  const [incoming, setIncoming] = useState<DiscSnapshot | null>(null);
-  const [transitioning, setTransitioning] = useState(false);
-
-  // Namespaces each slot's spinId (see VinylDisc/useSpin.web.ts) so multiple
-  // CrossfadeArt instances on screen at once don't share spin continuity.
-  const spinIdBase = useId();
-
-  const slideX = useRef(new Animated.Value(0)).current;
-  const outgoingOpacity = useRef(new Animated.Value(0)).current;
-  const incomingOpacity = useRef(new Animated.Value(0)).current;
-  const nextOpacity = useRef(new Animated.Value(nextTrackKey ? 1 : 0)).current;
-
-  // Holds whatever currentProgress was on the PREVIOUS render - by the time
-  // the current-slot-changing effect below runs, the closed-over
-  // currentProgress prop already reflects the NEW track, so this is the
-  // only way to freeze an outgoing ghost disc's rotation at the angle the
-  // old track actually had rather than the new one's ~0.
-  const previousProgressRef = useRef(currentProgress);
-  const lastKnownProgress = previousProgressRef.current;
-  previousProgressRef.current = currentProgress;
-
-  // Always current - read by the watchdog below via a ref (not as an
-  // effect dependency) so it can self-heal using whatever's actually true
-  // *right now*, not a stale closure from whenever the stuck transition
-  // started.
-  const latestPropsRef = useRef({ currentTrackKey, currentArtUri, nextTrackKey, nextArtUri });
-  latestPropsRef.current = { currentTrackKey, currentArtUri, nextTrackKey, nextArtUri };
-
-  // Safety net: the normal finalize() path (below) is scheduled via a
-  // plain setTimeout, which native platforms can silently delay or drop
-  // entirely while the app is backgrounded (confirmed on Android) - with
-  // nothing else watching for that, a transition interrupted that way
-  // left transitioning/outgoing/incoming stuck forever: the real current
-  // disc (gated on `!transitioning`) never rendered again, and whichever
-  // ghost was last on screen stayed frozen there permanently instead.
-  // Firing well past CROSSFADE_ART_TRANSITION_MS - long enough to never
-  // preempt a transition that's actually still in progress - and snapping
-  // straight to the live props (not replaying the original transition)
-  // means this self-heals correctly regardless of how far things drifted
-  // in the meantime.
-  useEffect(() => {
-    if (!transitioning) return;
-    const watchdog = setTimeout(() => {
-      const latest = latestPropsRef.current;
-      slideX.setValue(0);
-      outgoingOpacity.setValue(0);
-      incomingOpacity.setValue(0);
-      nextOpacity.setValue(latest.nextTrackKey ? 1 : 0);
-      setTransitioning(false);
-      setOutgoing(null);
-      setIncoming(null);
-      setDisplayed({
-        currentKey: latest.currentTrackKey,
-        currentArt: latest.currentArtUri,
-        nextKey: latest.nextTrackKey,
-        nextArt: latest.nextArtUri,
-      });
-    }, CROSSFADE_ART_TRANSITION_MS * 4);
-    return () => clearTimeout(watchdog);
-  }, [transitioning]);
-
-  // The current slot changing - the one animated transition that can
-  // involve a slide (natural progression) as well as a fade.
-  useEffect(() => {
-    if (currentTrackKey === displayed.currentKey) return;
-    if (currentTrackKey == null) {
-      setDisplayed((d) => ({ ...d, currentKey: null, currentArt: null }));
-      return;
-    }
-    const isNaturalProgression = currentTrackKey === displayed.nextKey;
-    setTransitioning(true);
-    setOutgoing(displayed.currentKey ? { key: displayed.currentKey, artUri: displayed.currentArt, progress: lastKnownProgress } : null);
-    outgoingOpacity.setValue(1);
-    Animated.timing(outgoingOpacity, { toValue: 0, duration: CROSSFADE_ART_TRANSITION_MS, easing: Easing.linear, useNativeDriver: true }).start();
-
-    // Always reset first, regardless of which branch below actually
-    // animates it - if the previous transition was a natural progression
-    // that got interrupted before its own timeout could fire (e.g. a
-    // manual skip landing mid-slide), slideX would otherwise be left
-    // stranded at -(size+GAP): the next slot's disc stuck rendered on top
-    // of the current slot (behind its tonearm), and the next slot itself
-    // left looking empty.
-    slideX.setValue(0);
-
-    if (isNaturalProgression) {
-      setIncoming(null);
-      // The sliding disc IS the next-slot disc (already rendered at the
-      // right slot's fixed position) - translateX 0 is "still at the
-      // right slot", so it animates to -(size+GAP) (one slot-width plus
-      // the gap, leftward) to land exactly on the left slot.
-      Animated.timing(slideX, {
-        toValue: -(size + GAP),
-        duration: CROSSFADE_ART_TRANSITION_MS,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start();
-    } else {
-      setIncoming({ key: currentTrackKey, artUri: currentArtUri, progress: currentProgress });
-      incomingOpacity.setValue(0);
-      Animated.timing(incomingOpacity, { toValue: 1, duration: CROSSFADE_ART_TRANSITION_MS, easing: Easing.linear, useNativeDriver: true }).start();
-    }
-
-    // Guarded so it only ever actually applies once - called normally when
-    // the timeout fires, but ALSO from this effect's cleanup, so that a
-    // transition interrupted by another track change before its own 450ms
-    // is up still gets finalized immediately instead of leaving
-    // transitioning/outgoing/incoming/slideX stuck mid-flight forever (the
-    // next effect run's own setup would otherwise start from that stale
-    // state instead of a clean one - previously the cause of a disc
-    // getting stranded on top of the wrong slot, or the current slot's own
-    // disc staying hidden behind ghost layers indefinitely).
-    let finalized = false;
-    const finalize = () => {
-      if (finalized) return;
-      finalized = true;
-      if (isNaturalProgression) {
-        // Resets the now-empty next slot's disc back to its own resting
-        // position/hidden state - left as-is otherwise, it'd sit stuck at
-        // the left (current) slot's offset, visible, until (if ever)
-        // another slide transition reset it.
-        slideX.setValue(0);
-        nextOpacity.setValue(0);
-        setDisplayed((d) => ({ currentKey: currentTrackKey, currentArt: d.nextArt, nextKey: null, nextArt: null }));
-      } else {
-        setDisplayed((d) => ({ ...d, currentKey: currentTrackKey, currentArt: currentArtUri }));
-      }
-      setOutgoing(null);
-      setIncoming(null);
-      setTransitioning(false);
-    };
-    const timeout = setTimeout(finalize, CROSSFADE_ART_TRANSITION_MS);
-    return () => {
-      clearTimeout(timeout);
-      finalize();
-    };
-    // Only currentTrackKey should retrigger this - the rest are read at
-    // the moment it fires, not reactive dependencies of their own.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTrackKey]);
-
-  // Freshest art for whichever key is already settled as current (e.g. the
-  // fetch resolves after a swap already landed) - no transition animation
-  // needed for this, VinylDisc's own artOpacity already cross-dissolves it.
-  useEffect(() => {
-    if (transitioning) return;
-    if (currentTrackKey === displayed.currentKey && currentArtUri !== displayed.currentArt) {
-      setDisplayed((d) => ({ ...d, currentArt: currentArtUri }));
-    }
-  }, [currentArtUri, currentTrackKey, displayed.currentKey, displayed.currentArt, transitioning]);
-
-  // The next slot changing - only while idle (never mid-transition, which
-  // would put three discs on screen at once instead of two).
-  useEffect(() => {
-    if (transitioning) return;
-    if (nextTrackKey === displayed.nextKey) return;
-    setDisplayed((d) => ({ ...d, nextKey: nextTrackKey, nextArt: nextArtUri }));
-    nextOpacity.setValue(0);
-    Animated.timing(nextOpacity, { toValue: 1, duration: CROSSFADE_ART_TRANSITION_MS, easing: Easing.linear, useNativeDriver: true }).start();
-    // Only nextTrackKey/transitioning should retrigger this - nextArtUri is
-    // only captured as a starting value here (see the re-sync effect below
-    // for picking up a later-arriving fetch).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nextTrackKey, transitioning]);
-
-  // Freshest art for whichever key is already settled as next (e.g.
-  // useCoverArt's fetch resolves after nextTrackKey already settled) - the
-  // same "settled key, late-arriving URI" case currentArtUri's own re-sync
-  // effect above handles, needed here for the identical reason: nextArtUri
-  // is essentially always still null at the moment nextTrackKey changes
-  // (useCoverArt fetches asynchronously), so without this the effect above
-  // would permanently capture that null and the next disc would never get
-  // past its accent-color placeholder.
-  useEffect(() => {
-    if (transitioning) return;
-    if (nextTrackKey === displayed.nextKey && nextArtUri !== displayed.nextArt) {
-      setDisplayed((d) => ({ ...d, nextArt: nextArtUri }));
-    }
-  }, [nextArtUri, nextTrackKey, displayed.nextKey, displayed.nextArt, transitioning]);
-
-  const containerStyle = { width: size * 2 + GAP, height: size };
-  const boxStyle = { width: size, height: size };
+  const spinId = useId();
+  const spinStyle = useSpin(currentTurnsPerSecond, currentProgress, spinId);
+  const boxStyle = { width: size, height: size, borderRadius: size / 2 };
+  const grooveRadii = Array.from({ length: GROOVE_RING_COUNT }, (_, i) => size * grooveRingDiameterFraction(i));
+  const labelCircleStyle = centeredCircleStyle(size, size * LABEL_FRACTION);
+  const crossfading = nextGain > 0;
 
   return (
-    <View style={[styles.row, containerStyle]}>
-      <View style={[styles.slot, boxStyle, { left: 0 }]}>
-        {!transitioning && (
-          <VinylDisc
-            colors={colors}
-            artUri={displayed.currentArt}
-            progress={currentProgress}
-            turnsPerSecond={currentTurnsPerSecond}
-            spinId={`${spinIdBase}-current`}
-            size={size}
-          />
-        )}
-        {outgoing && (
-          <VinylDisc
-            colors={colors}
-            artUri={outgoing.artUri}
-            progress={outgoing.progress}
-            turnsPerSecond={currentTurnsPerSecond}
-            spinId={`${spinIdBase}-outgoing`}
-            size={size}
-            opacity={outgoingOpacity}
-          />
-        )}
-        {incoming && (
-          <VinylDisc
-            colors={colors}
-            artUri={incoming.artUri}
-            progress={incoming.progress}
-            turnsPerSecond={currentTurnsPerSecond}
-            spinId={`${spinIdBase}-incoming`}
-            size={size}
-            opacity={incomingOpacity}
-          />
-        )}
-        {/* Forced up (`!transitioning &&`) for the swap/fade's whole duration, not just while a disc is actually mid-slide - the needle has to be clear before a disc starts moving under it, not just while it's moving. */}
-        <Tonearm down={!transitioning && currentGain > 0} progress={currentProgress} seeking={currentSeeking} size={size} />
-      </View>
-      <View style={[styles.slot, boxStyle, { left: size + GAP }]}>
-        <VinylDisc
-          colors={colors}
-          artUri={displayed.nextArt}
-          progress={nextProgress}
-          turnsPerSecond={nextTurnsPerSecond}
-          spinId={`${spinIdBase}-next`}
-          size={size}
-          opacity={nextOpacity}
-          translateX={slideX}
-        />
-        <Tonearm down={!transitioning && nextGain > 0} progress={nextProgress} seeking={false} size={size} />
-      </View>
+    <View style={[styles.row, boxStyle]}>
+      <SpinLayer style={[styles.layer, boxStyle, spinStyle]}>
+        <View style={[styles.layer, styles.vinylBody, boxStyle]} />
+        {grooveRadii.map((diameter, i) => (
+          <View key={i} style={[styles.layer, styles.groove, centeredCircleStyle(size, diameter)]} />
+        ))}
+        {/* Sits under the art (cropped to this same circle) so a track with no art yet, or art with transparency, shows the accent color instead of bare vinyl poking through. */}
+        <View style={[styles.layer, labelCircleStyle, { backgroundColor: colors.accent }]} />
+        {currentArtUri && <Image source={{ uri: currentArtUri }} style={[styles.layer, labelCircleStyle]} />}
+        {/* Cross-dissolves in directly on top of the current art as nextGain
+            rises during a crossfade - no separate disc, no separate timing,
+            just the real audio fade curve driving an opacity. */}
+        {nextArtUri && <Image source={{ uri: nextArtUri }} style={[styles.layer, labelCircleStyle, { opacity: nextGain }]} />}
+        <View style={[styles.layer, styles.labelRim, labelCircleStyle]} />
+        <View style={[styles.layer, styles.hole, centeredCircleStyle(size, size * HOLE_FRACTION)]} />
+      </SpinLayer>
+      <Tonearm down={currentGain > 0 || nextGain > 0} progress={currentProgress} crossfading={crossfading} seeking={currentSeeking} size={size} />
     </View>
   );
 }
@@ -606,10 +297,6 @@ const styles = StyleSheet.create({
   row: {
     alignSelf: 'center',
     marginVertical: 8,
-  },
-  slot: {
-    position: 'absolute',
-    top: 0,
   },
   layer: {
     position: 'absolute',

@@ -12,7 +12,10 @@ import { MarqueeText } from './MarqueeText';
 import { SeekBar } from './SeekBar';
 import type { Colors } from './theme';
 
-const ART_SIZE = 130;
+// Bumped up from the old two-disc layout's 130 - a single disc has the
+// whole row's width to itself now, so there's no reason to keep it sized
+// for sharing space with a second one.
+const ART_SIZE = 190;
 
 function formatSeconds(seconds: number): string {
   if (!Number.isFinite(seconds)) return '0:00';
@@ -31,20 +34,17 @@ export interface NowPlayingScreenProps {
   /** Drives the title/up-next block's fade-in on a settled track change - see each app's useFadeInOnChange call. */
   nowPlayingOpacity: Animated.Value;
   upNextOpacity: Animated.Value;
-  currentTrackKey: string | null;
   /**
-   * Which track's lyrics to show - kept distinct from currentTrackKey
-   * (which drives CrossfadeArt's disc/tonearm identity and stays pinned to
-   * the outgoing track for the whole crossfade, matching its own
-   * gain/progress props) because positionSeconds below already switches to
-   * the INCOMING track's timeline as soon as a crossfade starts (see each
-   * app's displayPositionSeconds). Feeding LyricsSection the outgoing
-   * track's identity alongside the incoming track's position looked up
-   * lines against the wrong (usually longer, already-past) song's
-   * timestamps - confirmed on-device as old lyrics visibly jumping back
-   * and re-scrolling mid-crossfade. Callers should compute this the same
-   * way as displayPositionSeconds: the incoming track's key once a
-   * crossfade is in flight, the outgoing/current one otherwise.
+   * Which track's lyrics to show - since positionSeconds below already
+   * switches to the INCOMING track's timeline as soon as a crossfade
+   * starts (see each app's displayPositionSeconds), this must switch with
+   * it. Feeding LyricsSection the outgoing track's identity alongside the
+   * incoming track's position looked up lines against the wrong (usually
+   * longer, already-past) song's timestamps - confirmed on-device as old
+   * lyrics visibly jumping back and re-scrolling mid-crossfade. Callers
+   * should compute this the same way as displayPositionSeconds: the
+   * incoming track's key once a crossfade is in flight, the outgoing/
+   * current one otherwise.
    */
   lyricsTrackKey: string | null;
   currentArtUri: string | null;
@@ -52,12 +52,10 @@ export interface NowPlayingScreenProps {
   currentProgress: number;
   /** See CrossfadeArtProps.currentTurnsPerSecond's doc. Defaults to 0 (frozen). */
   currentTurnsPerSecond?: number;
-  nextTrackKey: string | null;
-  nextArtUri: string | null;
-  nextGain: number;
-  nextProgress: number;
-  /** See CrossfadeArtProps.nextTurnsPerSecond's doc. Defaults to 0 (frozen). */
-  nextTurnsPerSecond?: number;
+  /** See CrossfadeArtProps.nextArtUri's doc. Defaults to null (nothing crossfading in). */
+  nextArtUri?: string | null;
+  /** See CrossfadeArtProps.nextGain's doc. Defaults to 0. */
+  nextGain?: number;
   isLoading: boolean;
   positionSeconds: number;
   durationSeconds: number;
@@ -86,17 +84,13 @@ export function NowPlayingScreen({
   upNextTitle,
   nowPlayingOpacity,
   upNextOpacity,
-  currentTrackKey,
   lyricsTrackKey,
   currentArtUri,
   currentGain,
   currentProgress,
   currentTurnsPerSecond = 0,
-  nextTrackKey,
-  nextArtUri,
-  nextGain,
-  nextProgress,
-  nextTurnsPerSecond = 0,
+  nextArtUri = null,
+  nextGain = 0,
   isLoading,
   positionSeconds,
   durationSeconds,
@@ -140,17 +134,13 @@ export function NowPlayingScreen({
           <View style={styles.artRow}>
             <CrossfadeArt
               colors={colors}
-              currentTrackKey={currentTrackKey}
               currentArtUri={currentArtUri}
               currentGain={currentGain}
               currentProgress={displayCurrentProgress}
               currentTurnsPerSecond={currentTurnsPerSecond}
               currentSeeking={previewPositionSeconds != null}
-              nextTrackKey={nextTrackKey}
               nextArtUri={nextArtUri}
               nextGain={nextGain}
-              nextProgress={nextProgress}
-              nextTurnsPerSecond={nextTurnsPerSecond}
               size={ART_SIZE}
             />
           </View>
