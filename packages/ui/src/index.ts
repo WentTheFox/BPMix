@@ -10,6 +10,7 @@ export * from './HeaderActions';
 export * from './HeaderRow';
 export * from './LibraryScreen';
 export * from './LoadingBar';
+export * from './MarqueeText';
 export { LoopButton, ShuffleButton } from './LoopShuffleButtons';
 export * from './LyricsFolderSection';
 export * from './LyricsPickerScreen';

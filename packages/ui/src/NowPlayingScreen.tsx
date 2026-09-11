@@ -8,6 +8,7 @@ import { HeaderRow } from './HeaderRow';
 import { IconLabel } from './IconLabel';
 import { LoadingBar } from './LoadingBar';
 import { LyricsSection } from './LyricsSection';
+import { MarqueeText } from './MarqueeText';
 import { SeekBar } from './SeekBar';
 import type { Colors } from './theme';
 
@@ -127,9 +128,7 @@ export function NowPlayingScreen({
       <View style={styles.content}>
         <View>
           <Animated.View style={{ opacity: nowPlayingOpacity }}>
-            <Text style={[styles.nowPlayingName, { color: colors.text }]} numberOfLines={2}>
-              {title}
-            </Text>
+            <MarqueeText text={title} style={[styles.nowPlayingName, { color: colors.text }]} />
           </Animated.View>
           {upNextTitle && (
             <Animated.View style={[styles.upNext, { opacity: upNextOpacity }]}>
