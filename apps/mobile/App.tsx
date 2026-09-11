@@ -975,17 +975,12 @@ function AppContent() {
   // Feeds CrossfadeArt's disc spin (a real turns-per-second rate, not a
   // per-tick progress retarget - see CrossfadeArtProps.currentTurnsPerSecond's
   // doc): 0 while paused, TURNS_PER_SONG spread over the track's own
-  // duration during ordinary playback, or - much faster - spread over
-  // just the segment and duration of an in-flight rewindTo()/
-  // fastForwardTo() scrub effect.
-  const scrub = playerState.track.scrubbing;
+  // duration during ordinary playback.
   const currentTurnsPerSecond = !isPlaying
     ? 0
-    : scrub
-      ? (TURNS_PER_SONG * (Math.abs(scrub.fromSeconds - scrub.toSeconds) / (playerState.track.durationSeconds || 1))) / scrub.durationSeconds
-      : playerState.track.durationSeconds > 0
-        ? TURNS_PER_SONG / playerState.track.durationSeconds
-        : 0;
+    : playerState.track.durationSeconds > 0
+      ? TURNS_PER_SONG / playerState.track.durationSeconds
+      : 0;
   // The next slot only actually spins once a crossfade is genuinely
   // bringing it in - otherwise it hasn't started playing at all yet.
   const incomingTurnsPerSecond =
@@ -1135,7 +1130,6 @@ function AppContent() {
         isLoading={isLoadingTrack}
         positionSeconds={displayPositionSeconds}
         durationSeconds={displayDurationSeconds}
-        scrubbing={scrub}
         // Disabled mid-crossfade: seekTo() still only affects the actual
         // (outgoing) source, which no longer matches what the bar is showing
         // (the incoming track's position/duration) - a tap here would compute
@@ -1146,7 +1140,6 @@ function AppContent() {
         lyricsScopes={lyricsScopes}
         headerRight={<HeaderActions colors={colors} center={notificationCenter} onOpenSettings={() => setSettingsOpen(true)} />}
         controls={
-          // Disabled mid-scrub: a rewindTo()/fastForwardTo() effect already tears down (and, for fastForwardTo, recreates) the source once - stacking a second transport action on top of it before it settles risks the same rapid-fire native-source-churn crash the effect itself is built to avoid.
           <PlayerControlsRow
             colors={colors}
             loopMode={playerState.loopMode}
@@ -1159,7 +1152,6 @@ function AppContent() {
             onTogglePlayPause={togglePause}
             onPrevious={handlePreviousPress}
             onNext={handleNextPress}
-            disabled={!!scrub}
           />
         }
       />

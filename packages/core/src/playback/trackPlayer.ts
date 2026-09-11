@@ -17,17 +17,6 @@ const GAIN_CURVE_SAMPLE_COUNT = 32;
 const STOP_TAIL_SECONDS = 0.2;
 /** Cap for the fade-out on pause() and fade-in on play()/resume - avoids an audible pop/click from an instant gain cut or jump, while staying quick enough that it doesn't read as a real crossfade. */
 const PAUSE_RESUME_FADE_SECONDS = 0.5;
-/**
- * A rewind's reversed clip is always sped up to fit whatever segment it
- * covers into exactly this long, regardless of how far back the seek was
- * (uncapped rate - a short hop back sounds close to normal speed, a long
- * one sounds like a blur) - the point is a fixed, fast, "in sync with the
- * disc animation" effect every time, not a rate cap that would stretch
- * this out for anything more than a short hop back.
- */
-const REWIND_EFFECT_DURATION_SECONDS = 0.6;
-/** Below this, a seek in either direction is closer to drag jitter than a deliberate rewind/fast-forward - not worth tearing down the source and building a scrub effect for. */
-const MIN_SCRUB_SEGMENT_SECONDS = 0.3;
 
 export type TrackPlayerStatus = 'idle' | 'loading' | 'playing' | 'paused' | 'stopped';
 
@@ -48,18 +37,6 @@ export interface TrackPlayerState {
    * and out of sync with what's actually audible throughout the fade.
    */
   pendingIncoming: { positionSeconds: number; durationSeconds: number; fadeDurationSeconds: number } | null;
-  /**
-   * Set while a rewindTo()/fastForwardTo() sped-up scrub effect is in
-   * flight - null the rest of the time (including during a normal seek(),
-   * which doesn't use this at all). fromSeconds/toSeconds aren't ordered -
-   * toSeconds < fromSeconds for a rewind, toSeconds > fromSeconds for a
-   * fast-forward - so a caller can use either the sign of the difference
-   * or just treat [min, max] as "the stretch currently being scrubbed
-   * through" without caring which direction. positionSeconds moves
-   * (backward or forward) because real sped-up audio is genuinely
-   * playing, not because something's wrong.
-   */
-  scrubbing: { fromSeconds: number; toSeconds: number; durationSeconds: number } | null;
 }
 
 export interface TrackPlayerCallbacks {
@@ -113,16 +90,6 @@ export class TrackPlayer {
   /** User-facing master volume [0,1], independent of currentGain (per-track normalization) - the two multiply together into whatever's actually sent to the engine. Persists across tracks (unlike currentGain, which is per-track), same reasoning as currentRate/currentGain: sources are torn down and recreated on every seek/pause/resume, so this has to be remembered and re-applied each time. */
   private masterVolume = 1;
   private pendingCrossfade: PendingCrossfade | null = null;
-  private scrub: { fromSeconds: number; toSeconds: number; durationSeconds: number; startedAtEngineTime: number } | null = null;
-  /**
-   * Bumped every time an in-flight scrub is torn down (stopCurrentSource,
-   * pause) - a silent scrub (see startSilentScrub) has no real source to
-   * check identity against the way handleScrubEnded does for fastForwardTo,
-   * so its completion timer instead captures the current value and bails
-   * if it's since changed, the same "was this superseded before it
-   * naturally finished" guard in a form that works without a source.
-   */
-  private scrubGeneration = 0;
 
   constructor(engine: AudioEngine, callbacks: TrackPlayerCallbacks = {}) {
     this.engine = engine;
@@ -231,18 +198,6 @@ export class TrackPlayer {
     // invoke a source's onEnded synchronously from within stop(), and
     // handleEnded's staleness guard needs this.source to already be gone.
     this.cancelPendingCrossfade();
-    // Without this, a pause() landing mid-scrub leaves this.scrub set
-    // forever: a fastForwardTo's source-based completion still fires
-    // handleScrubEnded() later, but its "is this still the live source"
-    // guard sees this.source already changed (null here, or reassigned by
-    // a resume in between) and returns early without ever clearing it -
-    // getPositionSeconds() then keeps taking the scrub branch on every
-    // future call, permanently stuck reporting toSeconds regardless of
-    // what actually plays afterward. scrubGeneration is bumped for the
-    // same reason on the silent (rewindTo) side - its pending setTimeout
-    // has no source to check staleness against, so it checks this instead.
-    this.scrub = null;
-    this.scrubGeneration++;
     const source = this.source;
     this.source = null;
     this.startOffsetSeconds = position;
@@ -277,149 +232,6 @@ export class TrackPlayer {
     } else if (this.status !== 'idle' && this.status !== 'loading') {
       this.status = 'paused';
     }
-  }
-
-  /**
-   * A stylized alternative to seek() for a manual backward jump: instead of
-   * cutting straight to targetPositionSeconds, mutes playback for
-   * scrubDurationSeconds while still feeding TrackPlayerState.scrubbing
-   * (so callers can animate a disc-spin/needle-sweep/seek-bar-highlight
-   * effect exactly as if real reversed audio were playing), then resumes
-   * normal forward playback from targetPositionSeconds once that duration
-   * elapses - a tape/vinyl rewind's VISUAL catch-up without actually
-   * playing the audio backward.
-   *
-   * This used to build and play a real reversed, sped-up audio clip (a
-   * per-channel Float32Array copy of the rewound span) - dropped in favor
-   * of silence because that copy's cost scaled with how far back the
-   * rewind went: a long-distance rewind, or several rapid ones from a
-   * continuous drag, could allocate native buffers faster than the
-   * previous ones could be garbage collected, which caused a real Hermes
-   * external-memory OOM/native SIGSEGV crash on-device under heavy use.
-   * Muting sidesteps that entirely (no PCM copy of any size, ever) and,
-   * as a side effect, no longer needs real decoded channelData to work -
-   * unlike the old version, this works the same on every engine, Windows
-   * included (see AudioEngine.awaitAnalysisReady's doc for why that
-   * mattered before).
-   *
-   * Returns false (no-op, caller should fall back to plain seek()) when
-   * the effect doesn't apply: not currently playing, or the "seek" isn't
-   * meaningfully backward.
-   */
-  rewindTo(targetPositionSeconds: number, scrubDurationSeconds = REWIND_EFFECT_DURATION_SECONDS): boolean {
-    if (this.status !== 'playing' || !this.decoded) return false;
-    if (!Number.isFinite(targetPositionSeconds)) return false;
-
-    const fromSeconds = this.getPositionSeconds();
-    const clampedTarget = Math.max(0, Math.min(targetPositionSeconds, this.decoded.durationSeconds));
-    const segmentSeconds = fromSeconds - clampedTarget;
-    if (segmentSeconds < MIN_SCRUB_SEGMENT_SECONDS) return false;
-
-    return this.startSilentScrub(fromSeconds, clampedTarget, scrubDurationSeconds);
-  }
-
-  /**
-   * The forward-seek mirror of rewindTo(): instead of cutting straight to
-   * targetPositionSeconds, plays through the skipped-over segment at a
-   * sped-up rate (uncapped, fit to scrubDurationSeconds regardless of how
-   * far forward it is) before resuming normal-speed playback from the
-   * target - like a tape/vinyl fast-forward actually catching up, the
-   * forward counterpart to rewindTo()'s "rewind". See rewindTo's doc for
-   * when this returns false instead.
-   */
-  fastForwardTo(targetPositionSeconds: number, scrubDurationSeconds = REWIND_EFFECT_DURATION_SECONDS): boolean {
-    if (this.status !== 'playing' || !this.decoded || !this.source) return false;
-    if (!Number.isFinite(targetPositionSeconds)) return false;
-
-    const fromSeconds = this.getPositionSeconds();
-    const clampedTarget = Math.max(0, Math.min(targetPositionSeconds, this.decoded.durationSeconds));
-    const segmentSeconds = clampedTarget - fromSeconds;
-    if (segmentSeconds < MIN_SCRUB_SEGMENT_SECONDS) return false;
-
-    // Plays straight from the original (un-truncated, forward) buffer,
-    // starting at fromSeconds - startScrub's explicit stop (not a natural
-    // end-of-buffer) is what actually stops it at the target.
-    return this.startScrub(fromSeconds, clampedTarget, this.decoded, fromSeconds, segmentSeconds / scrubDurationSeconds, scrubDurationSeconds);
-  }
-
-  /**
-   * rewindTo()'s scrub: no real source at all - just tears down whatever
-   * was playing (silence), publishes `scrub` for the duration so callers
-   * can still animate as if a reversed clip were audibly playing (see
-   * rewindTo's doc for why there isn't one anymore), and resumes normal
-   * playback from targetSeconds once scrubDurationSeconds real seconds
-   * have elapsed. The elapsed time is a plain setTimeout rather than the
-   * engine's own clock/source lifecycle (nothing there to hook into
-   * without a source) - scrubGeneration is what lets a pause()/seek()/
-   * another scrub landing before that timer fires correctly ignore it
-   * instead of resurrecting playback the user already moved past.
-   */
-  private startSilentScrub(fromSeconds: number, targetSeconds: number, scrubDurationSeconds: number): boolean {
-    this.stopCurrentSource();
-    this.startOffsetSeconds = targetSeconds;
-
-    const when = this.engine.now();
-    const generation = ++this.scrubGeneration;
-    this.scrub = { fromSeconds, toSeconds: targetSeconds, durationSeconds: scrubDurationSeconds, startedAtEngineTime: when };
-    this.status = 'playing';
-
-    setTimeout(() => {
-      if (this.scrubGeneration !== generation) return;
-      this.scrub = null;
-      this.startPlaybackFrom(targetSeconds);
-    }, scrubDurationSeconds * 1000);
-
-    return true;
-  }
-
-  /**
-   * Shared scheduling for fastForwardTo(): starts `sourceAudio` (playing
-   * from sourceOffsetSeconds into it) at `rate`, explicitly stopped after
-   * scrubDurationSeconds real seconds regardless of how much of
-   * sourceAudio that covers - a natural end-of-buffer isn't used since
-   * that would leave fastForwardTo's un-truncated source playing straight
-   * past the target at full speed. handleScrubEnded() picks up from there
-   * once it fires.
-   */
-  private startScrub(
-    fromSeconds: number,
-    targetSeconds: number,
-    sourceAudio: DecodedAudio,
-    sourceOffsetSeconds: number,
-    rate: number,
-    scrubDurationSeconds: number,
-  ): boolean {
-    this.stopCurrentSource();
-    this.startOffsetSeconds = targetSeconds;
-
-    const when = this.engine.now();
-    let scrubSource: SourceNode | undefined;
-    try {
-      scrubSource = this.engine.createSource(sourceAudio, () => this.handleScrubEnded(scrubSource as SourceNode, targetSeconds));
-      scrubSource.setGain(this.currentGain * this.masterVolume);
-      scrubSource.setRate(rate);
-      this.engine.scheduleStart(scrubSource, when, sourceOffsetSeconds);
-      scrubSource.stop(when + scrubDurationSeconds);
-    } catch {
-      // The engine rejected the source (e.g. a bad/empty buffer) - fall
-      // back to a plain seek so playback doesn't get stuck without a
-      // source at all.
-      this.startPlaybackFrom(targetSeconds);
-      return true;
-    }
-    this.source = scrubSource;
-    this.scrub = { fromSeconds, toSeconds: targetSeconds, durationSeconds: scrubDurationSeconds, startedAtEngineTime: when };
-    this.status = 'playing';
-    return true;
-  }
-
-  private handleScrubEnded(source: SourceNode, targetPositionSeconds: number): void {
-    // Ignore callbacks from a scrub we've already moved past (interrupted
-    // by another seek/pause/scrub before it naturally finished).
-    if (this.source !== source) return;
-    this.source = null;
-    this.scrub = null;
-    this.startPlaybackFrom(targetPositionSeconds);
   }
 
   stop(): void {
@@ -469,8 +281,6 @@ export class TrackPlayer {
    */
   private stopCurrentSource(): void {
     this.cancelPendingCrossfade();
-    this.scrub = null;
-    this.scrubGeneration++;
     const oldSource = this.source;
     this.source = null;
     oldSource?.stop();
@@ -600,17 +410,10 @@ export class TrackPlayer {
             fadeDurationSeconds: this.pendingCrossfade.fadeDurationSeconds,
           }
         : null,
-      scrubbing: this.scrub
-        ? { fromSeconds: this.scrub.fromSeconds, toSeconds: this.scrub.toSeconds, durationSeconds: this.scrub.durationSeconds }
-        : null,
     };
   }
 
   private getPositionSeconds(): number {
-    if (this.scrub) {
-      const elapsedFraction = Math.max(0, Math.min(1, (this.engine.now() - this.scrub.startedAtEngineTime) / this.scrub.durationSeconds));
-      return this.scrub.fromSeconds - (this.scrub.fromSeconds - this.scrub.toSeconds) * elapsedFraction;
-    }
     if (this.status !== 'playing') {
       return this.startOffsetSeconds;
     }
@@ -630,7 +433,7 @@ export class TrackPlayer {
    * silent and ramps it up to its real gain instead of jumping straight
    * there - used for a resume (via play()) so it doesn't pop back in at
    * full volume; a fresh seek while already playing passes 0 (no fade,
-   * matches the instantaneous scrub the UI shows).
+   * matches the instant jump the UI shows).
    */
   private startPlaybackFrom(offsetSeconds: number, fadeInSeconds = 0): void {
     if (!this.decoded) {

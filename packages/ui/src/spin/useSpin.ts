@@ -11,7 +11,7 @@ import { NATIVE_SPIN_LEG_MS, TURNS_PER_SONG } from './spinConstants';
  * competes with the JS thread's own per-tick re-render work) or letting it
  * lag behind between polls - continuous native-thread rotation sidesteps
  * both: progress is read only to anchor the correct starting angle
- * whenever turnsPerSecond changes (play/pause, a scrub starting/ending),
+ * whenever turnsPerSecond changes (play/pause, a track/duration change),
  * not on every tick along the way.
  */
 export function useSpin(

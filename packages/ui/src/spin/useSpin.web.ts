@@ -36,7 +36,7 @@ function webSpinStyle(durationMs: number, delayMs: number): WebSpinStyle {
  * animationDuration and a negative animationDelay (used to start the
  * animation as if it had already been running - see delayMs below) ever
  * change, and only when turnsPerSecond itself changes (play/pause, a
- * scrub starting/ending) - progress is read only to compute that starting
+ * track/duration change) - progress is read only to compute that starting
  * angle, not on every ~200ms poll tick, so a rate that hasn't changed
  * keeps running untouched entirely on the browser's compositor thread.
  */

@@ -46,8 +46,6 @@ export interface NowPlayingScreenProps {
   positionSeconds: number;
   durationSeconds: number;
   onSeekTo: (positionSeconds: number) => void;
-  /** See SeekBarProps.scrubbing's doc - passed straight through. */
-  scrubbing?: { fromSeconds: number; toSeconds: number; durationSeconds: number } | null;
   /** The primary transport row(s) (including the volume button - see VolumeButton) - genuinely different between mobile (icon buttons flanked by loop/shuffle) and web (adds ±10s seek buttons, loop/shuffle on their own row), so left as a slot rather than forced into one shape. */
   controls: ReactNode;
   fileAccess: FileAccess;
@@ -86,7 +84,6 @@ export function NowPlayingScreen({
   positionSeconds,
   durationSeconds,
   onSeekTo,
-  scrubbing,
   controls,
   fileAccess,
   libraryStore,
@@ -150,7 +147,6 @@ export function NowPlayingScreen({
               durationSeconds={durationSeconds}
               onSeekTo={onSeekTo}
               onPreview={setPreviewPositionSeconds}
-              scrubbing={scrubbing}
             />
           )}
           <View style={styles.seekTimesRow}>

@@ -28,12 +28,13 @@ export interface CrossfadeArtProps {
   currentProgress?: number;
   /**
    * Real full turns per second the current disc should be continuously
-   * spinning at right now (0 while paused) - e.g. TURNS_PER_SONG /
-   * durationSeconds for ordinary playback, or a much higher value derived
-   * from an in-flight rewindTo()/fastForwardTo() scrub. Drives the actual
-   * spin animation (see useSpin) as a continuous native/CSS animation
-   * rather than a per-tick retarget; currentProgress only anchors its
-   * starting angle whenever this changes. Defaults to 0 (frozen).
+   * spinning at right now (0 while paused) - TURNS_PER_SONG / durationSeconds
+   * for ordinary playback. Drives the actual spin animation (see useSpin) as
+   * a continuous native/CSS animation rather than a per-tick retarget;
+   * currentProgress only anchors its starting angle whenever this changes
+   * (e.g. right after a seek, so the disc jumps straight to the new angle
+   * instead of animating through the skipped stretch). Defaults to 0
+   * (frozen).
    */
   currentTurnsPerSecond?: number;
   /** Identity (fileId) of whatever should be in the "next" slot right now. */

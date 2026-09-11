@@ -19,8 +19,6 @@ export interface PlayerControlsRowProps {
   onTogglePlayPause: () => void;
   onPrevious: () => void;
   onNext: () => void;
-  /** Disables every button in the row (mid-scrub on both apps - see either App.tsx's own doc on why a second transport action mid-scrub risks the native-source-churn crash). */
-  disabled?: boolean;
   /**
    * Web-only seek-by-10-seconds pair, rendered between Previous/Play and
    * Play/Next respectively - omit both (mobile's call site) to render
@@ -56,37 +54,35 @@ export function PlayerControlsRow({
   onTogglePlayPause,
   onPrevious,
   onNext,
-  disabled,
   onSeekBackward,
   onSeekForward,
 }: PlayerControlsRowProps) {
   return (
     <View style={styles.row}>
-      <LoopButton colors={colors} loopMode={loopMode} onPress={onCycleLoop} disabled={disabled} />
-      <Pressable style={[styles.button, { backgroundColor: colors.accent }, disabled && styles.buttonDisabled]} onPress={onPrevious} disabled={disabled}>
+      <LoopButton colors={colors} loopMode={loopMode} onPress={onCycleLoop} />
+      <Pressable style={[styles.button, { backgroundColor: colors.accent }]} onPress={onPrevious}>
         <Icon path={mdiSkipPrevious} size={20} color="white" />
       </Pressable>
       {onSeekBackward && (
-        <Pressable style={[styles.buttonWide, { backgroundColor: colors.accent }, disabled && styles.buttonDisabled]} onPress={onSeekBackward} disabled={disabled}>
+        <Pressable style={[styles.buttonWide, { backgroundColor: colors.accent }]} onPress={onSeekBackward}>
           <Icon path={mdiRewind10} size={22} color="white" />
         </Pressable>
       )}
       <Pressable
-        style={[styles.button, styles.buttonPrimary, { backgroundColor: darken(colors.accent, 0.15) }, disabled && styles.buttonDisabled]}
+        style={[styles.button, styles.buttonPrimary, { backgroundColor: darken(colors.accent, 0.15) }]}
         onPress={onTogglePlayPause}
-        disabled={disabled}
       >
         <Icon path={isPlaying ? mdiPause : mdiPlay} size={30} color="white" />
       </Pressable>
       {onSeekForward && (
-        <Pressable style={[styles.buttonWide, { backgroundColor: colors.accent }, disabled && styles.buttonDisabled]} onPress={onSeekForward} disabled={disabled}>
+        <Pressable style={[styles.buttonWide, { backgroundColor: colors.accent }]} onPress={onSeekForward}>
           <Icon path={mdiFastForward10} size={22} color="white" />
         </Pressable>
       )}
-      <Pressable style={[styles.button, { backgroundColor: colors.accent }, disabled && styles.buttonDisabled]} onPress={onNext} disabled={disabled}>
+      <Pressable style={[styles.button, { backgroundColor: colors.accent }]} onPress={onNext}>
         <Icon path={mdiSkipNext} size={20} color="white" />
       </Pressable>
-      <ShuffleButton colors={colors} shuffleEnabled={shuffleEnabled} onPress={onToggleShuffle} disabled={disabled} />
+      <ShuffleButton colors={colors} shuffleEnabled={shuffleEnabled} onPress={onToggleShuffle} />
       <VolumeButton colors={colors} volume={volume} onChangeVolume={onChangeVolume} />
     </View>
   );
@@ -119,8 +115,5 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 36,
-  },
-  buttonDisabled: {
-    opacity: 0.4,
   },
 });
