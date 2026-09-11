@@ -5,8 +5,7 @@ instead of just switching to the next one — Android, web, and a
 self-hostable server, all sharing one playback engine.
 
 <p align="center">
-  <img src="docs/screenshots/mobile-library.png" width="280" alt="Library screen showing a folder, a playlist, and the now-playing bar mid-crossfade" />
-  <img src="docs/screenshots/mobile-now-playing.png" width="280" alt="Now playing screen with the current and next track's cover art rendered as spinning records" />
+  <img src="docs/screenshots/mobile-now-playing.png" width="320" alt="Now playing screen with the current track's cover art rendered as a spinning record, up-next preview, seek bar, transport controls, and synced lyrics with the current line highlighted" />
 </p>
 
 ## What it does
@@ -30,10 +29,25 @@ self-hostable server, all sharing one playback engine.
   what you curate, and BPMix has no view for "everything in this folder"
   outside of that.
 - **Shuffle, loop, and playlist persistence** via a shared
-  `PlaylistPlayer`.
+  `PlaylistPlayer` — playback position, the current playlist/track, loop
+  mode, and shuffle order all survive an app restart.
+- **Lyrics**: auto-matches `.lrc`/plaintext lyrics files from a separate
+  lyrics folder to library tracks by filename, shows them synced (or
+  static) on the Now Playing screen, and lets you manually (re)assign a
+  lyrics file per track from a searchable picker when auto-matching picks
+  the wrong one or finds nothing.
+- **Settings screen**: theme (Light/Flux/Dark/AMOLED), accent color,
+  volume normalization, and a configurable crossfade duration (1–20s).
+- **System media integration on Android**: lock-screen/notification-shade
+  play/pause/next/previous controls and title/artist/art/progress
+  reporting via the OS media session — not just an in-app transport.
+- **In-app notification center** (the bell icon) surfaces background
+  library/lyrics scan progress and non-fatal errors (a bad file, a
+  permission issue) without interrupting playback.
 - **Runs the same UI on Android and web** via React Native + React Native
   Web, sharing components/business logic in `packages/ui`/`packages/core`
-  rather than duplicating it per platform.
+  rather than duplicating it per platform. Windows support (react-native-
+  windows) is in progress.
 - **Self-hostable**: `apps/server` serves the built web app plus a music
   library mounted into a Docker container, so any browser (not just
   Chromium, which is all the browser-only build supports via the File
@@ -76,10 +90,14 @@ Self-hosting via Docker is documented separately in
 ## Status
 
 BPMix is under active development — see `CLAUDE.md`'s TODOs section for
-what's planned (a just-in-time BPM-matching crossfade engine, playback
-state persistence, synced lyrics, and more). The crossfade/vinyl-art
-pieces shown above are functional; some of the more ambitious
-beatmatching work is still in progress.
+what's planned next (an LRC sync editor, automatic translated-lyrics
+generation, generating a playlist directly from a folder, Windows
+support, and more). Everything described above (crossfade, vinyl-art
+rendering, ID3 metadata, lyrics matching, settings, playback/playlist
+persistence, Android media-session integration) is implemented and
+working today. The more ambitious just-in-time BPM-matching crossfade
+engine (continuous beat detection instead of the current fixed-length
+crossfade) is still in progress.
 
 ## License
 
