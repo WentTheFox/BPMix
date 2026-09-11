@@ -37,6 +37,12 @@ export interface CrossfadeArtProps {
    * (frozen).
    */
   currentTurnsPerSecond?: number;
+  /**
+   * True while currentProgress is a live seek-bar drag preview rather than
+   * an ordinary ~200ms poll-tick update - see Tonearm's own doc for why
+   * that distinction matters to how it animates. Defaults to false.
+   */
+  currentSeeking?: boolean;
   /** Identity (fileId) of whatever should be in the "next" slot right now. */
   nextTrackKey: string | null;
   nextArtUri: string | null;
@@ -239,8 +245,20 @@ const VinylDisc = memo(function VinylDisc({ colors, artUri, progress, turnsPerSe
  * `down`, which only lifts the whole assembly a few px clear of the disc
  * (see TONEARM_LIFT_FRACTION's doc) rather than resetting its position, so
  * a paused tonearm stays parked over wherever it actually stopped.
+ *
+ * `seeking` (see CrossfadeArtProps.currentSeeking's doc) doesn't change the
+ * progress-to-angle mapping at all - only how the needle gets there.
+ * Normal playback re-targets the angle roughly once per ~200ms poll tick,
+ * so easing each of those hops over TONEARM_MOVE_MS reads as one continuous
+ * inward sweep. A seek-bar drag instead fires this far more often (every
+ * touch-move tick, no debounce - see SeekBar's onPreview), and re-triggering
+ * that same eased tween on every one of those ticks would have the needle
+ * perpetually chasing a moving target several ticks behind the finger
+ * instead of tracking it. While seeking, the angle jumps straight to each
+ * new target instead - still the exact same eased progress-to-angle curve
+ * below, just applied instantly rather than smoothed toward over time.
  */
-function Tonearm({ down, progress, size }: { down: boolean; progress: number; size: number }) {
+function Tonearm({ down, progress, seeking, size }: { down: boolean; progress: number; seeking: boolean; size: number }) {
   const clampedProgress = Math.max(0, Math.min(1, progress));
   // Eased rather than linear - same start (outer rim) and end (label edge)
   // positions, but a real record's constant angular velocity means the
@@ -251,8 +269,13 @@ function Tonearm({ down, progress, size }: { down: boolean; progress: number; si
   const targetDeg = TONEARM_ANGLE_OUTER_DEG + (TONEARM_ANGLE_INNER_DEG - TONEARM_ANGLE_OUTER_DEG) * easedProgress;
   const rotationDeg = useRef(new Animated.Value(targetDeg)).current;
   useEffect(() => {
+    if (seeking) {
+      rotationDeg.stopAnimation();
+      rotationDeg.setValue(targetDeg);
+      return;
+    }
     Animated.timing(rotationDeg, { toValue: targetDeg, duration: TONEARM_MOVE_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
-  }, [targetDeg, rotationDeg]);
+  }, [targetDeg, rotationDeg, seeking]);
   const rotate = rotationDeg.interpolate({ inputRange: [-180, 180], outputRange: ['-180deg', '180deg'] });
 
   const lift = useRef(new Animated.Value(down ? 0 : 1)).current;
@@ -327,6 +350,7 @@ export function CrossfadeArt({
   currentGain,
   currentProgress = 0,
   currentTurnsPerSecond = 0,
+  currentSeeking = false,
   nextTrackKey,
   nextArtUri,
   nextGain,
@@ -547,7 +571,7 @@ export function CrossfadeArt({
           />
         )}
         {/* Forced up (`!transitioning &&`) for the swap/fade's whole duration, not just while a disc is actually mid-slide - the needle has to be clear before a disc starts moving under it, not just while it's moving. */}
-        <Tonearm down={!transitioning && currentGain > 0} progress={currentProgress} size={size} />
+        <Tonearm down={!transitioning && currentGain > 0} progress={currentProgress} seeking={currentSeeking} size={size} />
       </View>
       <View style={[styles.slot, boxStyle, { left: size + GAP }]}>
         <VinylDisc
@@ -560,7 +584,7 @@ export function CrossfadeArt({
           opacity={nextOpacity}
           translateX={slideX}
         />
-        <Tonearm down={!transitioning && nextGain > 0} progress={nextProgress} size={size} />
+        <Tonearm down={!transitioning && nextGain > 0} progress={nextProgress} seeking={false} size={size} />
       </View>
     </View>
   );

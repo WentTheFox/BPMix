@@ -130,6 +130,7 @@ export function NowPlayingScreen({
               currentGain={currentGain}
               currentProgress={displayCurrentProgress}
               currentTurnsPerSecond={currentTurnsPerSecond}
+              currentSeeking={previewPositionSeconds != null}
               nextTrackKey={nextTrackKey}
               nextArtUri={nextArtUri}
               nextGain={nextGain}
