@@ -728,7 +728,15 @@ function App() {
 
   const goNext = useCallback(async (options?: { force?: boolean }) => {
     if (!transportActionAllowed()) return;
-    await playlistPlayer.next(options);
+    // next()/previous() set the new position/loading status synchronously
+    // before their first await (decoding the file) - same reasoning as
+    // playFromTrack's identical pattern above: grabbing state right after
+    // calling it, rather than only once the whole decode resolves, is what
+    // makes the tap register instantly (title/art/loading-bar all update
+    // right away) instead of the UI sitting frozen for the whole decode.
+    const nextPromise = playlistPlayer.next(options);
+    setPlayerState(playlistPlayer.getState());
+    await nextPromise;
     const state = playlistPlayer.getState();
     setPlayerState(state);
     if (state.currentFileId) {
@@ -738,7 +746,10 @@ function App() {
 
   const goPrevious = useCallback(async (options?: { force?: boolean }) => {
     if (!transportActionAllowed()) return;
-    await playlistPlayer.previous(options);
+    // See goNext's identical comment above.
+    const previousPromise = playlistPlayer.previous(options);
+    setPlayerState(playlistPlayer.getState());
+    await previousPromise;
     const state = playlistPlayer.getState();
     setPlayerState(state);
     if (state.currentFileId) {
