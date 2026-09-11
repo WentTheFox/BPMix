@@ -148,7 +148,15 @@ export function FolderBrowser({ colors, fileAccess, rootId, rootDisplayName, ini
                 style={[styles.suggestedChip, { backgroundColor: withAlpha(colors.accent, 0.15) }]}
                 onPress={() => setPath(entry.relativePath)}
               >
-                <IconLabel path={mdiFolder} text={entry.name} color={colors.accent} iconSize={15} textStyle={styles.suggestedChipText} />
+                <IconLabel
+                  path={mdiFolder}
+                  text={entry.name}
+                  color={colors.accent}
+                  iconSize={15}
+                  textStyle={styles.suggestedChipText}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                />
               </Pressable>
             ))}
           </View>
@@ -261,6 +269,12 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 6,
+    // Bounds how wide a single chip can grow before its name truncates
+    // (numberOfLines=1/ellipsizeMode='tail' on the IconLabel below) -
+    // without this, numberOfLines has nothing to truncate against and an
+    // unusually long real folder name (confirmed on-device) just kept
+    // growing the chip instead, breaking the row's layout.
+    maxWidth: 180,
   },
   suggestedChipText: {
     fontSize: 13,
