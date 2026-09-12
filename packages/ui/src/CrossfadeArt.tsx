@@ -230,11 +230,27 @@ function Tonearm({
   const translateY = lift.interpolate({ inputRange: [0, 1], outputRange: [0, -size * TONEARM_LIFT_FRACTION] });
 
   const armLength = size * TONEARM_ARM_LENGTH_FRACTION;
+  // The rotor is a real, evenly-sized box - not the arm's own thin bar -
+  // centered exactly on the pivot (mount) point, so rotating it with a
+  // perfectly ordinary default center pivot sweeps the arm (drawn inside
+  // it, extending from that same center) correctly. transformOrigin (the
+  // more direct way to express "pivot at this corner, not the center") was
+  // tried first and works on Android/web, but react-native-windows was
+  // observed not to honor it at all. Rotating a 1x1 box positioned at the
+  // corner (relying on a near-zero-size element's own center
+  // coinciding with the corner) was tried next and ALSO didn't reproduce
+  // the correct sweep on Windows - the arm still rotated around some other
+  // point, swinging its free end off into empty space next to the disc
+  // instead of sweeping across it. A generously-sized, explicitly centered
+  // rotor box is the version that finally matched on all three platforms.
+  const rotorSize = armLength * 2;
   return (
     <Animated.View style={[styles.tonearmMount, { transform: [{ translateY }] }]} pointerEvents="none">
-      <View style={styles.tonearmPivot} />
-      <Animated.View style={[styles.tonearmArm, { width: armLength, transform: [{ rotate }] }]}>
-        <View style={styles.tonearmNeedle} />
+      <Animated.View style={[styles.tonearmRotor, { width: rotorSize, height: rotorSize, top: -rotorSize / 2, right: -rotorSize / 2, transform: [{ rotate }] }]}>
+        <View style={[styles.tonearmPivot, { top: rotorSize / 2 - 3, left: rotorSize / 2 - 3 }]} />
+        <View style={[styles.tonearmArm, { width: armLength, top: rotorSize / 2 - 1.5, right: rotorSize / 2 }]}>
+          <View style={styles.tonearmNeedle} />
+        </View>
       </Animated.View>
     </Animated.View>
   );
@@ -327,6 +343,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.4)',
   },
+  // A 0-size anchor at the true pivot point (the disc's top-right corner) -
+  // only carries the lift's translateY, never rotates itself (see
+  // tonearmRotor below for why the actual rotation lives one level deeper).
   tonearmMount: {
     position: 'absolute',
     top: 0,
@@ -334,10 +353,17 @@ const styles = StyleSheet.create({
     width: 1,
     height: 1,
   },
+  // Sized and positioned (via inline top/right in Tonearm, since its size
+  // depends on the disc's own runtime size) so its OWN center lands exactly
+  // on tonearmMount's origin - rotating it is then just an ordinary
+  // default-center-pivot rotation, the one transform mode every platform
+  // reliably supports, with everything drawn inside positioned relative to
+  // that same center instead of relative to a corner.
+  tonearmRotor: {
+    position: 'absolute',
+  },
   tonearmPivot: {
     position: 'absolute',
-    top: -3,
-    left: -3,
     width: 7,
     height: 7,
     borderRadius: 4,
@@ -345,15 +371,12 @@ const styles = StyleSheet.create({
   },
   tonearmArm: {
     position: 'absolute',
-    top: -1.5,
-    right: 0,
     height: 3,
     borderRadius: 1.5,
     backgroundColor: '#374151',
-    // Pivots around its own top-right corner (the mount point above), not
-    // its center - that's what makes the free end sweep an arc onto/off of
-    // the disc instead of rotating in place.
-    transformOrigin: ['100%', '50%', 0],
+    // Extends leftward from the rotor's center (see tonearmRotor's doc) -
+    // top/right positioning it exactly there is set inline in Tonearm,
+    // since it depends on the rotor's runtime size.
   },
   tonearmNeedle: {
     position: 'absolute',

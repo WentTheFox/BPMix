@@ -14,8 +14,11 @@
 #include <winrt/Windows.Storage.Streams.h>
 #include <winrt/Windows.Storage.h>
 
+#include <algorithm>
+#include <mutex>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 // PLACEHOLDER-GRADE, but real: a from-scratch Windows equivalent of the
@@ -78,10 +81,50 @@ inline IAsyncOperation<StorageFolder> ResolveFolder(StorageFolder root, std::str
 // re-resolving through the confirmed-good Path() via GetFolderFromPathAsync
 // gives back a plain local StorageFolder with no broker involved, and that
 // one's GetItemsAsync() works normally.
+//
+// Cached per token (not re-resolved on every call) - two ordinary,
+// legitimate reads racing (e.g. the playlist preloading the next track's
+// audio while the current one is still decoding, both from the same root)
+// used to each independently call FutureAccessList().GetItemAsync() +
+// GetFolderFromPathAsync() at the same time, which reproduced as a bare
+// WinRT "The file is in use. Please close the file before continuing."
+// error - not from any real file lock, just concurrent broker resolution
+// of the same root fighting itself. Caching the already-resolved plain
+// StorageFolder means only the very first read of a given root can race
+// this way (each such racer pays its own redundant resolution once, then
+// every later read - including from a re-launched cold app on the OS's
+// own persisted grant - reuses the shared result), and it's a real
+// perf win regardless, turning every read after the first into a plain
+// map lookup instead of two broker round-trips. The mutex below is only
+// ever held across the synchronous map read/write, never across a
+// co_await, since a coroutine can resume on a different thread than it
+// suspended on and std::mutex must be unlocked on the same thread that
+// locked it.
 inline IAsyncOperation<StorageFolder> GetGrantedFolder(winrt::hstring token) {
+  static std::mutex cacheMutex;
+  static std::unordered_map<std::wstring, StorageFolder> cache;
+
+  std::wstring key{token};
+  {
+    std::scoped_lock lock(cacheMutex);
+    auto it = cache.find(key);
+    if (it != cache.end()) {
+      co_return it->second;
+    }
+  }
+
   auto item = co_await StorageApplicationPermissions::FutureAccessList().GetItemAsync(token);
   auto brokerFolder = item.as<StorageFolder>();
-  co_return co_await StorageFolder::GetFolderFromPathAsync(brokerFolder.Path());
+  auto resolved = co_await StorageFolder::GetFolderFromPathAsync(brokerFolder.Path());
+
+  {
+    std::scoped_lock lock(cacheMutex);
+    // Not cache[key] = resolved - operator[] default-constructs the value
+    // first on a miss, and WinRT projected types like StorageFolder have
+    // no default constructor.
+    cache.insert_or_assign(key, resolved); // last writer wins if this raced another resolution - both results are equally valid
+  }
+  co_return resolved;
 }
 
 // Splits "<token>|<relativePath>" (see file header comment) into its parts.
@@ -187,18 +230,10 @@ struct FileAccessModule {
 
       std::string prefix = relativePath.empty() ? "" : relativePath + "/";
 
-      // Calling GetBasicPropertiesAsync() starts the async op immediately
-      // (WinRT async operations start on call, not on co_await) - so every
-      // file's property fetch is kicked off up front in this first pass,
-      // running concurrently, and only awaited (in order) in the second
-      // pass below. A real "Music" folder can have hundreds of files;
-      // awaiting each one serially before starting the next made a full
-      // scan visibly hang for tens of seconds.
       struct PendingFile {
         std::string name;
         std::string childRelativePath;
         StorageFile file;
-        IAsyncOperation<FileProperties::BasicProperties> propsOp;
       };
       std::vector<PendingFile> pendingFiles;
       JSValueArray directoryEntries;
@@ -214,30 +249,49 @@ struct FileAccessModule {
           obj["relativePath"] = childRelativePath;
           directoryEntries.push_back(JSValue(std::move(obj)));
         } else {
-          auto file = item.as<StorageFile>();
-          auto propsOp = file.GetBasicPropertiesAsync();
-          pendingFiles.push_back(PendingFile{std::move(name), std::move(childRelativePath), std::move(file),
-              std::move(propsOp)});
+          pendingFiles.push_back(PendingFile{std::move(name), std::move(childRelativePath), item.as<StorageFile>()});
         }
       }
 
       JSValueArray entries = std::move(directoryEntries);
-      for (auto &pending : pendingFiles) {
-        auto props = co_await pending.propsOp;
 
-        JSValueObject fileRef;
-        fileRef["id"] = rootId + "|" + pending.childRelativePath;
-        fileRef["name"] = pending.name;
-        fileRef["relativePath"] = pending.childRelativePath;
-        fileRef["sizeBytes"] = static_cast<double>(props.Size());
-        fileRef["lastModifiedMs"] = static_cast<double>(DateTimeToEpochMs(props.DateModified()));
+      // Fetched in bounded batches, not all 800+ of a real "Music" folder's
+      // files at once - GetBasicPropertiesAsync() starts its async op
+      // immediately (WinRT async operations start on call, not on
+      // co_await), so kicking off every file's property fetch up front
+      // used to run them all fully concurrently. That reproduced as a bare
+      // WinRT "The file is in use. Please close the file before
+      // continuing." error on a large folder - not a real file lock, just
+      // the broker/filesystem layer choking under too many simultaneous
+      // WinRT calls at once. Awaiting one file at a time (the naive fix)
+      // made a full scan visibly hang for tens of seconds instead, so this
+      // keeps most of that speed win by batching a bounded number of
+      // concurrent fetches instead of either extreme.
+      constexpr size_t kMaxConcurrentPropertyFetches = 16;
+      for (size_t batchStart = 0; batchStart < pendingFiles.size(); batchStart += kMaxConcurrentPropertyFetches) {
+        size_t batchEnd = std::min(batchStart + kMaxConcurrentPropertyFetches, pendingFiles.size());
+        std::vector<IAsyncOperation<FileProperties::BasicProperties>> batchOps;
+        for (size_t i = batchStart; i < batchEnd; i++) {
+          batchOps.push_back(pendingFiles[i].file.GetBasicPropertiesAsync());
+        }
+        for (size_t i = batchStart; i < batchEnd; i++) {
+          auto const &pending = pendingFiles[i];
+          auto props = co_await batchOps[i - batchStart];
 
-        JSValueObject obj;
-        obj["type"] = "file";
-        obj["name"] = pending.name;
-        obj["relativePath"] = pending.childRelativePath;
-        obj["file"] = JSValue(std::move(fileRef));
-        entries.push_back(JSValue(std::move(obj)));
+          JSValueObject fileRef;
+          fileRef["id"] = rootId + "|" + pending.childRelativePath;
+          fileRef["name"] = pending.name;
+          fileRef["relativePath"] = pending.childRelativePath;
+          fileRef["sizeBytes"] = static_cast<double>(props.Size());
+          fileRef["lastModifiedMs"] = static_cast<double>(DateTimeToEpochMs(props.DateModified()));
+
+          JSValueObject obj;
+          obj["type"] = "file";
+          obj["name"] = pending.name;
+          obj["relativePath"] = pending.childRelativePath;
+          obj["file"] = JSValue(std::move(fileRef));
+          entries.push_back(JSValue(std::move(obj)));
+        }
       }
       result.Resolve(JSValue(std::move(entries)));
     } catch (winrt::hresult_error const &e) {
