@@ -18,6 +18,7 @@ export * from './library-scan/loadRootLibrary';
 export * from './playback/trackPlayer';
 export * from './playback/shuffle';
 export * from './playback/playlistPlayer';
+export * from './playback/playbackLog';
 export * from './analysis/analyzeTrack';
 export * from './analysis/analyzeLibrary';
 export * from './analysis/ensureAnalyzed';

@@ -265,6 +265,7 @@ export class PlaylistPlayer {
    * isn't a meaningful id to reconcile against).
    */
   async setPlaylist(trackFileIds: string[], startFileId?: string, options?: { playlistId?: string }): Promise<void> {
+    logPlayback('setPlaylist', { playlistId: options?.playlistId ?? null, trackCount: trackFileIds.length, startFileId });
     await this.loadPlaylistAt(trackFileIds, startFileId, { autoplay: true, playlistId: options?.playlistId });
   }
 
@@ -350,6 +351,8 @@ export class PlaylistPlayer {
   }
 
   setLoopMode(mode: LoopMode): void {
+    if (mode === this.loopMode) return;
+    logPlayback('setLoopMode', { from: this.loopMode, to: mode });
     this.loopMode = mode;
   }
 
@@ -384,6 +387,7 @@ export class PlaylistPlayer {
       this.shuffleEnabled = enabled;
       return;
     }
+    logPlayback('setShuffle', { enabled, fileId: this.currentFileId() });
     const currentTrackIndex = this.position >= 0 ? this.order[this.position] : undefined;
     this.shuffleEnabled = enabled;
     this.order = enabled ? this.buildShuffledOrder(currentTrackIndex) : this.trackFileIds.map((_, i) => i);
@@ -504,10 +508,12 @@ export class PlaylistPlayer {
   }
 
   play(): void {
+    logPlayback('play', { fileId: this.currentFileId() });
     this.trackPlayer.play();
   }
 
   pause(): void {
+    logPlayback('pause', { fileId: this.currentFileId() });
     this.trackPlayer.pause();
   }
 
@@ -525,6 +531,7 @@ export class PlaylistPlayer {
 
   async next(options: { force?: boolean } = {}): Promise<void> {
     if (this.order.length === 0) return;
+    logPlayback('next', { force: !!options.force, loopMode: this.loopMode, fileId: this.currentFileId() });
     if (!options.force && this.loopMode === 'one') {
       this.trackPlayer.seek(0);
       return;
@@ -541,6 +548,7 @@ export class PlaylistPlayer {
 
   async previous(options: { force?: boolean } = {}): Promise<void> {
     if (this.order.length === 0) return;
+    logPlayback('previous', { force: !!options.force, loopMode: this.loopMode, fileId: this.currentFileId() });
     if (!options.force && this.loopMode === 'one') {
       this.trackPlayer.seek(0);
       return;

@@ -8,6 +8,7 @@ import {
   FileAccessPermissionPendingError,
   formatTrackTitle,
   isMetadataCurrent,
+  logLibraryAction,
   LYRICS_MATCHED_COUNT_SETTING_KEY,
   matchLibraryLyrics,
   PlaylistPlayer,
@@ -37,6 +38,7 @@ import {
   useAppSettings,
   useCoverArt,
   useDoublePressHandler,
+  useMemoryUsageLogging,
   useNotificationCenter,
   RAPID_PLAYBACK_PATCH_DEBOUNCE_MS,
   useBackNavigation,
@@ -242,6 +244,8 @@ function App() {
     if (playerState.track.status === 'playing') setHasStartedPlayback(true);
   }, [playerState.track.status]);
 
+  useMemoryUsageLogging(playerState.track.status !== 'idle');
+
   // Same close-priority order as the mobile app (see useBackNavigation's
   // doc) - Settings, then Now Playing, then Playlist back to Library, then
   // (nothing left of ours to close) the browser's own back behavior of
@@ -360,7 +364,10 @@ function App() {
               // - this root just stays empty until a real click (Rescan,
               // re-adding the folder) re-grants it, rather than surfacing the
               // browser's raw permission-error text as if it were a real bug.
-              if (!(err instanceof FileAccessPermissionPendingError)) setError(errorMessage(err));
+              if (!(err instanceof FileAccessPermissionPendingError)) {
+                setError(errorMessage(err));
+                logLibraryAction('refresh:rootFailed', { rootId: root.id, error: String(err) });
+              }
               return null;
             }
           }),
@@ -419,7 +426,10 @@ function App() {
           const nextFileId = playlistPlayer.getNextFileId();
           return [state.currentFileId, nextFileId].filter((id): id is string => id != null);
         },
-      }).catch((err) => setError(errorMessage(err)));
+      }).catch((err) => {
+        setError(errorMessage(err));
+        logLibraryAction('matchLibraryLyrics:failed', { error: String(err) });
+      });
     } else {
       setMatchedLyricsCount(null);
     }
@@ -518,7 +528,10 @@ function App() {
       setScreen({ kind: 'playlist', root, playlist, tracksById });
       if (nowPlayingOpen) setNowPlayingScreenOpen(true);
     },
-    onError: (err) => setError(errorMessage(err)),
+    onError: (err) => {
+      setError(errorMessage(err));
+      logLibraryAction('playbackPersistence:failed', { error: String(err) });
+    },
     onStepChange: advanceStep,
     onLyricsScopesKnown: (scopes) => {
       setLyricsScopes(scopes);
@@ -574,8 +587,10 @@ function App() {
       setBusyRootId(root.id);
       await scanRoot(fileAccess, libraryStore, root.id);
       await refresh();
+      logLibraryAction('addFolder', { rootId: root.id });
     } catch (err) {
       setError(errorMessage(err));
+      logLibraryAction('addFolder:failed', { error: String(err) });
     } finally {
       setBusyRootId(null);
     }
@@ -588,8 +603,10 @@ function App() {
       try {
         await scanRoot(fileAccess, libraryStore, rootId);
         await refresh();
+        logLibraryAction('rescan', { rootId });
       } catch (err) {
         setError(errorMessage(err));
+        logLibraryAction('rescan:failed', { rootId, error: String(err) });
       } finally {
         setBusyRootId(null);
       }
@@ -603,8 +620,10 @@ function App() {
       try {
         await fileAccess.revokeRoot(rootId);
         await refresh();
+        logLibraryAction('removeRoot', { rootId });
       } catch (err) {
         setError(errorMessage(err));
+        logLibraryAction('removeRoot:failed', { rootId, error: String(err) });
       }
     },
     [refresh],
@@ -624,8 +643,10 @@ function App() {
       if (!root) return; // user cancelled the picker
       await libraryStore.addLyricsScope({ rootId: root.id, relativePath: '' });
       await refresh();
+      logLibraryAction('addLyricsFolder', { rootId: root.id });
     } catch (err) {
       setError(errorMessage(err));
+      logLibraryAction('addLyricsFolder:failed', { error: String(err) });
     }
   }, [refresh]);
 
@@ -635,8 +656,10 @@ function App() {
       setBusyLyricsScopeKey(lyricsScopeKey({ rootId, relativePath }));
       try {
         await refresh();
+        logLibraryAction('rescanLyricsScope', { rootId, relativePath });
       } catch (err) {
         setError(errorMessage(err));
+        logLibraryAction('rescanLyricsScope:failed', { rootId, relativePath, error: String(err) });
       } finally {
         setBusyLyricsScopeKey(null);
       }
@@ -662,8 +685,10 @@ function App() {
           await fileAccess.revokeRoot(rootId);
         }
         await refresh();
+        logLibraryAction('removeLyricsScope', { rootId, relativePath });
       } catch (err) {
         setError(errorMessage(err));
+        logLibraryAction('removeLyricsScope:failed', { rootId, relativePath, error: String(err) });
       }
     },
     [refresh, grantedRoots],

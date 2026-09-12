@@ -7,7 +7,7 @@ settings:
 
 patchedDependencies:
   '@react-native/gradle-plugin@0.85.0': a9ffd25fe5bc038bf0a9be532047930b3222e232a46f4392a1a4697ed835c17e
-  react-native-audio-api@0.13.3: 33fe56af24ccbbb2f2c6a590ad54b51771211dfbd3fe862a86ad598fd7d1c004
+  react-native-audio-api@0.13.3: 3fe0eab92bc59b39166288670a1999d9eb415b0f1c50c843f27ded0806fb3aaf
   react-native-scoped-storage: e664b1acde2c4010ec225bcbac937692bd19c1fbd437283c3f67fc250490779c
 
 importers:
@@ -39,7 +39,7 @@ importers:
         version: 0.85.0(@babel/core@7.29.7(supports-color@8.1.1))(@react-native-community/cli@20.2.0(supports-color@8.1.1)(typescript@5.9.3))(@react-native/jest-preset@0.85.0(@babel/core@7.29.7(supports-color@8.1.1))(react@19.2.3)(supports-color@8.1.1))(@react-native/metro-config@0.85.0(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1)
       react-native-audio-api:
         specifier: ^0.13.3
-        version: 0.13.3(patch_hash=33fe56af24ccbbb2f2c6a590ad54b51771211dfbd3fe862a86ad598fd7d1c004)(react-native@0.85.0(@babel/core@7.29.7(supports-color@8.1.1))(@react-native-community/cli@20.2.0(supports-color@8.1.1)(typescript@5.9.3))(@react-native/jest-preset@0.85.0(@babel/core@7.29.7(supports-color@8.1.1))(react@19.2.3)(supports-color@8.1.1))(@react-native/metro-config@0.85.0(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3)
+        version: 0.13.3(patch_hash=3fe0eab92bc59b39166288670a1999d9eb415b0f1c50c843f27ded0806fb3aaf)(react-native@0.85.0(@babel/core@7.29.7(supports-color@8.1.1))(@react-native-community/cli@20.2.0(supports-color@8.1.1)(typescript@5.9.3))(@react-native/jest-preset@0.85.0(@babel/core@7.29.7(supports-color@8.1.1))(react@19.2.3)(supports-color@8.1.1))(@react-native/metro-config@0.85.0(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3)
       react-native-safe-area-context:
         specifier: ^5.5.2
         version: 5.9.1(react-native@0.85.0(@babel/core@7.29.7(supports-color@8.1.1))(@react-native-community/cli@20.2.0(supports-color@8.1.1)(typescript@5.9.3))(@react-native/jest-preset@0.85.0(@babel/core@7.29.7(supports-color@8.1.1))(react@19.2.3)(supports-color@8.1.1))(@react-native/metro-config@0.85.0(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3)
@@ -11027,7 +11027,7 @@ snapshots:
 
   react-is@19.2.8: {}
 
-  react-native-audio-api@0.13.3(patch_hash=33fe56af24ccbbb2f2c6a590ad54b51771211dfbd3fe862a86ad598fd7d1c004)(react-native@0.85.0(@babel/core@7.29.7(supports-color@8.1.1))(@react-native-community/cli@20.2.0(supports-color@8.1.1)(typescript@5.9.3))(@react-native/jest-preset@0.85.0(@babel/core@7.29.7(supports-color@8.1.1))(react@19.2.3)(supports-color@8.1.1))(@react-native/metro-config@0.85.0(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3):
+  react-native-audio-api@0.13.3(patch_hash=3fe0eab92bc59b39166288670a1999d9eb415b0f1c50c843f27ded0806fb3aaf)(react-native@0.85.0(@babel/core@7.29.7(supports-color@8.1.1))(@react-native-community/cli@20.2.0(supports-color@8.1.1)(typescript@5.9.3))(@react-native/jest-preset@0.85.0(@babel/core@7.29.7(supports-color@8.1.1))(react@19.2.3)(supports-color@8.1.1))(@react-native/metro-config@0.85.0(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3):
     dependencies:
       react: 19.2.3
       react-native: 0.85.0(@babel/core@7.29.7(supports-color@8.1.1))(@react-native-community/cli@20.2.0(supports-color@8.1.1)(typescript@5.9.3))(@react-native/jest-preset@0.85.0(@babel/core@7.29.7(supports-color@8.1.1))(react@19.2.3)(supports-color@8.1.1))(@react-native/metro-config@0.85.0(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1)

@@ -33,7 +33,61 @@ export function logPlayback(event: string, details?: Record<string, unknown>): v
  * was the native crash log itself.
  */
 export function logPlaybackWithHeapStats(event: string, details?: Record<string, unknown>): void {
-  const hermes = (globalThis as { HermesInternal?: { getInstrumentedStats?: () => Record<string, unknown> } }).HermesInternal;
-  const heapStats = hermes?.getInstrumentedStats?.();
+  const heapStats = readHermesHeapStats();
   logPlayback(event, heapStats ? { ...details, heapStats } : details);
+}
+
+function readHermesHeapStats(): Record<string, unknown> | undefined {
+  const hermes = (globalThis as { HermesInternal?: { getInstrumentedStats?: () => Record<string, unknown> } }).HermesInternal;
+  return hermes?.getInstrumentedStats?.();
+}
+
+/**
+ * Same permanent-logging rationale as logPlayback above, for library/lyrics
+ * folder management actions (add/remove/rescan a root or lyrics scope) -
+ * kept as a separate tag so it can be filtered independently of the
+ * higher-volume playback log, since these are rarer, user-initiated actions
+ * rather than continuous transport state.
+ */
+const LIBRARY_TAG = '[BPMix:library]';
+
+export function logLibraryAction(event: string, details?: Record<string, unknown>): void {
+  // eslint-disable-next-line no-console
+  if (details) console.log(LIBRARY_TAG, new Date().toISOString(), event, details);
+  // eslint-disable-next-line no-console
+  else console.log(LIBRARY_TAG, new Date().toISOString(), event);
+}
+
+/**
+ * Best-effort process memory snapshot, logged on its own tag so a growing
+ * trend can be grepped independently of individual playback events (see
+ * logPlaybackWithHeapStats for memory attached to a specific action instead
+ * of sampled periodically). Two sources, in priority order:
+ *
+ * - Hermes' own instrumented stats (Android/Windows) - the same source
+ *   logPlaybackWithHeapStats uses, including heap size/used and (per that
+ *   function's own doc) the "external" figure implicated in a prior real
+ *   Hermes heap-OOM crash.
+ * - `performance.memory` (Chromium/web only - not a standard API, absent on
+ *   Firefox/Safari and in RN's own JS environment).
+ *
+ * Silently skipped (no log line at all) when neither is available, rather
+ * than logging an "unsupported" line every call - a periodic caller (see
+ * packages/ui's useMemoryUsageLogging) would otherwise spam that on every
+ * tick on an unsupported platform for the lifetime of the app.
+ */
+const MEMORY_TAG = '[BPMix:memory]';
+
+export function logMemorySnapshot(reason?: string): void {
+  const heapStats = readHermesHeapStats();
+  if (heapStats) {
+    // eslint-disable-next-line no-console
+    console.log(MEMORY_TAG, new Date().toISOString(), 'hermes', reason ?? '', heapStats);
+    return;
+  }
+  const perf = (globalThis as { performance?: { memory?: Record<string, unknown> } }).performance;
+  if (perf?.memory) {
+    // eslint-disable-next-line no-console
+    console.log(MEMORY_TAG, new Date().toISOString(), 'performance.memory', reason ?? '', perf.memory);
+  }
 }

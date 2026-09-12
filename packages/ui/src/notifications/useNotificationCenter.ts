@@ -1,3 +1,4 @@
+import { logLibraryAction } from '@bpmix/core';
 import { useCallback, useMemo, useState } from 'react';
 import type { AppNotification } from './types';
 
@@ -36,6 +37,12 @@ export function useNotificationCenter(): NotificationCenter {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
 
   const addError = useCallback((title: string, detail?: string) => {
+    // Every one-shot error surfaced through the notification bell funnels
+    // through here regardless of which call site raised it, so logging once
+    // here (rather than at each individual setError/addError call site
+    // across both apps) covers all of them - see playbackLog.ts's own doc
+    // for why this permanent logging exists at all.
+    logLibraryAction('notification:error', detail ? { title, detail } : { title });
     setNotifications((prev) => [{ id: makeId(), kind: 'error', title, detail, createdAt: Date.now() }, ...prev]);
   }, []);
 

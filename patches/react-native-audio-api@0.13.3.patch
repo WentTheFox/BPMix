@@ -119,3 +119,53 @@ index f20fde6237fb4ffd769da70580edaf24da79f816..3090d408cb50f4c6b97a690ece74e82d
  };
  
  } // namespace audioapi
+diff --git a/common/cpp/audioapi/events/AudioEventHandlerRegistry.cpp b/common/cpp/audioapi/events/AudioEventHandlerRegistry.cpp
+index 639dc7e84250a30ad0e04b4693a8df3767e47d8b..6cc333861009b9a8181e85262e350585a4025b53 100644
+--- a/common/cpp/audioapi/events/AudioEventHandlerRegistry.cpp
++++ b/common/cpp/audioapi/events/AudioEventHandlerRegistry.cpp
+@@ -69,8 +69,43 @@ void AudioEventHandlerRegistry::unregisterHandler(AudioEvent eventName, uint64_t
+   if (runtime_ == nullptr || listenerId == 0) {
+     return;
+   }
+-  std::scoped_lock lock(eventHandlersMutex_);
+-  this->eventHandlers_[eventName].erase(listenerId);
++
++  // Extract the handler instead of letting erase() below drop the map's last
++  // reference to it in place. unregisterHandler() is called from
++  // ~EventCaller(), which runs on whatever thread destroys the owning node -
++  // for a source node that's finished naturally, or been torn down by rapid
++  // track-switch churn, that's AudioGraphManager's nodeDestructor_
++  // background thread (see AudioDestructor), NOT the JS thread. A
++  // shared_ptr<jsi::Function> reaching refcount 0 runs Hermes cleanup that
++  // is only safe on the JS thread, so doing it from an arbitrary background
++  // thread races the JS thread's own concurrent use of the runtime
++  // (invokeHandler/handleEventOnJSThread). NOTE: an A/B rebuild confirmed
++  // this specific race is NOT the cause of the SIGSEGV tracked in
++  // https://github.com/software-mansion/react-native-audio-api/issues/1285
++  // (that crash still reproduces identically with this fix applied) - this
++  // hardening is kept anyway since it's a real, independently-defensible
++  // thread-safety fix, just not the fix for #1285.
++  std::shared_ptr<jsi::Function> handler;
++  {
++    std::scoped_lock lock(eventHandlersMutex_);
++    auto it = eventHandlers_.find(eventName);
++    if (it != eventHandlers_.end()) {
++      auto handlerIt = it->second.find(listenerId);
++      if (handlerIt != it->second.end()) {
++        handler = std::move(handlerIt->second);
++        it->second.erase(handlerIt);
++      }
++    }
++  }
++
++  // Hop the actual release onto the JS thread rather than letting `handler`
++  // destruct here. If this was the last reference, the jsi::Function (and
++  // whatever Hermes-side GC root it holds) is only ever torn down from the
++  // thread Hermes requires, regardless of which thread called
++  // unregisterHandler.
++  if (handler && callInvoker_) {
++    callInvoker_->invokeAsync([captured = std::move(handler)](jsi::Runtime &) {});
++  }
+ }
+ 
+ bool AudioEventHandlerRegistry::dispatchEvent(
