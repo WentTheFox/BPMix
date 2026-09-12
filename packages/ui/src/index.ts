@@ -26,6 +26,7 @@ export * from './NowPlayingScreen';
 export * from './PlayerControlsRow';
 export * from './RemoveButton';
 export * from './RestoringScreen';
+export * from './ScreenLayer';
 export * from './restoringSteps';
 export * from './SeekBar';
 export * from './settings/CrossfadeSlider';

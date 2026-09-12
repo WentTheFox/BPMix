@@ -31,6 +31,7 @@ import {
   NowPlayingScreen,
   PlayerControlsRow,
   RestoringScreen,
+  ScreenLayer,
   SettingsScreen,
   TrackList,
   useAppSettings,
@@ -849,6 +850,11 @@ function AppContent() {
     />
   );
 
+  // Identical at every call site (Now Playing's headerRight, the
+  // playlist screen's HeaderRow right slot, and the library screen's
+  // headerRight) - hoisted once rather than reconstructed per site.
+  const headerActionsEl = <HeaderActions colors={colors} center={notificationCenter} onOpenSettings={() => setSettingsOpen(true)} />;
+
   const nowPlayingScreen = nowPlayingScreenOpen && playerState.currentFileId && (
     // zIndex here must beat HeaderRow's own (1, see its doc) - without an
     // explicit, higher one, the playlist/library screen underneath's own
@@ -860,7 +866,7 @@ function AppContent() {
     // ("Playlist: In Order" bleeding through "Now Playing"'s own header),
     // while everything below the header (screenArea's TrackList, no zIndex
     // of its own) stayed correctly hidden beneath this overlay as expected.
-    <View style={[StyleSheet.absoluteFill, { paddingTop: insets.top, paddingBottom: insets.bottom, backgroundColor: colors.background, zIndex: 10 }]}>
+    <ScreenLayer zIndex={10} colors={colors} paddingTop={insets.top} paddingBottom={insets.bottom}>
       <NowPlayingScreen
         colors={colors}
         onClose={() => {
@@ -887,7 +893,7 @@ function AppContent() {
         fileAccess={fileAccess}
         libraryStore={libraryStore}
         lyricsScopes={lyricsScopes}
-        headerRight={<HeaderActions colors={colors} center={notificationCenter} onOpenSettings={() => setSettingsOpen(true)} />}
+        headerRight={headerActionsEl}
         controls={
           <PlayerControlsRow
             colors={colors}
@@ -904,7 +910,7 @@ function AppContent() {
           />
         }
       />
-    </View>
+    </ScreenLayer>
   );
 
   // Higher zIndex than nowPlayingScreen's (10, above) - opened from a header
@@ -912,7 +918,7 @@ function AppContent() {
   // able to sit on top of that overlay too, not just the library/playlist
   // screen underneath both.
   const settingsScreen = settingsOpen && (
-    <View style={[StyleSheet.absoluteFill, { paddingTop: insets.top, paddingBottom: insets.bottom, backgroundColor: colors.background, zIndex: 20 }]}>
+    <ScreenLayer zIndex={20} colors={colors} paddingTop={insets.top} paddingBottom={insets.bottom}>
       <SettingsScreen
         colors={colors}
         settings={settings}
@@ -920,7 +926,7 @@ function AppContent() {
         onResetSettings={resetSettings}
         onClose={() => setSettingsOpen(false)}
       />
-    </View>
+    </ScreenLayer>
   );
 
   // Covers the library scan + playback-state restore's own async window -
@@ -982,7 +988,7 @@ function AppContent() {
         <HeaderRow
           style={styles.backRow}
           left={<BackButton text={`Playlist: ${playlist.name}`} color={colors.text} onPress={() => setScreen({ kind: 'library' })} />}
-          right={<HeaderActions colors={colors} center={notificationCenter} onOpenSettings={() => setSettingsOpen(true)} />}
+          right={headerActionsEl}
         />
         {error && <Text style={styles.error}>{error}</Text>}
         <TrackList
@@ -1019,7 +1025,7 @@ function AppContent() {
             </Pressable>
           )
         }
-        headerRight={<HeaderActions colors={colors} center={notificationCenter} onOpenSettings={() => setSettingsOpen(true)} />}
+        headerRight={headerActionsEl}
         secondaryAddButton={
           <FolderPickerButton colors={colors} icon={mdiSubtitles} text="Add Lyrics Folder" onPress={addLyricsFolder} />
         }

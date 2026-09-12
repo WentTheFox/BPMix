@@ -25,6 +25,7 @@ import {
   NowPlayingScreen,
   PlayerControlsRow,
   RestoringScreen,
+  ScreenLayer,
   SettingsScreen,
   TrackList,
   useAppSettings,
@@ -778,6 +779,11 @@ function App() {
     />
   );
 
+  // Identical at every call site (Now Playing's headerRight, the
+  // playlist screen's HeaderRow right slot, and the library screen's
+  // headerRight) - hoisted once rather than reconstructed per site.
+  const headerActionsEl = <HeaderActions colors={colors} center={notificationCenter} onOpenSettings={() => setSettingsOpen(true)} />;
+
   const nowPlayingScreen = nowPlayingScreenOpen && playerState.currentFileId && (
     // zIndex + backgroundColor here must beat/cover HeaderRow's own zIndex
     // (1, see its doc) - without an explicit, higher zIndex, the playlist/
@@ -787,12 +793,12 @@ function App() {
     // its own siblings, it also outranks an ancestor-level sibling with no
     // zIndex of its own - confirmed on the mobile app as two overlapping
     // header rows/bells ("Playlist: In Order" bleeding through "Now
-    // Playing"'s own header). Also needed an explicit background (missing
-    // here, unlike mobile's equivalent wrapper) since NowPlayingScreen's
-    // own container has none either - without one this overlay was fully
-    // transparent on web, which would show the exact same bleed-through
-    // for the WHOLE screen, not just the header band.
-    <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.background, zIndex: 10 }]}>
+    // Playing"'s own header). Also needed an explicit background (which
+    // ScreenLayer always sets) since NowPlayingScreen's own container has
+    // none either - without one this overlay was fully transparent on web,
+    // which would show the exact same bleed-through for the WHOLE screen,
+    // not just the header band.
+    <ScreenLayer zIndex={10} colors={colors}>
       <NowPlayingScreen
         colors={colors}
         onClose={() => {
@@ -819,7 +825,7 @@ function App() {
         fileAccess={fileAccess}
         libraryStore={libraryStore}
         lyricsScopes={lyricsScopes}
-        headerRight={<HeaderActions colors={colors} center={notificationCenter} onOpenSettings={() => setSettingsOpen(true)} />}
+        headerRight={headerActionsEl}
         controls={
           <PlayerControlsRow
             colors={colors}
@@ -836,7 +842,7 @@ function App() {
           />
         }
       />
-    </View>
+    </ScreenLayer>
   );
 
   // Higher zIndex than nowPlayingScreen's (10, above) - opened from a header
@@ -844,7 +850,7 @@ function App() {
   // able to sit on top of that overlay too, not just the library/playlist
   // screen underneath both.
   const settingsScreen = settingsOpen && (
-    <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.background, zIndex: 20 }]}>
+    <ScreenLayer zIndex={20} colors={colors}>
       <SettingsScreen
         colors={colors}
         settings={settings}
@@ -852,7 +858,7 @@ function App() {
         onResetSettings={resetSettings}
         onClose={() => setSettingsOpen(false)}
       />
-    </View>
+    </ScreenLayer>
   );
 
   // Covers the library scan + playback-state restore's own async window -
@@ -874,7 +880,7 @@ function App() {
         <HeaderRow
           style={styles.backRow}
           left={<BackButton text={`Playlist: ${playlist.name}`} color={colors.text} onPress={() => setScreen({ kind: 'library' })} />}
-          right={<HeaderActions colors={colors} center={notificationCenter} onOpenSettings={() => setSettingsOpen(true)} />}
+          right={headerActionsEl}
         />
         {error && <Text style={styles.error}>{error}</Text>}
         <TrackList
@@ -905,7 +911,7 @@ function App() {
         onSelectPlaylist={(root, playlist, tracksById) => setScreen({ kind: 'playlist', root, playlist, tracksById })}
         error={error}
         listStyle={styles.list}
-        headerRight={<HeaderActions colors={colors} center={notificationCenter} onOpenSettings={() => setSettingsOpen(true)} />}
+        headerRight={headerActionsEl}
         secondaryAddButton={
           <FolderPickerButton colors={colors} icon={mdiSubtitles} text="Add Lyrics Folder" onPress={addLyricsFolder} />
         }
