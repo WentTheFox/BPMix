@@ -54,11 +54,4 @@ Notes for tasks that still have to be done/investigated are left here, grouped b
 
 * verify this session's core playback changes (shuffle order persistence/pin-to-top/reshuffle-under-last-song, the restore-vs-manual-playback race fix, the per-track loading spinner, and reconcilePlaylist-on-rescan) on Web - only tested live on Android so far, and packages/core is shared so a platform-specific regression (e.g. IndexedDB persistence, AudioContext timing) wouldn't show up in the unit tests alone
 * same as above but for Windows (react-native-windows) - also untested this session, and has its own platform quirks already (no react-native-svg, Segoe Fluent Icons glyph mapping) that make it worth checking separately rather than assuming parity with Android/web
-* address this warning log during build
-    > Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
-    > 
-    > You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or
-     plugins.
-    > 
-    > For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
 * remove `patches/react-native-audio-api@0.13.3.patch` and its `pnpm-workspace.yaml` entry once upstream PR https://github.com/software-mansion/react-native-audio-api/pull/1281 (fixes the native seek memory leak, issue #1263) lands in a released version and the `react-native-audio-api` dependency is bumped past it
