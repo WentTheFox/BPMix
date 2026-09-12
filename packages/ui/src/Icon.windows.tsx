@@ -3,6 +3,7 @@ import {
   mdiAlertCircleOutline,
   mdiArrowLeft,
   mdiBellOutline,
+  mdiCheck,
   mdiChevronDown,
   mdiChevronUp,
   mdiClose,
@@ -88,6 +89,7 @@ const CODEPOINTS: Record<string, number> = {
   // not a name/codepoint confirmed to mean "playlist" - verify visually on
   // an actual Windows box before treating this as settled.
   [mdiPlaylistPlus]: 0xecc8, // "AddTo"
+  [mdiCheck]: 0xe73e, // "CheckMark" - a plain checkmark, used by CreatePlaylistScreen's confirm button
   [mdiRefresh]: 0xe72c,
   [mdiArrowLeft]: 0xe72b, // "Back"
   [mdiSubtitles]: 0xed1e, // "Subtitles" - a rounded box with horizontal text lines
