@@ -31,12 +31,12 @@ import {
   useCrossfadePlaybackDisplay,
   useMemoryUsageLogging,
   useNotificationCenter,
-  RAPID_PLAYBACK_PATCH_DEBOUNCE_MS,
   useBackNavigation,
   usePlaybackPersistence,
   usePlaylistTransport,
   useRestoringProgress,
   useThemeColors,
+  useVolumeControl,
 } from '@bpmix/ui';
 import type { RootWithLibrary } from '@bpmix/ui';
 import { mdiSubtitles } from '@mdi/js';
@@ -707,29 +707,7 @@ function App() {
     setActiveTracksById,
   });
 
-  const [volume, setVolumeState] = useState(() => playlistPlayer.getVolume());
-  useEffect(() => {
-    libraryStore.getPlaybackState().then((stored) => {
-      if (stored) {
-        playlistPlayer.setVolume(stored.volume);
-        setVolumeState(stored.volume);
-      }
-    });
-  }, []);
-  const handleVolumeChange = useCallback(
-    (value: number) => {
-      playlistPlayer.setVolume(value);
-      setVolumeState(value);
-      // Persisted so the next launch doesn't blast out at whatever volume
-      // happened to be in effect before it's set once - merges onto the rest
-      // of playbackStateRef rather than clobbering it back to defaults.
-      // Debounced: VolumeSlider calls this on every drag touch-move tick
-      // (deliberately, so the audible volume itself has no lag), and
-      // hitting the store that often was visibly janking the drag itself.
-      persistPlaybackPatch({ volume: value }, { debounceMs: RAPID_PLAYBACK_PATCH_DEBOUNCE_MS });
-    },
-    [persistPlaybackPatch],
-  );
+  const { volume, handleVolumeChange } = useVolumeControl({ playlistPlayer, libraryStore, persistPlaybackPatch });
 
   const {
     outgoingTrack,

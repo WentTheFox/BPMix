@@ -38,6 +38,7 @@ export * from './theme';
 export * from './TrackList';
 export * from './TrackRow';
 export * from './useAssignedLyrics';
+export * from './useVolumeControl';
 export * from './VolumeButton';
 export * from './useCoverArt';
 export * from './useCrossfadePlaybackDisplay';
