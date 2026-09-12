@@ -45,6 +45,7 @@ export * from './useHasLyrics';
 export * from './useDoublePressHandler';
 export * from './useMemoryUsageLogging';
 export * from './usePlaybackPersistence';
+export * from './usePlaylistTransport';
 export * from './useRestoringProgress';
 export * from './useTrackAnalysis';
 export * from './useTrackMetadata';

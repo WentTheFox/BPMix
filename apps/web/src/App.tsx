@@ -1,4 +1,4 @@
-import type { FileRef, GrantedRoot, LoopMode, LyricsScope, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '@bpmix/core';
+import type { FileRef, GrantedRoot, LyricsScope, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '@bpmix/core';
 import {
   createBackgroundFileAccess,
   ensureTrackAnalyzed,
@@ -29,12 +29,12 @@ import {
   TrackList,
   useAppSettings,
   useCrossfadePlaybackDisplay,
-  useDoublePressHandler,
   useMemoryUsageLogging,
   useNotificationCenter,
   RAPID_PLAYBACK_PATCH_DEBOUNCE_MS,
   useBackNavigation,
   usePlaybackPersistence,
+  usePlaylistTransport,
   useRestoringProgress,
   useThemeColors,
 } from '@bpmix/ui';
@@ -100,6 +100,10 @@ function trackToFileRef(track: TrackRecord): FileRef {
 // ever one active player/screen in this app). setError is likewise bridged
 // in on mount so the player's async load/decode errors reach the UI.
 let activeTracksById = new Map<string, TrackRecord>();
+/** Stable identity across renders (unlike an inline arrow assigning activeTracksById directly) so usePlaylistTransport's playFromTrack doesn't get recreated every render. */
+const setActiveTracksById = (tracksById: Map<string, TrackRecord>) => {
+  activeTracksById = tracksById;
+};
 /** fileId is the track a decode/playback error actually happened for, when known - see PlaylistPlayer's onError doc. Routed to the notification bell, not a one-shot setError string - see NotificationBell's doc for why. */
 let reportError: (error: unknown, fileId?: string) => void = () => {};
 /** Clears a fileId's "missing" flag once it decodes successfully again (e.g. a sync catches up) - bridged alongside reportError. */
@@ -146,8 +150,6 @@ if (import.meta.hot) {
     playlistPlayer.pause();
   });
 }
-
-const LOOP_MODE_CYCLE: LoopMode[] = ['off', 'all', 'one'];
 
 type Screen =
   | { kind: 'library' }
@@ -685,123 +687,25 @@ function App() {
     [refresh, grantedRoots],
   );
 
-  const playFromTrack = useCallback(
-    async (playlist: PlaylistRecord, tracksById: Map<string, TrackRecord>, track: TrackRecord) => {
-      if (!transportActionAllowed()) return;
-      setError(null);
-      activeTracksById = tracksById;
-      // Tapping the already-current track just resumes it - re-running
-      // setPlaylist() (a full reload/redecode) on every repeat tap was both
-      // wasteful and, under rapid repeated taps, one of the ways we
-      // triggered the native crash the playToken guard now defends against.
-      const isSameTrack = playlistPlayer.getState().currentFileId === track.fileId;
-      if (isSameTrack) {
-        playlistPlayer.play();
-      } else {
-        // setPlaylist() sets the new position/loading status synchronously
-        // before its first await (decoding the file) - grabbing state right
-        // after calling it, rather than only once the whole decode resolves,
-        // is what makes the row highlight and "now playing" bar appear the
-        // instant you tap instead of waiting out the full decode.
-        const setPlaylistPromise = playlistPlayer.setPlaylist(playlist.trackFileIds, track.fileId, { playlistId: playlist.id });
-        setPlayerState(playlistPlayer.getState());
-        await setPlaylistPromise;
-      }
-      setPlayerState(playlistPlayer.getState());
-      persistPlaybackPatch({
-        playlistId: playlist.id,
-        currentTrackFileId: track.fileId,
-        rootId: playlist.rootId,
-        ...(isSameTrack ? {} : { positionSeconds: 0 }),
-      });
-    },
-    [persistPlaybackPatch],
-  );
-
-  const togglePause = useCallback(() => {
-    if (!transportActionAllowed()) return;
-    // isAudible (not raw status) - a new track can be decoding in the
-    // background (status 'loading') while the previous one is still
-    // genuinely playing (see TrackPlayerState.isAudible's doc), and this
-    // should still pause that instead of falling through to play() just
-    // because status itself isn't literally 'playing' right now.
-    if (playerState.track.isAudible) {
-      playlistPlayer.pause();
-      // Captures the exact stop point immediately rather than waiting on the
-      // next throttled poll-tick persist, which no longer fires once paused.
-      persistPlaybackPatch({ positionSeconds: playlistPlayer.getState().track.positionSeconds });
-    } else {
-      playlistPlayer.play();
-    }
-    setPlayerState(playlistPlayer.getState());
-  }, [playerState.track.isAudible, persistPlaybackPatch]);
-
-  const seekTo = useCallback(
-    (positionSeconds: number) => {
-      if (!transportActionAllowed()) return;
-      playlistPlayer.seek(positionSeconds);
-      setPlayerState(playlistPlayer.getState());
-      persistPlaybackPatch({ positionSeconds: playlistPlayer.getState().track.positionSeconds });
-    },
-    [persistPlaybackPatch],
-  );
-
-  const goNext = useCallback(async (options?: { force?: boolean }) => {
-    if (!transportActionAllowed()) return;
-    // next()/previous() set the new position/loading status synchronously
-    // before their first await (decoding the file) - same reasoning as
-    // playFromTrack's identical pattern above: grabbing state right after
-    // calling it, rather than only once the whole decode resolves, is what
-    // makes the tap register instantly (title/art/loading-bar all update
-    // right away) instead of the UI sitting frozen for the whole decode.
-    const nextPromise = playlistPlayer.next(options);
-    setPlayerState(playlistPlayer.getState());
-    await nextPromise;
-    const state = playlistPlayer.getState();
-    setPlayerState(state);
-    if (state.currentFileId) {
-      persistPlaybackPatch({ currentTrackFileId: state.currentFileId, positionSeconds: state.track.positionSeconds });
-    }
-  }, [persistPlaybackPatch]);
-
-  const goPrevious = useCallback(async (options?: { force?: boolean }) => {
-    if (!transportActionAllowed()) return;
-    // See goNext's identical comment above.
-    const previousPromise = playlistPlayer.previous(options);
-    setPlayerState(playlistPlayer.getState());
-    await previousPromise;
-    const state = playlistPlayer.getState();
-    setPlayerState(state);
-    if (state.currentFileId) {
-      persistPlaybackPatch({ currentTrackFileId: state.currentFileId, positionSeconds: state.track.positionSeconds });
-    }
-  }, [persistPlaybackPatch]);
-
-  // Single tap respects loop mode (restart-current on "One", wrap on "All",
-  // clamp on "Off"); double tap always moves tracks, wrapping regardless of
-  // loop mode - see PlaylistPlayer.next/previous's { force } option.
-  const handleNextPress = useDoublePressHandler(
-    () => void goNext(),
-    () => void goNext({ force: true }),
-  );
-  const handlePreviousPress = useDoublePressHandler(
-    () => void goPrevious(),
-    () => void goPrevious({ force: true }),
-  );
-
-  const cycleLoopMode = useCallback(() => {
-    const nextMode = LOOP_MODE_CYCLE[(LOOP_MODE_CYCLE.indexOf(playerState.loopMode) + 1) % LOOP_MODE_CYCLE.length]!;
-    playlistPlayer.setLoopMode(nextMode);
-    setPlayerState(playlistPlayer.getState());
-    persistPlaybackPatch({ loopMode: nextMode });
-  }, [playerState.loopMode, persistPlaybackPatch]);
-
-  const toggleShuffle = useCallback(() => {
-    const nextEnabled = !playerState.shuffleEnabled;
-    playlistPlayer.setShuffle(nextEnabled);
-    setPlayerState(playlistPlayer.getState());
-    persistPlaybackPatch({ shuffleEnabled: nextEnabled, shuffleOrder: playlistPlayer.getShuffleOrder() });
-  }, [playerState.shuffleEnabled, persistPlaybackPatch]);
+  const {
+    playFromTrack,
+    togglePause,
+    seekTo,
+    goNext,
+    goPrevious,
+    handleNextPress,
+    handlePreviousPress,
+    cycleLoopMode,
+    toggleShuffle,
+  } = usePlaylistTransport({
+    playlistPlayer,
+    playerState,
+    persistPlaybackPatch,
+    transportActionAllowed,
+    setPlayerState,
+    setError,
+    setActiveTracksById,
+  });
 
   const [volume, setVolumeState] = useState(() => playlistPlayer.getVolume());
   useEffect(() => {
