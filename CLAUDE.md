@@ -61,6 +61,4 @@ Notes for tasks that still have to be done/investigated are left here, grouped b
      plugins.
     > 
     > For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
-* break each platform's App.tsx into smaller components and reusable hooks
-* check for duplications in the extracted components/hooks and try to unify them as much as possible with the use of the shared "ui" package
 * remove `patches/react-native-audio-api@0.13.3.patch` and its `pnpm-workspace.yaml` entry once upstream PR https://github.com/software-mansion/react-native-audio-api/pull/1281 (fixes the native seek memory leak, issue #1263) lands in a released version and the `react-native-audio-api` dependency is bumped past it
