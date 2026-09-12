@@ -20,7 +20,6 @@ import {
   HeaderRow,
   LibraryScreen,
   LyricsFolderSection,
-  lyricsScopeKey,
   MiniPlayerBar,
   NowPlayingScreen,
   PlayerControlsRow,
@@ -30,6 +29,7 @@ import {
   TrackList,
   useAppSettings,
   useCrossfadePlaybackDisplay,
+  useLibraryRootActions,
   useMemoryUsageLogging,
   useNotificationCenter,
   useBackNavigation,
@@ -164,8 +164,6 @@ function App() {
   const [grantedRoots, setGrantedRoots] = useState<GrantedRoot[]>([]);
   const [lyricsScopes, setLyricsScopes] = useState<LyricsScope[]>([]);
   const [matchedLyricsCount, setMatchedLyricsCount] = useState<number | null>(null);
-  const [busyLyricsScopeKey, setBusyLyricsScopeKey] = useState<string | null>(null);
-  const [busyRootId, setBusyRootId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Everything that used to be a one-shot setError(errorMessage(err)) string
   // (playback/decode failures specifically) now goes here instead - see
@@ -573,56 +571,6 @@ function App() {
   // in use" error during a scan) lives in FolderPickerButton (packages/ui)
   // now, not here - this is just the plain pick-and-handle operation it
   // wraps.
-  const addFolder = useCallback(async () => {
-    setError(null);
-    try {
-      const root = await fileAccess.requestRoot();
-      if (!root) return; // user cancelled the picker
-      setBusyRootId(root.id);
-      await scanRoot(fileAccess, libraryStore, root.id);
-      await refresh();
-      logLibraryAction('addFolder', { rootId: root.id });
-    } catch (err) {
-      setError(errorMessage(err));
-      logLibraryAction('addFolder:failed', { error: String(err) });
-    } finally {
-      setBusyRootId(null);
-    }
-  }, [refresh]);
-
-  const rescan = useCallback(
-    async (rootId: string) => {
-      setError(null);
-      setBusyRootId(rootId);
-      try {
-        await scanRoot(fileAccess, libraryStore, rootId);
-        await refresh();
-        logLibraryAction('rescan', { rootId });
-      } catch (err) {
-        setError(errorMessage(err));
-        logLibraryAction('rescan:failed', { rootId, error: String(err) });
-      } finally {
-        setBusyRootId(null);
-      }
-    },
-    [refresh],
-  );
-
-  const removeRoot = useCallback(
-    async (rootId: string) => {
-      setError(null);
-      try {
-        await fileAccess.revokeRoot(rootId);
-        await refresh();
-        logLibraryAction('removeRoot', { rootId });
-      } catch (err) {
-        setError(errorMessage(err));
-        logLibraryAction('removeRoot:failed', { rootId, error: String(err) });
-      }
-    },
-    [refresh],
-  );
-
   // A real, independent OS directory picker (requestRoot('lyrics')) rather
   // than FolderBrowser over an already-granted music root - the old
   // subfolder-only flow existed only because every granted root used to be
@@ -630,63 +578,8 @@ function App() {
   // would've left a phantom empty "library" entry for a lyrics-only root.
   // GrantedRoot.kind now lets refresh() skip exactly that, so this can just
   // grant its own root like addFolder does.
-  const addLyricsFolder = useCallback(async () => {
-    setError(null);
-    try {
-      const root = await fileAccess.requestRoot('lyrics');
-      if (!root) return; // user cancelled the picker
-      await libraryStore.addLyricsScope({ rootId: root.id, relativePath: '' });
-      await refresh();
-      logLibraryAction('addLyricsFolder', { rootId: root.id });
-    } catch (err) {
-      setError(errorMessage(err));
-      logLibraryAction('addLyricsFolder:failed', { error: String(err) });
-    }
-  }, [refresh]);
-
-  const rescanLyricsScope = useCallback(
-    async (rootId: string, relativePath: string) => {
-      setError(null);
-      setBusyLyricsScopeKey(lyricsScopeKey({ rootId, relativePath }));
-      try {
-        await refresh();
-        logLibraryAction('rescanLyricsScope', { rootId, relativePath });
-      } catch (err) {
-        setError(errorMessage(err));
-        logLibraryAction('rescanLyricsScope:failed', { rootId, relativePath, error: String(err) });
-      } finally {
-        setBusyLyricsScopeKey(null);
-      }
-    },
-    [refresh],
-  );
-
-  const removeLyricsScope = useCallback(
-    async (rootId: string, relativePath: string) => {
-      setError(null);
-      try {
-        await libraryStore.removeLyricsScope(rootId, relativePath);
-        // A lyrics-only root (granted via addLyricsFolder's own
-        // requestRoot('lyrics') - see GrantedRoot.kind's doc) has no other
-        // reason to stay granted once its last scope is removed - revoke it
-        // too rather than leave an orphaned grant sitting in IndexedDB
-        // forever with nothing in the UI ever referencing it again. A root
-        // still used for music, or still holding another lyrics scope,
-        // is left alone.
-        const isLibraryRoot = grantedRoots.some((r) => r.id === rootId && (r.kind ?? 'library') === 'library');
-        const remainingScopes = await libraryStore.getLyricsScopes();
-        if (!isLibraryRoot && !remainingScopes.some((s) => s.rootId === rootId)) {
-          await fileAccess.revokeRoot(rootId);
-        }
-        await refresh();
-        logLibraryAction('removeLyricsScope', { rootId, relativePath });
-      } catch (err) {
-        setError(errorMessage(err));
-        logLibraryAction('removeLyricsScope:failed', { rootId, relativePath, error: String(err) });
-      }
-    },
-    [refresh, grantedRoots],
-  );
+  const { addFolder, rescan, removeRoot, addLyricsFolder, rescanLyricsScope, removeLyricsScope, busyRootId, busyLyricsScopeKey } =
+    useLibraryRootActions({ fileAccess, libraryStore, grantedRoots, refresh, setError });
 
   const {
     playFromTrack,
