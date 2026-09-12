@@ -15,11 +15,23 @@
  */
 const TAG = '[BPMix:playback]';
 
+/**
+ * Renders details as a single trailing JSON blob rather than passing the
+ * object as its own console.log argument - a live object only expands
+ * usefully in an attached interactive console (Chrome DevTools, a
+ * connected Hermes debugger); everywhere else this log is actually read
+ * from - piped/grepped adb logcat output, a captured text log, browser
+ * automation reading console messages - it collapses to a useless literal
+ * "Object" with no way to recover the fields. One self-contained string
+ * per call keeps every consumer equally readable.
+ */
+function formatDetails(details?: Record<string, unknown>): string {
+  return details ? ` ${JSON.stringify(details)}` : '';
+}
+
 export function logPlayback(event: string, details?: Record<string, unknown>): void {
   // eslint-disable-next-line no-console
-  if (details) console.log(TAG, new Date().toISOString(), event, details);
-  // eslint-disable-next-line no-console
-  else console.log(TAG, new Date().toISOString(), event);
+  console.log(`${TAG} ${new Date().toISOString()} ${event}${formatDetails(details)}`);
 }
 
 /**
@@ -53,9 +65,7 @@ const LIBRARY_TAG = '[BPMix:library]';
 
 export function logLibraryAction(event: string, details?: Record<string, unknown>): void {
   // eslint-disable-next-line no-console
-  if (details) console.log(LIBRARY_TAG, new Date().toISOString(), event, details);
-  // eslint-disable-next-line no-console
-  else console.log(LIBRARY_TAG, new Date().toISOString(), event);
+  console.log(`${LIBRARY_TAG} ${new Date().toISOString()} ${event}${formatDetails(details)}`);
 }
 
 /**
@@ -82,12 +92,12 @@ export function logMemorySnapshot(reason?: string): void {
   const heapStats = readHermesHeapStats();
   if (heapStats) {
     // eslint-disable-next-line no-console
-    console.log(MEMORY_TAG, new Date().toISOString(), 'hermes', reason ?? '', heapStats);
+    console.log(`${MEMORY_TAG} ${new Date().toISOString()} hermes ${reason ?? ''}${formatDetails(heapStats)}`);
     return;
   }
   const perf = (globalThis as { performance?: { memory?: Record<string, unknown> } }).performance;
   if (perf?.memory) {
     // eslint-disable-next-line no-console
-    console.log(MEMORY_TAG, new Date().toISOString(), 'performance.memory', reason ?? '', perf.memory);
+    console.log(`${MEMORY_TAG} ${new Date().toISOString()} performance.memory ${reason ?? ''}${formatDetails(perf.memory)}`);
   }
 }
