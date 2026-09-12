@@ -230,19 +230,25 @@ function Tonearm({
   const translateY = lift.interpolate({ inputRange: [0, 1], outputRange: [0, -size * TONEARM_LIFT_FRACTION] });
 
   const armLength = size * TONEARM_ARM_LENGTH_FRACTION;
-  // The rotor is a real, evenly-sized box - not the arm's own thin bar -
-  // centered exactly on the pivot (mount) point, so rotating it with a
-  // perfectly ordinary default center pivot sweeps the arm (drawn inside
-  // it, extending from that same center) correctly. transformOrigin (the
-  // more direct way to express "pivot at this corner, not the center") was
-  // tried first and works on Android/web, but react-native-windows was
-  // observed not to honor it at all. Rotating a 1x1 box positioned at the
-  // corner (relying on a near-zero-size element's own center
-  // coinciding with the corner) was tried next and ALSO didn't reproduce
-  // the correct sweep on Windows - the arm still rotated around some other
-  // point, swinging its free end off into empty space next to the disc
-  // instead of sweeping across it. A generously-sized, explicitly centered
-  // rotor box is the version that finally matched on all three platforms.
+  // STILL BROKEN ON WINDOWS as of this comment - see CLAUDE.md's housekeeping
+  // TODO before trusting this to be fixed. The rotor is a real, evenly-sized
+  // box - not the arm's own thin bar - meant to be centered exactly on the
+  // pivot (mount) point, so that rotating it with a perfectly ordinary
+  // default center pivot would sweep the arm (drawn inside it, extending
+  // from that same center) correctly. Two earlier approaches were tried and
+  // confirmed NOT to work on Windows: transformOrigin (the more direct way
+  // to express "pivot at this corner, not the center" - works on Android/
+  // web, react-native-windows doesn't honor it at all), then a 1x1 box
+  // positioned at the corner (relying on a near-zero-size element's own
+  // center coinciding with the corner). This rotor-box version was ALSO
+  // verified live on Windows to still show the same symptom - the arm
+  // rotates around some other point entirely, swinging its free end off
+  // into empty space next to the disc instead of sweeping across it - even
+  // though the position math for centering the rotor on the pivot checks
+  // out on paper. Next step for whoever picks this up: give the rotor a
+  // visible debug background color and screenshot it live to see its
+  // actual rendered bounds/pivot on Windows, rather than theorizing blind
+  // through more rebuild cycles.
   const rotorSize = armLength * 2;
   return (
     <Animated.View style={[styles.tonearmMount, { transform: [{ translateY }] }]} pointerEvents="none">
