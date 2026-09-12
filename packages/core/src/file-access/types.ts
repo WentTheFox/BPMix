@@ -47,17 +47,27 @@ export interface GrantedRoot {
  * every platform (web, Android, Windows, and the self-hosted server) -
  * every concrete adapter (fileAccess.ts, fileAccess.android.ts,
  * fileAccess.windows.ts, fileAccess.server.ts) implements exactly this
- * surface and nothing more. Deliberately read-only, for now: there is no
- * write/delete/create/rename method here at all, matching what BPMix
- * actually needs (playing back an existing library, never modifying it).
- * Each adapter's underlying permission request is scoped to match - see
- * e.g. fileAccess.android.ts's requestRoot(), which persists a read-only
- * URI grant (patches/react-native-scoped-storage.patch masks out
- * FLAG_GRANT_WRITE_URI_PERMISSION) even though the OS grants read+write by
- * default, and fileAccess.ts's showDirectoryPicker({ mode: 'read' }). If a
- * future feature genuinely needs to write (e.g. editing tags, generating
- * .lrc files), that's a deliberate, separate expansion of this interface -
- * not something to bolt on ad hoc in one adapter.
+ * surface and nothing more.
+ *
+ * Read-only apart from one deliberate exception - writeFileText, added for
+ * playlist-from-folder generation (see createPlaylistFromFolder) - rather
+ * than the fully read-only contract this interface used to have. Each
+ * adapter's underlying permission request was originally scoped to match a
+ * read-only posture: fileAccess.android.ts's old (pre-MANAGE_EXTERNAL_STORAGE)
+ * SAF grant used to mask out FLAG_GRANT_WRITE_URI_PERMISSION
+ * (patches/react-native-scoped-storage.patch, still relevant to
+ * fileAccess.windows.ts, which still uses that library) even though the OS
+ * grants read+write by default, and fileAccess.ts's showDirectoryPicker
+ * still requests `{ mode: 'read' }` up front - write access there is
+ * requested lazily, only when writeFileText is actually called (see
+ * getRootOrThrow's 'readwrite' mode there), rather than widening every
+ * root's grant just because one feature occasionally needs to write.
+ * Android's current adapter needs no such lazy upgrade: MANAGE_EXTERNAL_STORAGE
+ * is an all-or-nothing read+write grant for the whole of external storage,
+ * so there's no separate write permission to request.
+ * fileAccess.windows.ts and fileAccess.server.ts don't support writing yet -
+ * see CLAUDE.md's housekeeping TODO - and throw a clear error rather than
+ * silently no-op.
  */
 export interface FileAccessCallOptions {
   /**
@@ -92,4 +102,17 @@ export interface FileAccess {
 
   readFileBytes(ref: FileRef, opts?: FileAccessCallOptions): Promise<ArrayBuffer>;
   readFileText(ref: FileRef, opts?: FileAccessCallOptions): Promise<string>;
+
+  /**
+   * Creates (or overwrites) a text file at `relativePath` under `rootId` -
+   * the one write operation this interface exposes, added specifically for
+   * playlist-from-folder generation (see createPlaylistFromFolder). The
+   * parent directory must already exist; this does not create missing
+   * intermediate directories (every current call site writes into a
+   * folder it just finished walking, so that's never needed in practice).
+   * Throws on platforms/adapters that don't support writing yet
+   * (fileAccess.windows.ts, fileAccess.server.ts) - see this interface's
+   * own doc comment.
+   */
+  writeFileText(rootId: string, relativePath: string, contents: string): Promise<void>;
 }

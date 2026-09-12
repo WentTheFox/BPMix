@@ -45,12 +45,21 @@ function toFileRef(rootId: string, relativePath: string, file: File): FileRef {
   };
 }
 
-async function getRootOrThrow(db: IDBDatabase, rootId: string, allowPrompt: boolean): Promise<StoredRoot> {
+/**
+ * `mode` defaults to 'read' for every existing call site. 'readwrite' is
+ * used only by writeFileText - a separate, stronger permission the File
+ * System Access API tracks independently per handle, not implied by an
+ * existing 'read' grant. Requesting it lazily (only when a write is
+ * actually attempted) rather than requesting 'readwrite' up front in
+ * requestRoot() keeps every other root's grant at the narrower 'read'
+ * scope it's had since before writeFileText existed.
+ */
+async function getRootOrThrow(db: IDBDatabase, rootId: string, allowPrompt: boolean, mode: 'read' | 'readwrite' = 'read'): Promise<StoredRoot> {
   const root = await idbGet<StoredRoot>(db, STORE_NAME, rootId);
   if (!root) {
     throw new Error(`No granted root with id "${rootId}" - it may have been revoked.`);
   }
-  const permission = await root.handle.queryPermission({ mode: 'read' });
+  const permission = await root.handle.queryPermission({ mode });
   if (permission !== 'granted') {
     // requestPermission() only succeeds when called synchronously off a
     // real user gesture - calling it from background/idle-scheduled code
@@ -58,12 +67,16 @@ async function getRootOrThrow(db: IDBDatabase, rootId: string, allowPrompt: bool
     // this must never attempt it for such a call. Surfacing a typed error
     // instead lets a background pass (matchLibraryLyrics,
     // ensureLyricsAssignment) catch it and skip quietly rather than crash.
+    // writeFileText is never called from such a pass (playlist creation is
+    // always a deliberate, foreground user action), but this guard stays
+    // shared regardless.
     if (!allowPrompt) {
       throw new FileAccessPermissionPendingError(root.displayName);
     }
-    const requested = await root.handle.requestPermission({ mode: 'read' });
+    const requested = await root.handle.requestPermission({ mode });
     if (requested !== 'granted') {
-      throw new Error(`Read permission for "${root.displayName}" was not granted - reconnect it from the library screen.`);
+      const verb = mode === 'readwrite' ? 'Write' : 'Read';
+      throw new Error(`${verb} permission for "${root.displayName}" was not granted - reconnect it from the library screen.`);
     }
   }
   return root;
@@ -142,6 +155,21 @@ export function createFileAccess(): FileAccess {
       const fileHandle = await dir.getFileHandle(ref.name);
       const file = await fileHandle.getFile();
       return file.text();
+    },
+
+    async writeFileText(rootId: string, relativePath: string, contents: string): Promise<void> {
+      const db = await getDb();
+      // Always allowPrompt: true - creating a playlist is always a
+      // deliberate, foreground user action (never a background pass), so
+      // there's no FileAccessCallOptions parameter to thread through here.
+      const root = await getRootOrThrow(db, rootId, true, 'readwrite');
+      const segments = relativePath.split('/');
+      const name = segments.pop()!;
+      const dir = await resolveDirectoryHandle(root.handle, segments.join('/'));
+      const fileHandle = await dir.getFileHandle(name, { create: true });
+      const writable = await fileHandle.createWritable();
+      await writable.write(contents);
+      await writable.close();
     },
   };
 }

@@ -36,6 +36,9 @@ class FakeFileAccess implements FileAccess {
   async readFileText(ref: FileRef): Promise<string> {
     return this.filesByPath[ref.relativePath]!;
   }
+  async writeFileText(): Promise<void> {
+    throw new Error('not used in this test');
+  }
 }
 
 const SCOPE: LyricsScope = { rootId: 'root', relativePath: '' };

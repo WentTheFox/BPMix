@@ -14,6 +14,7 @@ import {
   mdiPause,
   mdiPlay,
   mdiPlaylistMusic,
+  mdiPlaylistPlus,
   mdiProgressClock,
   mdiRefresh,
   mdiRepeat,
@@ -81,6 +82,12 @@ const CODEPOINTS: Record<string, number> = {
   // visually distinguish "music" from "lyrics" via a single-glyph icon font.
   [mdiFolderMusic]: 0xe8f4,
   [mdiPlaylistMusic]: 0xe90b, // "MusicNoteList" - list lines with a music note
+  // Segoe Fluent Icons has no playlist-specific glyph (checked the full
+  // name->codepoint table) - "AddTo" (a list with a plus) is the closest
+  // semantic match for "create a new playlist" but this is a judgment call,
+  // not a name/codepoint confirmed to mean "playlist" - verify visually on
+  // an actual Windows box before treating this as settled.
+  [mdiPlaylistPlus]: 0xecc8, // "AddTo"
   [mdiRefresh]: 0xe72c,
   [mdiArrowLeft]: 0xe72b, // "Back"
   [mdiSubtitles]: 0xed1e, // "Subtitles" - a rounded box with horizontal text lines

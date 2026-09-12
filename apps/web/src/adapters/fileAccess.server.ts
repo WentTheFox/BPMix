@@ -65,5 +65,13 @@ export function createServerFileAccess(): FileAccess {
       }
       return res.text();
     },
+
+    async writeFileText(): Promise<void> {
+      // apps/server exposes no write endpoint yet - see CLAUDE.md's
+      // housekeeping TODO. Throwing a clear, specific error here (rather
+      // than a generic fetch 404/405) lets the UI show a real message
+      // instead of a confusing failure.
+      throw new Error('Creating a playlist on a self-hosted server root is not supported yet.');
+    },
   };
 }

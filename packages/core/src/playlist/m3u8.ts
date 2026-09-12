@@ -6,6 +6,25 @@ export interface M3u8Entry {
 }
 
 /**
+ * Inverse of parseM3u8 - writes an #EXTINF directive ahead of an entry only
+ * when it actually carries duration/title info, same as a plain (non-
+ * extended) m3u8 would look for entries that don't. Always writes the
+ * #EXTM3U header, so a reader that only recognizes plain path-per-line
+ * playlists still works (it just ignores the '#' lines) while one that
+ * understands #EXTINF gets the richer version.
+ */
+export function formatM3u8(entries: M3u8Entry[]): string {
+  const lines = ['#EXTM3U'];
+  for (const entry of entries) {
+    if (entry.durationSeconds !== undefined || entry.title !== undefined) {
+      lines.push(`#EXTINF:${Math.round(entry.durationSeconds ?? -1)},${entry.title ?? ''}`);
+    }
+    lines.push(entry.rawPath);
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+/**
  * Parses extended-M3U syntax (#EXTM3U / #EXTINF directives). Unknown '#'
  * directives are ignored rather than rejected, since players in the wild
  * write a variety of vendor-specific tags we don't need to understand.

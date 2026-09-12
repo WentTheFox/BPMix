@@ -125,5 +125,11 @@ export function createCompositeFileAccess(): FileAccess {
       const adapter = scheme === SERVER ? server : browser;
       return adapter.readFileText({ ...ref, id: innerRootId! }, opts);
     },
+
+    async writeFileText(rootId: string, relativePath: string, contents: string): Promise<void> {
+      const { scheme, innerId } = decode(rootId);
+      const adapter = scheme === SERVER ? server : browser;
+      return adapter.writeFileText(innerId, relativePath, contents);
+    },
   };
 }

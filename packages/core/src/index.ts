@@ -15,6 +15,7 @@ export * from './lyrics/matchLibraryLyrics';
 export * from './library-scan/walk';
 export * from './library-scan/scan';
 export * from './library-scan/loadRootLibrary';
+export * from './library-scan/createPlaylistFromFolder';
 export * from './playback/trackPlayer';
 export * from './playback/shuffle';
 export * from './playback/playlistPlayer';

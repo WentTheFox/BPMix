@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseM3u8, resolveM3u8EntryPath } from './m3u8';
+import { formatM3u8, parseM3u8, resolveM3u8EntryPath } from './m3u8';
 
 describe('parseM3u8', () => {
   it('parses EXTINF duration and title alongside the path', () => {
@@ -49,5 +49,28 @@ describe('resolveM3u8EntryPath', () => {
 
   it('resolves a playlist at the root with no directory prefix', () => {
     expect(resolveM3u8EntryPath('Mix.m3u8', 'Track.mp3')).toBe('Track.mp3');
+  });
+});
+
+describe('formatM3u8', () => {
+  it('writes a plain path-per-line entry with no EXTINF when neither field is given', () => {
+    expect(formatM3u8([{ rawPath: 'Track.mp3' }])).toBe('#EXTM3U\nTrack.mp3\n');
+  });
+
+  it('writes an EXTINF directive when duration/title are given', () => {
+    expect(formatM3u8([{ rawPath: 'Track One.mp3', durationSeconds: 215, title: 'Artist - Track One' }])).toBe(
+      '#EXTM3U\n#EXTINF:215,Artist - Track One\nTrack One.mp3\n',
+    );
+  });
+
+  it('roundtrips through parseM3u8', () => {
+    const entries = [
+      { rawPath: 'Track One.mp3', durationSeconds: 215, title: 'Artist - Track One' },
+      { rawPath: 'Track Two.mp3' },
+    ];
+    expect(parseM3u8(formatM3u8(entries))).toEqual([
+      { rawPath: 'Track One.mp3', durationSeconds: 215, title: 'Artist - Track One' },
+      { rawPath: 'Track Two.mp3', durationSeconds: undefined, title: undefined },
+    ]);
   });
 });

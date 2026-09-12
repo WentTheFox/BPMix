@@ -1,11 +1,12 @@
 import type { GrantedRoot, PlaylistRecord, TrackRecord } from '@bpmix/core';
-import { mdiFolder, mdiFolderMusic, mdiPlaylistMusic, mdiRefresh } from '@mdi/js';
+import { mdiFolder, mdiFolderMusic, mdiPlaylistMusic, mdiPlaylistPlus, mdiRefresh } from '@mdi/js';
 import type { ReactNode } from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppTitle } from './AppTitle';
 import { FolderPickerButton } from './FolderPickerButton';
 import { HeaderRow } from './HeaderRow';
+import { Icon } from './Icon';
 import { IconLabel } from './IconLabel';
 import { RemoveButton } from './RemoveButton';
 import type { Colors } from './theme';
@@ -32,6 +33,8 @@ export interface LibraryScreenProps {
   onRescan: (rootId: string) => void;
   /** Revokes the root's grant and drops it from the library screen - if omitted, no Remove action is shown for roots. */
   onRemoveRoot?: (rootId: string) => void;
+  /** Opens the create-playlist-from-folder flow (see CreatePlaylistScreen) scoped to this root - if omitted, no "New Playlist" action is shown for roots. */
+  onCreatePlaylist?: (rootId: string) => void;
   onSelectPlaylist: (root: GrantedRoot, playlist: PlaylistRecord, tracksById: Map<string, TrackRecord>) => void;
   error?: string | null;
   /** Rendered right after the error text - e.g. a "Grant Access" button for Android's AllFilesAccessRequiredError, so the user doesn't have to find Settings on their own. */
@@ -68,6 +71,7 @@ export function LibraryScreen({
   onAddFolder,
   onRescan,
   onRemoveRoot,
+  onCreatePlaylist,
   onSelectPlaylist,
   error,
   errorAction,
@@ -120,6 +124,11 @@ export function LibraryScreen({
                     <IconLabel path={mdiRefresh} text="Rescan" color={colors.accent} iconSize={16} />
                   )}
                 </Pressable>
+                {onCreatePlaylist && (
+                  <Pressable onPress={() => onCreatePlaylist(root.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <Icon path={mdiPlaylistPlus} size={18} color={colors.accent} />
+                  </Pressable>
+                )}
                 {onRemoveRoot && <RemoveButton colors={colors} onConfirm={() => onRemoveRoot(root.id)} />}
               </View>
             </View>

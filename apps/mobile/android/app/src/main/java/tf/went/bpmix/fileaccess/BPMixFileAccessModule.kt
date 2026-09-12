@@ -27,10 +27,12 @@ import java.io.File
  * in-app subfolder navigator, which is now how a root gets chosen too, not
  * just a music/lyrics scope within one.
  *
- * Read-only by design, matching FileAccess's documented contract
- * (packages/core/src/file-access/types.ts) - no write/delete/create method
- * is exposed here at all, deliberately, even though MANAGE_EXTERNAL_STORAGE
- * itself would technically allow it.
+ * Read-only apart from writeFileText, added for playlist-from-folder
+ * generation - see FileAccess's documented contract
+ * (packages/core/src/file-access/types.ts). MANAGE_EXTERNAL_STORAGE is an
+ * all-or-nothing read+write grant for the whole of external storage, so
+ * there's no separate write permission to request here, unlike the
+ * web/Windows adapters.
  */
 class BPMixFileAccessModule(private val reactContext: ReactApplicationContext) :
   ReactContextBaseJavaModule(reactContext) {
@@ -111,6 +113,23 @@ class BPMixFileAccessModule(private val reactContext: ReactApplicationContext) :
       promise.resolve(Base64.encodeToString(File(path).readBytes(), Base64.NO_WRAP))
     } catch (e: Exception) {
       promise.reject("READ_FILE_ERROR", e)
+    }
+  }
+
+  /**
+   * Writes (creating or overwriting) a text file at an absolute path -
+   * the one write operation this module exposes, for playlist-from-folder
+   * generation (see createPlaylistFromFolder in packages/core). The
+   * parent directory must already exist - see FileAccess.writeFileText's
+   * own doc for why this never needs to create intermediate directories.
+   */
+  @ReactMethod
+  fun writeFileText(path: String, content: String, promise: Promise) {
+    try {
+      File(path).writeText(content, Charsets.UTF_8)
+      promise.resolve(null)
+    } catch (e: Exception) {
+      promise.reject("WRITE_FILE_ERROR", e)
     }
   }
 

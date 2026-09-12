@@ -80,6 +80,9 @@ class FakeFileAccess implements FileAccess {
   async readFileText(): Promise<string> {
     return '';
   }
+  async writeFileText(): Promise<void> {
+    throw new Error('not used in this test');
+  }
 }
 
 function synchsafe(size: number): number[] {

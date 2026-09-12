@@ -14,6 +14,8 @@ import {
 } from '@bpmix/core';
 import {
   BackButton,
+  CreatePlaylistScreen,
+  FolderBrowser,
   FolderPickerButton,
   HeaderActions,
   getAccentColorHex,
@@ -164,6 +166,14 @@ function App() {
   const [grantedRoots, setGrantedRoots] = useState<GrantedRoot[]>([]);
   const [lyricsScopes, setLyricsScopes] = useState<LyricsScope[]>([]);
   const [matchedLyricsCount, setMatchedLyricsCount] = useState<number | null>(null);
+  // "New Playlist" flow (see LibraryScreen's onCreatePlaylist and
+  // CreatePlaylistScreen) - two steps: first browse an already-granted
+  // root's own contents (via FolderBrowser, same shared component the
+  // Android-only root-granting flow uses - here it's just navigating
+  // within a root already granted) to pick a folder, then configure/
+  // preview/create the playlist itself once one's picked.
+  const [createPlaylistRootId, setCreatePlaylistRootId] = useState<string | null>(null);
+  const [createPlaylistTarget, setCreatePlaylistTarget] = useState<{ rootId: string; folderRelativePath: string; folderDisplayName: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Everything that used to be a one-shot setError(errorMessage(err)) string
   // (playback/decode failures specifically) now goes here instead - see
@@ -766,6 +776,48 @@ function App() {
     );
   }
 
+  if (createPlaylistRootId) {
+    const root = grantedRoots.find((r) => r.id === createPlaylistRootId);
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <FolderBrowser
+          colors={colors}
+          fileAccess={fileAccess}
+          rootId={createPlaylistRootId}
+          rootDisplayName={root?.displayName ?? createPlaylistRootId}
+          onSelect={(relativePath) => {
+            setCreatePlaylistTarget({
+              rootId: createPlaylistRootId,
+              folderRelativePath: relativePath,
+              folderDisplayName: relativePath ? `${root?.displayName ?? ''}/${relativePath}` : (root?.displayName ?? ''),
+            });
+            setCreatePlaylistRootId(null);
+          }}
+          onCancel={() => setCreatePlaylistRootId(null)}
+        />
+      </View>
+    );
+  }
+
+  if (createPlaylistTarget) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <CreatePlaylistScreen
+          colors={colors}
+          fileAccess={fileAccess}
+          rootId={createPlaylistTarget.rootId}
+          folderRelativePath={createPlaylistTarget.folderRelativePath}
+          folderDisplayName={createPlaylistTarget.folderDisplayName}
+          onCancel={() => setCreatePlaylistTarget(null)}
+          onCreated={() => {
+            setCreatePlaylistTarget(null);
+            void rescan(createPlaylistTarget.rootId);
+          }}
+        />
+      </View>
+    );
+  }
+
   let screenContent: ReactNode;
   if (screen.kind === 'playlist') {
     const { playlist, tracksById } = screen;
@@ -802,6 +854,7 @@ function App() {
         onAddFolder={addFolder}
         onRescan={rescan}
         onRemoveRoot={(rootId) => void removeRoot(rootId)}
+        onCreatePlaylist={(rootId) => setCreatePlaylistRootId(rootId)}
         onSelectPlaylist={(root, playlist, tracksById) => setScreen({ kind: 'playlist', root, playlist, tracksById })}
         error={error}
         listStyle={styles.list}

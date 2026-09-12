@@ -16,6 +16,7 @@ interface NativeFileAccess {
   listDirectory(path: string): Promise<NativeFileEntry[]>;
   readFileText(path: string): Promise<string>;
   readFileBytesBase64(path: string): Promise<string>;
+  writeFileText(path: string, content: string): Promise<void>;
   readLocalText(fileName: string): Promise<string | null>;
   writeLocalText(fileName: string, content: string): Promise<void>;
 }
@@ -206,6 +207,10 @@ export function createFileAccess(): FileAccess {
 
     async readFileText(ref: FileRef): Promise<string> {
       return native.readFileText(ref.id);
+    },
+
+    async writeFileText(rootId: string, relativePath: string, contents: string): Promise<void> {
+      await native.writeFileText(joinPath(rootId, relativePath), contents);
     },
   };
 }

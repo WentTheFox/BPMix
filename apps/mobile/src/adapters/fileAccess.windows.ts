@@ -97,5 +97,16 @@ export function createFileAccess(): FileAccess {
     async readFileText(ref: FileRef): Promise<string> {
       return native.readFileText(ref.id);
     },
+
+    async writeFileText(): Promise<void> {
+      // Not implemented yet - see CLAUDE.md's housekeeping TODO. This
+      // adapter's grant still goes through react-native-scoped-storage
+      // (patches/react-native-scoped-storage.patch), whose persisted URI
+      // permission is masked to read-only; supporting this on Windows
+      // means restoring FLAG_GRANT_WRITE_URI_PERMISSION there (and, for
+      // already-granted roots, some way to prompt for a permission
+      // upgrade) before this can call a real native write method.
+      throw new Error('Creating a playlist is not supported on Windows yet.');
+    },
   };
 }
