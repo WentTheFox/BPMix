@@ -40,6 +40,7 @@ export * from './TrackRow';
 export * from './useAssignedLyrics';
 export * from './VolumeButton';
 export * from './useCoverArt';
+export * from './useCrossfadePlaybackDisplay';
 export * from './useHasLyrics';
 export * from './useDoublePressHandler';
 export * from './useMemoryUsageLogging';
