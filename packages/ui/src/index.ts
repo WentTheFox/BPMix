@@ -30,6 +30,7 @@ export * from './RestoringScreen';
 export * from './ScreenLayer';
 export * from './restoringSteps';
 export * from './SeekBar';
+export * from './settings/AppSwitch';
 export * from './settings/CrossfadeSlider';
 export * from './settings/SettingsScreen';
 export * from './settings/types';

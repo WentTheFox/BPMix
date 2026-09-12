@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AppSwitch } from './AppSwitch';
 import { CrossfadeSlider } from './CrossfadeSlider';
 import { BackButton } from '../BackButton';
 import { HeaderRow } from '../HeaderRow';
@@ -36,9 +37,9 @@ function Section({ title, colors, children }: { title: string; colors: Colors; c
 
 /**
  * Settings page (see CLAUDE.md's TODO): theme, accent color, volume
- * normalization, and crossfade duration, with a reset-to-defaults button.
- * Reachable from the gear button next to NotificationBell on every screen -
- * see HeaderActions.
+ * normalization, crossfade duration, and the lyrics toggle, with a
+ * reset-to-defaults button. Reachable from the gear button next to
+ * NotificationBell on every screen - see HeaderActions.
  */
 export function SettingsScreen({ colors, settings, onUpdateSettings, onResetSettings, onClose }: SettingsScreenProps) {
   const [confirmResetOpen, setConfirmResetOpen] = useState(false);
@@ -92,14 +93,10 @@ export function SettingsScreen({ colors, settings, onUpdateSettings, onResetSett
         <Section title="Playback" colors={colors}>
           <View style={styles.row}>
             <Text style={[styles.rowLabel, { color: colors.text }]}>Volume normalization</Text>
-            <Switch
+            <AppSwitch
               value={settings.volumeNormalizationEnabled}
               onValueChange={(value) => onUpdateSettings({ volumeNormalizationEnabled: value })}
-              trackColor={{ true: colors.accent }}
-              // Android's default thumb color is a fixed teal, unrelated to
-              // the app's own accent/theme - pinned to plain white instead
-              // (same in both states) so only the track tints with accent.
-              thumbColor="#ffffff"
+              accentColor={colors.accent}
             />
           </View>
           <View style={styles.crossfadeBlock}>
@@ -115,6 +112,17 @@ export function SettingsScreen({ colors, settings, onUpdateSettings, onResetSett
           </View>
         </Section>
 
+        <Section title="Lyrics" colors={colors}>
+          <View style={styles.row}>
+            <Text style={[styles.rowLabel, { color: colors.text }]}>Show lyrics</Text>
+            <AppSwitch
+              value={settings.lyricsEnabled}
+              onValueChange={(value) => onUpdateSettings({ lyricsEnabled: value })}
+              accentColor={colors.accent}
+            />
+          </View>
+        </Section>
+
         <Pressable onPress={() => setConfirmResetOpen(true)} style={[styles.resetButton, { borderColor: withAlpha(colors.text, 0.3) }]}>
           <Text style={[styles.resetButtonText, { color: colors.text }]}>Reset to defaults</Text>
         </Pressable>
@@ -124,7 +132,7 @@ export function SettingsScreen({ colors, settings, onUpdateSettings, onResetSett
           <View style={[styles.confirmCard, { backgroundColor: colors.background, borderColor: withAlpha(colors.text, 0.15) }]}>
             <Text style={[styles.confirmTitle, { color: colors.text }]}>Reset to defaults?</Text>
             <Text style={[styles.confirmMessage, { color: colors.subtleText }]}>
-              Theme, accent color, volume normalization, and crossfade duration all go back to their default values.
+              Theme, accent color, volume normalization, crossfade duration, and the lyrics toggle all go back to their default values.
             </Text>
             <View style={styles.confirmActions}>
               <Pressable onPress={() => setConfirmResetOpen(false)} style={styles.confirmButton}>

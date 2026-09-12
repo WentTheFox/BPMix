@@ -7,6 +7,8 @@ export interface AppSettings {
   accentColor: string;
   volumeNormalizationEnabled: boolean;
   crossfadeSeconds: number;
+  /** Hides the Now Playing screen's lyrics panel entirely (and skips fetching lyrics for the current track) to free up vertical space for users who don't use lyrics. */
+  lyricsEnabled: boolean;
 }
 
 export interface AccentColorOption {

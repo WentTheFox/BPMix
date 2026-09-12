@@ -9,9 +9,11 @@ export const THEME_MODE_SETTING_KEY = 'settings.themeMode';
 export const ACCENT_COLOR_SETTING_KEY = 'settings.accentColor';
 export const VOLUME_NORMALIZATION_SETTING_KEY = 'settings.volumeNormalizationEnabled';
 export const CROSSFADE_SECONDS_SETTING_KEY = 'settings.crossfadeSeconds';
+export const LYRICS_ENABLED_SETTING_KEY = 'settings.lyricsEnabled';
 
 const DEFAULT_VOLUME_NORMALIZATION_ENABLED = true;
 const DEFAULT_CROSSFADE_SECONDS = 8;
+const DEFAULT_LYRICS_ENABLED = true;
 
 function isThemeMode(value: string): value is ThemeMode {
   return value === 'light' || value === 'flux' || value === 'dark' || value === 'amoled';
@@ -48,17 +50,19 @@ export function useAppSettings(libraryStore: LibraryStore): UseAppSettingsResult
     accentColor: DEFAULT_ACCENT_COLOR_ID,
     volumeNormalizationEnabled: DEFAULT_VOLUME_NORMALIZATION_ENABLED,
     crossfadeSeconds: DEFAULT_CROSSFADE_SECONDS,
+    lyricsEnabled: DEFAULT_LYRICS_ENABLED,
   }));
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const [themeMode, accentColor, volumeNormalization, crossfadeSeconds] = await Promise.all([
+      const [themeMode, accentColor, volumeNormalization, crossfadeSeconds, lyricsEnabled] = await Promise.all([
         libraryStore.getSetting(THEME_MODE_SETTING_KEY),
         libraryStore.getSetting(ACCENT_COLOR_SETTING_KEY),
         libraryStore.getSetting(VOLUME_NORMALIZATION_SETTING_KEY),
         libraryStore.getSetting(CROSSFADE_SECONDS_SETTING_KEY),
+        libraryStore.getSetting(LYRICS_ENABLED_SETTING_KEY),
       ]);
       if (cancelled) return;
       setSettings((prev) => ({
@@ -66,6 +70,7 @@ export function useAppSettings(libraryStore: LibraryStore): UseAppSettingsResult
         accentColor: accentColor ? normalizeAccentColorId(accentColor) : prev.accentColor,
         volumeNormalizationEnabled: volumeNormalization === null ? prev.volumeNormalizationEnabled : volumeNormalization === '1',
         crossfadeSeconds: crossfadeSeconds ? Number(crossfadeSeconds) : prev.crossfadeSeconds,
+        lyricsEnabled: lyricsEnabled === null ? prev.lyricsEnabled : lyricsEnabled === '1',
       }));
       setLoaded(true);
     })();
@@ -86,6 +91,7 @@ export function useAppSettings(libraryStore: LibraryStore): UseAppSettingsResult
         void libraryStore.putSetting(VOLUME_NORMALIZATION_SETTING_KEY, patch.volumeNormalizationEnabled ? '1' : '0');
       }
       if (patch.crossfadeSeconds !== undefined) void libraryStore.putSetting(CROSSFADE_SECONDS_SETTING_KEY, String(patch.crossfadeSeconds));
+      if (patch.lyricsEnabled !== undefined) void libraryStore.putSetting(LYRICS_ENABLED_SETTING_KEY, patch.lyricsEnabled ? '1' : '0');
     },
     [libraryStore],
   );
@@ -96,6 +102,7 @@ export function useAppSettings(libraryStore: LibraryStore): UseAppSettingsResult
       accentColor: DEFAULT_ACCENT_COLOR_ID,
       volumeNormalizationEnabled: DEFAULT_VOLUME_NORMALIZATION_ENABLED,
       crossfadeSeconds: DEFAULT_CROSSFADE_SECONDS,
+      lyricsEnabled: DEFAULT_LYRICS_ENABLED,
     });
   }, [systemScheme, updateSettings]);
 

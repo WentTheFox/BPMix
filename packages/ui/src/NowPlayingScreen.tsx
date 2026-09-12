@@ -43,6 +43,8 @@ export interface NowPlayingScreenProps {
    * current one otherwise.
    */
   lyricsTrackKey: string | null;
+  /** Settings.lyricsEnabled - when false, the lyrics panel isn't rendered at all (skipping its fetch too), freeing up the vertical space below the seek bar for users who don't use lyrics. */
+  lyricsEnabled: boolean;
   currentArtUri: string | null;
   currentGain: number;
   currentProgress: number;
@@ -79,6 +81,7 @@ export function NowPlayingScreen({
   title,
   upNextTitle,
   lyricsTrackKey,
+  lyricsEnabled,
   currentArtUri,
   currentGain,
   currentProgress,
@@ -148,15 +151,17 @@ export function NowPlayingScreen({
             <Text style={[styles.seekTimeText, { color: colors.subtleText }]}>{formatSeconds(durationSeconds)}</Text>
           </View>
         </View>
-        <LyricsSection
-          colors={colors}
-          fileAccess={fileAccess}
-          libraryStore={libraryStore}
-          lyricsScopes={lyricsScopes}
-          trackFileId={lyricsTrackKey}
-          positionSeconds={displayPositionSeconds}
-          onSeekTo={onSeekTo}
-        />
+        {lyricsEnabled && (
+          <LyricsSection
+            colors={colors}
+            fileAccess={fileAccess}
+            libraryStore={libraryStore}
+            lyricsScopes={lyricsScopes}
+            trackFileId={lyricsTrackKey}
+            positionSeconds={displayPositionSeconds}
+            onSeekTo={onSeekTo}
+          />
+        )}
         <View style={styles.footer}>{controls}</View>
       </View>
     </View>

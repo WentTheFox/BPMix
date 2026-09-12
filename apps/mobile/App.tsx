@@ -771,6 +771,7 @@ function AppContent() {
         title={currentTitle ?? ''}
         upNextTitle={settledNextTrack ? formatTrackTitle(settledNextMetadata, settledNextTrack) : null}
         lyricsTrackKey={(pendingIncoming ? incomingTrack?.fileId : outgoingTrack?.fileId) ?? null}
+        lyricsEnabled={settings.lyricsEnabled}
         currentArtUri={outgoingCoverArt}
         currentGain={outgoingGain}
         currentProgress={outgoingProgress}
