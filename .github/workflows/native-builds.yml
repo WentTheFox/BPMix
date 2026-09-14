@@ -1,0 +1,112 @@
+name: Native builds
+
+# Windows and Android runners cost more (and take longer) than the Docker
+# publish job's Linux containers - Windows runners specifically bill at 2x
+# the included per-minute rate - so this only runs on a version tag or when
+# triggered by hand, never on every push to main.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.22.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      # No --filter here (unlike Dockerfile's web/server-only install) -
+      # the Android build genuinely needs apps/mobile's own dependencies
+      # (react-native, its native modules) installed.
+      - run: pnpm install --frozen-lockfile
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Stamps the real commit into the About screen's build info (see
+      # packages/core/src/buildInfo.ts) - assembleRelease is invoked
+      # directly below, not through apps/mobile's own "android" pnpm
+      # script, so its preandroid hook never runs otherwise.
+      - name: Generate build info
+        env:
+          GIT_COMMIT_OVERRIDE: ${{ github.sha }}
+        run: node scripts/generate-build-info.mjs
+
+      - name: Decode release keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "${{ runner.temp }}/bpmix-release.keystore"
+
+      - name: Build release APK
+        working-directory: apps/mobile/android
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/bpmix-release.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bpmix-android-release-apk
+          path: apps/mobile/android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.22.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Generate build info
+        env:
+          GIT_COMMIT_OVERRIDE: ${{ github.sha }}
+        run: node scripts/generate-build-info.mjs
+
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: Restore NuGet packages
+        run: nuget restore apps/mobile/windows/Mobile.sln
+
+      # Unsigned MSIX (AppxPackageSigningEnabled=false) - this repo has no
+      # code-signing certificate for Windows yet, unlike Android's now-real
+      # release keystore. SideloadOnly still produces an installable
+      # package for manual/test installs; it just isn't Store- or
+      # enterprise-distribution ready.
+      - name: Build
+        run: >
+          msbuild apps/mobile/windows/Mobile.sln
+          /p:Configuration=Release /p:Platform=x64
+          /p:AppxBundlePlatforms=x64
+          /p:AppxBundle=Always
+          /p:UapAppxPackageBuildMode=SideloadOnly
+          /p:AppxPackageSigningEnabled=false
+          /m
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bpmix-windows-x64
+          path: apps/mobile/windows/Mobile.Package/AppPackages/**
+          if-no-files-found: error

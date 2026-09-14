@@ -31,6 +31,9 @@ importers:
       base64-js:
         specifier: ^1.5.1
         version: 1.5.1
+      hermes-compiler:
+        specifier: 250829098.0.10
+        version: 250829098.0.10
       react:
         specifier: 19.2.3
         version: 19.2.3
