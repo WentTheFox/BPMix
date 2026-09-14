@@ -147,6 +147,23 @@ describe('scanRoot', () => {
     expect(store.playlists.get('Playlists/Party Mix.m3u8')?.name).toBe('Party Mix');
   });
 
+  it('ignores dot-prefixed directories entirely - e.g. Syncthing\'s .stversions, holding old revisions of already-scanned files', async () => {
+    const fileAccess = new FakeFileAccess({
+      'Mix.m3u8': ['Track A.mp3'].join('\n'),
+      'Track A.mp3': 'fake-audio-a',
+      '.stversions/Track A.mp3': 'fake-old-revision',
+      '.stversions/Mix.m3u8': ['Track A.mp3'].join('\n'),
+    });
+    const store = new FakeLibraryStore();
+
+    const result = await scanRoot(fileAccess, store, 'root-1');
+
+    expect(result.unresolvedEntries).toEqual([]);
+    expect(result.playlists).toHaveLength(1);
+    expect(result.playlists[0]!.trackFileIds).toEqual(['Track A.mp3']);
+    expect(store.tracks.size).toBe(1);
+  });
+
   it('surfaces playlist entries that do not resolve to an existing file as a missing-track placeholder instead of dropping them', async () => {
     const fileAccess = new FakeFileAccess({
       'Mix.m3u8': ['Missing.mp3'].join('\n'),

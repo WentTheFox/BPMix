@@ -14,6 +14,21 @@ function isPlaylistFile(name: string): boolean {
 }
 
 /**
+ * A dot-prefixed directory is always tooling's own bookkeeping, never
+ * content a user actually curated - e.g. Syncthing's ".stversions" (old
+ * revisions of synced files, kept around for conflict recovery) and
+ * ".stfolder" (its per-folder marker), or a plain ".git". Recursing into
+ * one wastes a whole listDirectory round-trip (a real HTTP request for the
+ * self-hosted server adapter) per level for files that could never be
+ * legitimate playlist entries anyway, and for Syncthing specifically could
+ * mean scanning the same tracks' entire version history as if they were
+ * real library content.
+ */
+function isIgnoredDirectory(name: string): boolean {
+  return name.startsWith('.');
+}
+
+/**
  * Recursively walks a granted root via repeated single-level listDirectory
  * calls, since that's the operation every platform's FileAccess adapter can
  * implement directly against its native directory APIs. Sibling
@@ -40,7 +55,7 @@ export async function walkDirectory(fileAccess: FileAccess, rootId: string, star
         if (isPlaylistFile(entry.file.name)) {
           playlistFiles.push(entry.file);
         }
-      } else if (entry.type === 'directory') {
+      } else if (entry.type === 'directory' && !isIgnoredDirectory(entry.name)) {
         subdirectories.push(entry.relativePath);
       }
     }
