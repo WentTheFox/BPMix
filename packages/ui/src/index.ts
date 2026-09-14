@@ -36,6 +36,7 @@ export * from './restoringSteps';
 export * from './SeekBar';
 export * from './settings/AppSwitch';
 export * from './settings/CrossfadeSlider';
+export * from './settings/HorizontalVolumeSlider';
 export * from './settings/SettingsScreen';
 export * from './settings/types';
 export * from './settings/useAppSettings';

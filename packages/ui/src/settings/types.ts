@@ -9,6 +9,8 @@ export interface AppSettings {
   crossfadeSeconds: number;
   /** Hides the Now Playing screen's lyrics panel entirely (and skips fetching lyrics for the current track) to free up vertical space for users who don't use lyrics. */
   lyricsEnabled: boolean;
+  /** Hides PlayerControlsRow's volume button on the Now Playing screen - the volume slider on the Settings screen itself (see SettingsScreen's "Volume" section) is always shown regardless of this, so volume stays reachable even with it off. */
+  showVolumeButtonOnNowPlaying: boolean;
 }
 
 export interface AccentColorOption {

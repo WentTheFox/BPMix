@@ -1,3 +1,4 @@
+export * from './buildInfo';
 export * from './file-access/types';
 export * from './file-access/backgroundFileAccess';
 export * from './errorMessage';

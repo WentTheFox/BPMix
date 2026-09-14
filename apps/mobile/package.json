@@ -3,11 +3,15 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
+    "preandroid": "node ../../scripts/generate-build-info.mjs",
     "android": "react-native run-android",
     "lint": "eslint .",
+    "prestart": "node ../../scripts/generate-build-info.mjs",
     "start": "react-native start",
     "test": "jest",
+    "pretypecheck": "node ../../scripts/generate-build-info.mjs",
     "typecheck": "tsc --noEmit",
+    "prewindows": "node ../../scripts/generate-build-info.mjs",
     "windows": "npx @react-native-community/cli run-windows",
     "test:windows": "jest --config jest.config.windows.js"
   },

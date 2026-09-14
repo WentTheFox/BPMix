@@ -1,8 +1,10 @@
+import { BUILD_COMMIT, BUILD_TIME } from '@bpmix/core';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AppSwitch } from './AppSwitch';
 import { CrossfadeSlider } from './CrossfadeSlider';
+import { HorizontalVolumeSlider } from './HorizontalVolumeSlider';
 import { BackButton } from '../BackButton';
 import { HeaderRow } from '../HeaderRow';
 import type { Colors } from '../theme';
@@ -17,6 +19,9 @@ export interface SettingsScreenProps {
   onUpdateSettings: (patch: Partial<AppSettings>) => void;
   onResetSettings: () => void;
   onClose: () => void;
+  /** Same volume state PlayerControlsRow's VolumeButton controls - this screen's own slider is always shown regardless of settings.showVolumeButtonOnNowPlaying, so turning that off never leaves volume unreachable. */
+  volume: number;
+  onChangeVolume: (volume: number) => void;
 }
 
 const THEME_MODE_OPTIONS: { mode: ThemeMode; label: string }[] = [
@@ -35,13 +40,32 @@ function Section({ title, colors, children }: { title: string; colors: Colors; c
   );
 }
 
+const REPOSITORY_URL = 'https://github.com/WentTheFox/BPMix';
+const AUTHOR_URL = 'https://went.tf';
+
+/** A label/value row where the value opens a URL - Linking.openURL rather than a plain web <a> (see SELF_HOSTING_DOCS_URL's own web-only anchor elsewhere in this codebase) since this component is shared with mobile/Windows, not web-only. */
+function LinkRow({ label, value, url, colors }: { label: string; value: string; url: string; colors: Colors }) {
+  return (
+    <Pressable style={styles.row} onPress={() => void Linking.openURL(url)}>
+      <Text style={[styles.rowLabel, { color: colors.text }]}>{label}</Text>
+      <Text style={[styles.linkValue, { color: colors.accent }]} numberOfLines={1}>
+        {value}
+      </Text>
+    </Pressable>
+  );
+}
+
 /**
  * Settings page (see CLAUDE.md's TODO): theme, accent color, volume
- * normalization, crossfade duration, and the lyrics toggle, with a
- * reset-to-defaults button. Reachable from the gear button next to
+ * normalization, crossfade duration, a volume slider (always shown here,
+ * even if the Now Playing screen's own volume button is toggled off below
+ * it - see AppSettings.showVolumeButtonOnNowPlaying), and the lyrics
+ * toggle, with a reset-to-defaults button, plus a static "About" section
+ * (author, build time/commit - see @bpmix/core's buildInfo.ts - and
+ * repository/issue links). Reachable from the gear button next to
  * NotificationBell on every screen - see HeaderActions.
  */
-export function SettingsScreen({ colors, settings, onUpdateSettings, onResetSettings, onClose }: SettingsScreenProps) {
+export function SettingsScreen({ colors, settings, onUpdateSettings, onResetSettings, onClose, volume, onChangeVolume }: SettingsScreenProps) {
   const [confirmResetOpen, setConfirmResetOpen] = useState(false);
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -112,6 +136,24 @@ export function SettingsScreen({ colors, settings, onUpdateSettings, onResetSett
           </View>
         </Section>
 
+        <Section title="Volume" colors={colors}>
+          <View style={styles.crossfadeBlock}>
+            <View style={styles.crossfadeHeaderRow}>
+              <Text style={[styles.rowLabel, { color: colors.text }]}>Volume</Text>
+              <Text style={[styles.crossfadeValue, { color: colors.accent }]}>{Math.round(volume * 100)}%</Text>
+            </View>
+            <HorizontalVolumeSlider colors={colors} volume={volume} onChangeVolume={onChangeVolume} />
+          </View>
+          <View style={styles.row}>
+            <Text style={[styles.rowLabel, { color: colors.text }]}>Show volume button on Now Playing</Text>
+            <AppSwitch
+              value={settings.showVolumeButtonOnNowPlaying}
+              onValueChange={(value) => onUpdateSettings({ showVolumeButtonOnNowPlaying: value })}
+              accentColor={colors.accent}
+            />
+          </View>
+        </Section>
+
         <Section title="Lyrics" colors={colors}>
           <View style={styles.row}>
             <Text style={[styles.rowLabel, { color: colors.text }]}>Show lyrics</Text>
@@ -123,6 +165,17 @@ export function SettingsScreen({ colors, settings, onUpdateSettings, onResetSett
           </View>
         </Section>
 
+        <Section title="About" colors={colors}>
+          <LinkRow label="Author" value="WentTheFox" url={AUTHOR_URL} colors={colors} />
+          <View style={styles.row}>
+            <Text style={[styles.rowLabel, { color: colors.text }]}>Built</Text>
+            <Text style={[styles.rowValue, { color: colors.subtleText }]}>{new Date(BUILD_TIME).toLocaleString()}</Text>
+          </View>
+          <LinkRow label="Commit" value={BUILD_COMMIT} url={`${REPOSITORY_URL}/commit/${BUILD_COMMIT}`} colors={colors} />
+          <LinkRow label="Repository" value="GitHub" url={REPOSITORY_URL} colors={colors} />
+          <LinkRow label="Issues" value="GitHub" url={`${REPOSITORY_URL}/issues`} colors={colors} />
+        </Section>
+
         <Pressable onPress={() => setConfirmResetOpen(true)} style={[styles.resetButton, { borderColor: withAlpha(colors.text, 0.3) }]}>
           <Text style={[styles.resetButtonText, { color: colors.text }]}>Reset to defaults</Text>
         </Pressable>
@@ -132,7 +185,8 @@ export function SettingsScreen({ colors, settings, onUpdateSettings, onResetSett
           <View style={[styles.confirmCard, { backgroundColor: colors.background, borderColor: withAlpha(colors.text, 0.15) }]}>
             <Text style={[styles.confirmTitle, { color: colors.text }]}>Reset to defaults?</Text>
             <Text style={[styles.confirmMessage, { color: colors.subtleText }]}>
-              Theme, accent color, volume normalization, crossfade duration, and the lyrics toggle all go back to their default values.
+              Theme, accent color, volume normalization, crossfade duration, the lyrics toggle, and the Now Playing volume button toggle all go back
+              to their default values.
             </Text>
             <View style={styles.confirmActions}>
               <Pressable onPress={() => setConfirmResetOpen(false)} style={styles.confirmButton}>
@@ -214,6 +268,13 @@ const styles = StyleSheet.create({
   },
   rowLabel: {
     fontSize: 15,
+  },
+  rowValue: {
+    fontSize: 14,
+  },
+  linkValue: {
+    fontSize: 14,
+    fontWeight: '600',
   },
   crossfadeBlock: {
     gap: 10,

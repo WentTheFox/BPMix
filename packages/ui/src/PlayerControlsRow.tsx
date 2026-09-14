@@ -15,6 +15,8 @@ export interface PlayerControlsRowProps {
   onToggleShuffle: () => void;
   volume: number;
   onChangeVolume: (volume: number) => void;
+  /** Defaults to true. False hides VolumeButton entirely - see AppSettings.showVolumeButtonOnNowPlaying's doc for why volume stays reachable regardless (the Settings screen's own slider is never hidden). */
+  showVolumeButton?: boolean;
   isPlaying: boolean;
   onTogglePlayPause: () => void;
   onPrevious: () => void;
@@ -39,6 +41,7 @@ export function PlayerControlsRow({
   onToggleShuffle,
   volume,
   onChangeVolume,
+  showVolumeButton = true,
   isPlaying,
   onTogglePlayPause,
   onPrevious,
@@ -60,7 +63,7 @@ export function PlayerControlsRow({
         <Icon path={mdiSkipNext} size={20} color="white" />
       </Pressable>
       <ShuffleButton colors={colors} shuffleEnabled={shuffleEnabled} onPress={onToggleShuffle} />
-      <VolumeButton colors={colors} volume={volume} onChangeVolume={onChangeVolume} />
+      {showVolumeButton && <VolumeButton colors={colors} volume={volume} onChangeVolume={onChangeVolume} />}
     </View>
   );
 }

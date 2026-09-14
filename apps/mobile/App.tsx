@@ -828,6 +828,7 @@ function AppContent() {
             onToggleShuffle={toggleShuffle}
             volume={volume}
             onChangeVolume={handleVolumeChange}
+            showVolumeButton={settings.showVolumeButtonOnNowPlaying}
             isPlaying={playerState.track.status === 'playing'}
             onTogglePlayPause={togglePause}
             onPrevious={handlePreviousPress}
@@ -850,6 +851,8 @@ function AppContent() {
         onUpdateSettings={updateSettings}
         onResetSettings={resetSettings}
         onClose={() => setSettingsOpen(false)}
+        volume={volume}
+        onChangeVolume={handleVolumeChange}
       />
     </ScreenLayer>
   );

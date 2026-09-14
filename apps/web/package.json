@@ -3,8 +3,11 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
+    "predev": "node ../../scripts/generate-build-info.mjs",
     "dev": "vite",
+    "prebuild": "node ../../scripts/generate-build-info.mjs",
     "build": "tsc --noEmit && vite build",
+    "pretypecheck": "node ../../scripts/generate-build-info.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
