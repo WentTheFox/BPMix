@@ -65,7 +65,13 @@ jobs:
           if-no-files-found: error
 
   windows:
-    runs-on: windows-latest
+    # Not windows-latest: confirmed live (this exact run) that it now
+    # resolves to a VS "18" image, which only has Windows SDK/toolset
+    # versions this react-native-windows version doesn't target - the same
+    # class of problem CLAUDE.md's Windows housekeeping note already
+    # describes on the user's own machine (only VS2022 is supported here).
+    # windows-2022 keeps the classic VS2022 toolchain this project needs.
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
 
