@@ -1,3 +1,6 @@
+export * from './appUpdate/checkForUpdate';
+export * from './appUpdate/githubRepo';
+export * from './appUpdate/nativeBridge';
 export * from './buildInfo';
 export * from './file-access/types';
 export * from './file-access/backgroundFileAccess';

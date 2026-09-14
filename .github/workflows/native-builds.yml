@@ -172,6 +172,11 @@ jobs:
           windows_dir=$(find artifacts/bpmix-windows-x64 -mindepth 1 -maxdepth 1 -type d | head -1)
           cp "$windows_dir"/*.msixbundle release-assets/
           (cd "$(dirname "$windows_dir")" && zip -rq "$assets_dir/bpmix-windows-x64-sideload.zip" "$(basename "$windows_dir")")
+          # apps/mobile's in-app update flow (useAppUpdateCheck, @bpmix/core's
+          # checkForUpdate) verifies the downloaded APK's own computed SHA-256
+          # against this file before ever installing it - see
+          # AppUpdateModule.kt's downloadFile.
+          (cd release-assets && sha256sum * > checksums.txt)
           ls -la release-assets
 
       - name: Create release

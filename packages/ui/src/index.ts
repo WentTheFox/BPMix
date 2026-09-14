@@ -52,6 +52,7 @@ export * from './useCoverArt';
 export * from './useCrossfadePlaybackDisplay';
 export * from './useHasLyrics';
 export * from './useDoublePressHandler';
+export * from './useAppUpdateCheck';
 export * from './useMemoryUsageLogging';
 export * from './useMissingTrackRelocation';
 export * from './usePlaybackPersistence';

@@ -28,6 +28,15 @@
          still required regardless of API level. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- In-app "download release APK from GitHub + install it" update flow
+         (tf.went.bpmix.appupdate.AppUpdateModule) - sideloaded apps have no
+         Play Store to hand this off to. REQUEST_INSTALL_PACKAGES is the
+         API 26+ per-app "install unknown apps" grant (checked/requested via
+         PackageManager.canRequestPackageInstalls() at runtime, same as any
+         other special-access permission - the manifest entry alone doesn't
+         grant it). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <application
       android:name=".MainApplication"
       android:label="@string/app_name"
@@ -75,5 +84,21 @@
         android:exported="false"
         android:stopWithTask="true"
         android:foregroundServiceType="mediaPlayback" />
+      <!-- Grants the system package installer a content:// URI for a
+           downloaded update APK (AppUpdateModule.installApk) - required on
+           API 24+ regardless of MANAGE_EXTERNAL_STORAGE, which only covers
+           this app's own file access, not exposing a file:// path to
+           another app (FileUriExposedException). Scoped to the one
+           subdirectory AppUpdateModule actually downloads into - see
+           file_paths.xml. -->
+      <provider
+        android:name="androidx.core.content.FileProvider"
+        android:authorities="${applicationId}.fileprovider"
+        android:exported="false"
+        android:grantUriPermissions="true">
+        <meta-data
+          android:name="android.support.FILE_PROVIDER_PATHS"
+          android:resource="@xml/file_paths" />
+      </provider>
     </application>
 </manifest>

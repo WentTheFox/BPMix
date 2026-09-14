@@ -6,6 +6,7 @@ import com.facebook.react.ReactApplication
 import com.facebook.react.ReactHost
 import com.facebook.react.ReactNativeApplicationEntryPoint.loadReactNative
 import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
+import tf.went.bpmix.appupdate.AppUpdatePackage
 import tf.went.bpmix.fileaccess.BPMixFileAccessPackage
 import tf.went.bpmix.memorydebug.MemoryInfoPackage
 
@@ -18,6 +19,7 @@ class MainApplication : Application(), ReactApplication {
         PackageList(this).packages.apply {
           add(MemoryInfoPackage())
           add(BPMixFileAccessPackage())
+          add(AppUpdatePackage())
         },
     )
   }

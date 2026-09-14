@@ -1,4 +1,4 @@
-import { BUILD_COMMIT, BUILD_TIME, BUILD_VERSION } from '@bpmix/core';
+import { BUILD_COMMIT, BUILD_TIME, BUILD_VERSION, GITHUB_REPO_URL } from '@bpmix/core';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -22,6 +22,24 @@ export interface SettingsScreenProps {
   /** Same volume state PlayerControlsRow's VolumeButton controls - this screen's own slider is always shown regardless of settings.showVolumeButtonOnNowPlaying, so turning that off never leaves volume unreachable. */
   volume: number;
   onChangeVolume: (volume: number) => void;
+  /**
+   * The "check GitHub Releases for a newer APK, download it, verify its
+   * checksum, install it" flow - Android-only (see apps/mobile/src/
+   * adapters/appUpdate.android.ts), so this whole row is omitted entirely
+   * (not just disabled) on platforms without a working install flow yet
+   * (web, Windows) rather than showing a button that can't do anything.
+   */
+  appUpdate?: AppUpdateState;
+}
+
+export interface AppUpdateState {
+  status: 'idle' | 'checking' | 'upToDate' | 'available' | 'downloading' | 'installing' | 'error';
+  /** Set once status is 'available' (or later) - the release tag being offered. */
+  availableVersion?: string;
+  /** Set only when status is 'error'. */
+  errorMessage?: string;
+  onCheck: () => void;
+  onDownloadAndInstall: () => void;
 }
 
 const THEME_MODE_OPTIONS: { mode: ThemeMode; label: string }[] = [
@@ -40,7 +58,6 @@ function Section({ title, colors, children }: { title: string; colors: Colors; c
   );
 }
 
-const REPOSITORY_URL = 'https://github.com/WentTheFox/BPMix';
 const AUTHOR_URL = 'https://went.tf';
 
 /** A label/value row where the value opens a URL - Linking.openURL rather than a plain web <a> (see SELF_HOSTING_DOCS_URL's own web-only anchor elsewhere in this codebase) since this component is shared with mobile/Windows, not web-only. */
@@ -65,7 +82,7 @@ function LinkRow({ label, value, url, colors }: { label: string; value: string; 
  * repository/issue links). Reachable from the gear button next to
  * NotificationBell on every screen - see HeaderActions.
  */
-export function SettingsScreen({ colors, settings, onUpdateSettings, onResetSettings, onClose, volume, onChangeVolume }: SettingsScreenProps) {
+export function SettingsScreen({ colors, settings, onUpdateSettings, onResetSettings, onClose, volume, onChangeVolume, appUpdate }: SettingsScreenProps) {
   const [confirmResetOpen, setConfirmResetOpen] = useState(false);
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -175,9 +192,36 @@ export function SettingsScreen({ colors, settings, onUpdateSettings, onResetSett
             <Text style={[styles.rowLabel, { color: colors.text }]}>Built</Text>
             <Text style={[styles.rowValue, { color: colors.subtleText }]}>{new Date(BUILD_TIME).toLocaleString()}</Text>
           </View>
-          <LinkRow label="Commit" value={BUILD_COMMIT} url={`${REPOSITORY_URL}/commit/${BUILD_COMMIT}`} colors={colors} />
-          <LinkRow label="Repository" value="GitHub" url={REPOSITORY_URL} colors={colors} />
-          <LinkRow label="Issues" value="GitHub" url={`${REPOSITORY_URL}/issues`} colors={colors} />
+          {appUpdate && (
+            <>
+              <View style={styles.row}>
+                <Text style={[styles.rowLabel, { color: colors.text }]}>Updates</Text>
+                {appUpdate.status === 'idle' || appUpdate.status === 'error' ? (
+                  <Pressable onPress={appUpdate.onCheck}>
+                    <Text style={[styles.linkValue, { color: colors.accent }]}>Check for updates</Text>
+                  </Pressable>
+                ) : appUpdate.status === 'checking' ? (
+                  <Text style={[styles.rowValue, { color: colors.subtleText }]}>Checking…</Text>
+                ) : appUpdate.status === 'upToDate' ? (
+                  <Text style={[styles.rowValue, { color: colors.subtleText }]}>Up to date</Text>
+                ) : appUpdate.status === 'available' ? (
+                  <Pressable onPress={appUpdate.onDownloadAndInstall}>
+                    <Text style={[styles.linkValue, { color: colors.accent }]}>Install {appUpdate.availableVersion}</Text>
+                  </Pressable>
+                ) : appUpdate.status === 'downloading' ? (
+                  <Text style={[styles.rowValue, { color: colors.subtleText }]}>Downloading…</Text>
+                ) : (
+                  <Text style={[styles.rowValue, { color: colors.subtleText }]}>Installing…</Text>
+                )}
+              </View>
+              {appUpdate.status === 'error' && appUpdate.errorMessage && (
+                <Text style={[styles.updateError, { color: '#dc2626' }]}>{appUpdate.errorMessage}</Text>
+              )}
+            </>
+          )}
+          <LinkRow label="Commit" value={BUILD_COMMIT} url={`${GITHUB_REPO_URL}/commit/${BUILD_COMMIT}`} colors={colors} />
+          <LinkRow label="Repository" value="GitHub" url={GITHUB_REPO_URL} colors={colors} />
+          <LinkRow label="Issues" value="GitHub" url={`${GITHUB_REPO_URL}/issues`} colors={colors} />
         </Section>
 
         <Pressable onPress={() => setConfirmResetOpen(true)} style={[styles.resetButton, { borderColor: withAlpha(colors.text, 0.3) }]}>
@@ -279,6 +323,10 @@ const styles = StyleSheet.create({
   linkValue: {
     fontSize: 14,
     fontWeight: '600',
+  },
+  updateError: {
+    fontSize: 12,
+    marginTop: -4,
   },
   crossfadeBlock: {
     gap: 10,

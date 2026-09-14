@@ -6,6 +6,7 @@
 
 import type { FileRef, GrantedRoot, LyricsScope, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '@bpmix/core';
 import {
+  BUILD_VERSION,
   ensureTrackAnalyzed,
   errorMessage,
   formatTrackTitle,
@@ -38,6 +39,7 @@ import {
   SettingsScreen,
   TrackList,
   useAppSettings,
+  useAppUpdateCheck,
   useCrossfadePlaybackDisplay,
   useLibraryRootActions,
   useMemoryUsageLogging,
@@ -59,6 +61,7 @@ import {
   SafeAreaProvider,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
+import { createAppUpdateBridge } from './src/adapters/appUpdate';
 import { createAudioEngine } from './src/adapters/audioEngine';
 import { createCoverArtResizer } from './src/adapters/coverArtResizer';
 import {
@@ -94,6 +97,7 @@ const fileAccess = createFileAccess();
 const libraryStore = createLibraryStore();
 const audioEngine = createAudioEngine(fileAccess);
 const coverArtResizer = createCoverArtResizer();
+const appUpdateBridge = createAppUpdateBridge();
 
 function trackToFileRef(track: TrackRecord): FileRef {
   return {
@@ -707,6 +711,7 @@ function AppContent() {
   });
 
   const { volume, handleVolumeChange } = useVolumeControl({ playlistPlayer, libraryStore, persistPlaybackPatch });
+  const appUpdate = useAppUpdateCheck({ currentVersion: BUILD_VERSION, bridge: appUpdateBridge });
 
   // Keeps the now-playing track's own metadata/lyrics-assignment/cover-art
   // reads ahead of whatever backlog of unrelated TrackRow-driven reads is
@@ -867,6 +872,7 @@ function AppContent() {
         onClose={() => setSettingsOpen(false)}
         volume={volume}
         onChangeVolume={handleVolumeChange}
+        appUpdate={appUpdateBridge ? appUpdate : undefined}
       />
     </ScreenLayer>
   );

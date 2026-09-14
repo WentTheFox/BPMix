@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Backs the FileProvider declared in AndroidManifest.xml - scoped to just
+     the "updates" subfolder of this app's private cache dir, where
+     AppUpdateModule.downloadFile writes a downloaded release APK. -->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <cache-path name="updates" path="updates/" />
+</paths>
