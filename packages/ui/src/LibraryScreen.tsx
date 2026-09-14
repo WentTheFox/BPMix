@@ -1,12 +1,12 @@
 import type { GrantedRoot, PlaylistRecord, TrackRecord } from '@bpmix/core';
-import { mdiFolder, mdiFolderMusic, mdiPlaylistMusic, mdiPlaylistPlus, mdiRefresh } from '@mdi/js';
+import { mdiFolder, mdiFolderMusic, mdiPlaylistMusic, mdiRefresh } from '@mdi/js';
 import type { ReactNode } from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppTitle } from './AppTitle';
+import { CreatePlaylistButton } from './CreatePlaylistButton';
 import { FolderPickerButton } from './FolderPickerButton';
 import { HeaderRow } from './HeaderRow';
-import { Icon } from './Icon';
 import { IconLabel } from './IconLabel';
 import { RemoveButton } from './RemoveButton';
 import type { Colors } from './theme';
@@ -124,12 +124,8 @@ export function LibraryScreen({
                     <IconLabel path={mdiRefresh} text="Rescan" color={colors.accent} iconSize={16} />
                   )}
                 </Pressable>
-                {onCreatePlaylist && (
-                  <Pressable onPress={() => onCreatePlaylist(root.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                    <Icon path={mdiPlaylistPlus} size={18} color={colors.accent} />
-                  </Pressable>
-                )}
-                {onRemoveRoot && <RemoveButton colors={colors} onConfirm={() => onRemoveRoot(root.id)} />}
+                {onCreatePlaylist && <CreatePlaylistButton colors={colors} onConfirm={() => onCreatePlaylist(root.id)} />}
+                {onRemoveRoot && root.removable !== false && <RemoveButton colors={colors} onConfirm={() => onRemoveRoot(root.id)} />}
               </View>
             </View>
             {playlists.length === 0 && <Text style={[styles.empty, { color: colors.subtleText }]}>No playlists found yet.</Text>}

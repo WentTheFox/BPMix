@@ -35,7 +35,10 @@ export function createLibraryRouter(baseDir: string, lyricsRootIds: ReadonlySet<
   router.get('/roots', async (_req, res, next) => {
     try {
       const roots = await discoverRoots(baseDir, lyricsRootIds);
-      const body: GrantedRoot[] = roots.map((r) => ({ id: r.id, displayName: r.displayName, kind: r.kind }));
+      // Server roots are granted by their volume mount, not the user - see
+      // GrantedRoot.removable's doc for why the UI must never offer to
+      // remove one.
+      const body: GrantedRoot[] = roots.map((r) => ({ id: r.id, displayName: r.displayName, kind: r.kind, removable: false }));
       res.json(body);
     } catch (err) {
       next(err);

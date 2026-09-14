@@ -40,6 +40,16 @@ export interface GrantedRoot {
    * instead - see addLyricsFolder in apps/web/src/App.tsx).
    */
   kind?: 'library' | 'lyrics';
+  /**
+   * Defaults to true when absent. False for a root the user can't actually
+   * remove - currently just the self-hosted server's operator-mounted roots
+   * (fileAccess.server.ts's revokeRoot() is a permanent no-op there: the
+   * volume mount is what grants it, so removing it from the UI would either
+   * do nothing or, worse, look like it worked while the folder reappears on
+   * the next refresh). Lets the UI hide/disable the remove control instead
+   * of offering an action that can't do what it says.
+   */
+  removable?: boolean;
 }
 
 /**

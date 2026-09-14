@@ -914,6 +914,7 @@ function App() {
             colors={colors}
             scopes={lyricsScopes}
             rootDisplayName={(rootId) => grantedRoots.find((r) => r.id === rootId)?.displayName ?? rootId}
+            scopeRemovable={(rootId) => grantedRoots.find((r) => r.id === rootId)?.removable !== false}
             matchedTrackCount={matchedLyricsCount}
             totalTrackCount={rootsWithLibrary.reduce((sum, { tracksById }) => sum + tracksById.size, 0)}
             busyScopeKey={busyLyricsScopeKey}

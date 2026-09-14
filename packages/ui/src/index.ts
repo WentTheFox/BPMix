@@ -3,6 +3,8 @@ export * from './FolderPickerButton';
 export * from './AppIconMark';
 export * from './AppTitle';
 export * from './BackButton';
+export * from './ConfirmDialog';
+export * from './CreatePlaylistButton';
 export * from './CreatePlaylistScreen';
 export * from './CrossfadeArt';
 export * from './Icon';

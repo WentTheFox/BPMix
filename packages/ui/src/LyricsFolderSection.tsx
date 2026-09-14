@@ -22,6 +22,17 @@ export interface LyricsFolderSectionProps {
   busyScopeKey: string | null;
   onRemoveScope: (rootId: string, relativePath: string) => void;
   onRescan: (rootId: string, relativePath: string) => void;
+  /**
+   * Whether a scope's Remove control should render at all - false for one
+   * auto-registered from a non-removable root (see GrantedRoot.removable's
+   * doc - currently just the self-hosted server's operator-mounted lyrics
+   * roots). Removing the LyricsScope row would look like it worked, then
+   * have refresh() silently re-add it on the very next pass since it's
+   * still driven by that root's kind:'lyrics', so the control is hidden
+   * instead of offered as a dead end. Defaults to always-removable when
+   * omitted, matching every scope that predates this prop.
+   */
+  scopeRemovable?: (rootId: string) => boolean;
 }
 
 /**
@@ -59,6 +70,7 @@ export function LyricsFolderSection({
   busyScopeKey,
   onRemoveScope,
   onRescan,
+  scopeRemovable,
 }: LyricsFolderSectionProps) {
   if (scopes.length === 0) return null;
 
@@ -87,7 +99,9 @@ export function LyricsFolderSection({
                   <IconLabel path={mdiRefresh} text="Rescan" color={colors.accent} iconSize={14} textStyle={styles.actionLink} />
                 )}
               </Pressable>
-              <RemoveButton colors={colors} onConfirm={() => onRemoveScope(scope.rootId, scope.relativePath)} />
+              {(scopeRemovable?.(scope.rootId) ?? true) && (
+                <RemoveButton colors={colors} onConfirm={() => onRemoveScope(scope.rootId, scope.relativePath)} />
+              )}
             </View>
           </View>
         );
