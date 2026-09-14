@@ -3,6 +3,7 @@ name: Docker publish
 on:
   push:
     branches: [main]
+    tags: ['v*']
 
 jobs:
   build:
@@ -44,6 +45,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           build-args: |
             GIT_COMMIT=${{ github.sha }}
+            GIT_VERSION=${{ github.ref_type == 'tag' && github.ref_name || '' }}
           push: true
           outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true
           cache-from: type=gha,scope=${{ steps.platform-pair.outputs.pair }}
@@ -86,8 +88,9 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=raw,value=latest
+            type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=sha-,format=short
+            type=semver,pattern=v{{version}}
 
       - uses: docker/setup-buildx-action@v3
 

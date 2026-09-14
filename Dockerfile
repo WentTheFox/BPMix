@@ -9,11 +9,14 @@ RUN corepack enable && corepack prepare pnpm@11.22.0 --activate
 WORKDIR /repo
 
 # .dockerignore excludes .git, so scripts/generate-build-info.mjs (run via
-# postinstall/prebuild) has no repo history to read `git rev-parse` from in
-# here - docker-publish.yml passes the real commit through this build arg
-# instead (see that script's GIT_COMMIT_OVERRIDE check).
+# apps/web's prebuild hook) has no repo history to read `git rev-parse`/
+# `git describe` from in here - docker-publish.yml passes the real commit
+# and (for a version-tag push) version through these build args instead
+# (see that script's GIT_COMMIT_OVERRIDE/GIT_VERSION_OVERRIDE checks).
 ARG GIT_COMMIT=unknown
 ENV GIT_COMMIT_OVERRIDE=$GIT_COMMIT
+ARG GIT_VERSION=unknown
+ENV GIT_VERSION_OVERRIDE=$GIT_VERSION
 
 # Install first with only manifests + lockfile so this layer is cached
 # whenever source changes but dependencies don't.

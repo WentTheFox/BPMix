@@ -42,6 +42,7 @@ jobs:
       - name: Generate build info
         env:
           GIT_COMMIT_OVERRIDE: ${{ github.sha }}
+          GIT_VERSION_OVERRIDE: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: node scripts/generate-build-info.mjs
 
       - name: Decode release keystore
@@ -89,6 +90,7 @@ jobs:
       - name: Generate build info
         env:
           GIT_COMMIT_OVERRIDE: ${{ github.sha }}
+          GIT_VERSION_OVERRIDE: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: node scripts/generate-build-info.mjs
 
       - uses: microsoft/setup-msbuild@v2
@@ -128,3 +130,48 @@ jobs:
           name: bpmix-windows-x64
           path: apps/mobile/windows/Mobile.Package/AppPackages/**
           if-no-files-found: error
+
+  # Only for a real version-tag build (a workflow_dispatch run against a
+  # branch has no version to name a release after) - covers both a tag
+  # push and a manual dispatch explicitly run against a tag ref, since
+  # both land here as github.ref_type == 'tag'. needs: [android, windows]
+  # means this is skipped outright if either build failed, so a release
+  # never ships with only one platform's artifact attached.
+  release:
+    needs: [android, windows]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      # The Android artifact is already just the .apk. The Windows one is
+      # AppPackages' whole per-build "_Test" folder (see AppxBundle=Always
+      # above) - the .msixbundle alone isn't enough to sideload-install;
+      # Install.ps1 and the Dependencies/ redistributables (VCLibs,
+      # WindowsAppRuntime) next to it are what actually make that work, so
+      # the release gets both the bare .msixbundle (for anyone who already
+      # has the dependencies and just wants the package) and a zip of the
+      # whole folder (for an actual first-time sideload install).
+      - name: Collect release assets
+        run: |
+          mkdir -p release-assets
+          assets_dir="$(pwd)/release-assets"
+          cp artifacts/bpmix-android-release-apk/*.apk release-assets/
+          windows_dir=$(find artifacts/bpmix-windows-x64 -mindepth 1 -maxdepth 1 -type d | head -1)
+          cp "$windows_dir"/*.msixbundle release-assets/
+          (cd "$(dirname "$windows_dir")" && zip -rq "$assets_dir/bpmix-windows-x64-sideload.zip" "$(basename "$windows_dir")")
+          ls -la release-assets
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" release-assets/* \
+            --title "${{ github.ref_name }}" \
+            --generate-notes

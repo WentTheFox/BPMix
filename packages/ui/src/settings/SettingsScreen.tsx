@@ -1,4 +1,4 @@
-import { BUILD_COMMIT, BUILD_TIME } from '@bpmix/core';
+import { BUILD_COMMIT, BUILD_TIME, BUILD_VERSION } from '@bpmix/core';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -61,7 +61,7 @@ function LinkRow({ label, value, url, colors }: { label: string; value: string; 
  * even if the Now Playing screen's own volume button is toggled off below
  * it - see AppSettings.showVolumeButtonOnNowPlaying), and the lyrics
  * toggle, with a reset-to-defaults button, plus a static "About" section
- * (author, build time/commit - see @bpmix/core's buildInfo.ts - and
+ * (author, version/build time/commit - see @bpmix/core's buildInfo.ts - and
  * repository/issue links). Reachable from the gear button next to
  * NotificationBell on every screen - see HeaderActions.
  */
@@ -167,6 +167,10 @@ export function SettingsScreen({ colors, settings, onUpdateSettings, onResetSett
 
         <Section title="About" colors={colors}>
           <LinkRow label="Author" value="WentTheFox" url={AUTHOR_URL} colors={colors} />
+          <View style={styles.row}>
+            <Text style={[styles.rowLabel, { color: colors.text }]}>Version</Text>
+            <Text style={[styles.rowValue, { color: colors.subtleText }]}>{BUILD_VERSION}</Text>
+          </View>
           <View style={styles.row}>
             <Text style={[styles.rowLabel, { color: colors.text }]}>Built</Text>
             <Text style={[styles.rowValue, { color: colors.subtleText }]}>{new Date(BUILD_TIME).toLocaleString()}</Text>
