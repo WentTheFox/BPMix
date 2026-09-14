@@ -24,14 +24,15 @@ Notes for tasks that still have to be done/investigated are left here, grouped b
 
 ## Playback state & playlist persistence
 
-  * report playback status to system native media APIs, allow external control - done for Android (`apps/mobile/src/adapters/mediaSessionNotification.android.ts`, using react-native-audio-api's built-in PlaybackNotificationManager - no extra native module needed, just AndroidManifest.xml's permission/service declarations), verified live on-device (lock-screen/notification-shade play/pause/next/previous all control real playback, title/artist/art/progress all report correctly). Also done for web (`apps/web/src/adapters/mediaSessionNotification.ts`, using the browser's `navigator.mediaSession` API directly - no extra dependency needed), verified live in-browser (metadata/artwork/playbackState/position all report correctly and flip with real play/pause). Still needed: Windows (SMTC, likely its own native module given Windows already has its own audio engine adapter, not react-native-audio-api) - `apps/mobile/src/adapters/mediaSessionNotification.windows.ts` is currently a no-op placeholder.
+* report playback status to system native media APIs, allow external control - done for Android (`apps/mobile/src/adapters/mediaSessionNotification.android.ts`, using react-native-audio-api's built-in PlaybackNotificationManager - no extra native module needed, just AndroidManifest.xml's permission/service declarations), verified live on-device (lock-screen/notification-shade play/pause/next/previous all control real playback, title/artist/art/progress all report correctly). Also done for web (`apps/web/src/adapters/mediaSessionNotification.ts`, using the browser's `navigator.mediaSession` API directly - no extra dependency needed), verified live in-browser (metadata/artwork/playbackState/position all report correctly and flip with real play/pause). Still needed: Windows (SMTC, likely its own native module given Windows already has its own audio engine adapter, not react-native-audio-api) - `apps/mobile/src/adapters/mediaSessionNotification.windows.ts` is currently a no-op placeholder.
+* Last.fm scrobbling
 
 ## Track metadata
 
-  * audio files should be displayed with their ID3 metadata intact, cover art on the left, title on one line, artist(s) (multiple are stored with a delimiter), and album name under it, standard stuff, along with song length
-  * we can scan audio metadata asynchronously and update it as playback progresses, showing only the filename until this is done
-  * tie metadata to file hash in case the song file changes on disk without a file name change
-  * display live waveform of the current and next song
+* audio files should be displayed with their ID3 metadata intact, cover art on the left, title on one line, artist(s) (multiple are stored with a delimiter), and album name under it, standard stuff, along with song length
+* we can scan audio metadata asynchronously and update it as playback progresses, showing only the filename until this is done
+* tie metadata to file hash in case the song file changes on disk without a file name change
+* display live waveform of the current and next song
 
 ## UI/UX improvements
 
@@ -39,10 +40,12 @@ Notes for tasks that still have to be done/investigated are left here, grouped b
 * Store 5-15s of audio data alongside file metadata records using the most space efficient encoding method to make audio playback on song press more responsive, swap out to the real track seamlessly once it's loaded
 * Settings toggle to display a single disk visualization at a time only, handle track switching and prelading gracefully still
 * Allow access to the now playing controls (specifically volume, repeat, and shuffle) even with no playlist or song loaded, or an empty library
+* Remove the "use Dockerized server" from the web UI when the user is already using the dockerized servers
 
 ## new features
 
 * Support for embedded track id3 lyrics/syncedlyrics
+* Playlist editor - be able to add songs to the start OR end of playlists, file paths relative to the m3u8 file
 * add an lrc syncing UI for songs with nt synced plaintext lyrics, or a resyn option that reconstructs the plain lyrics from the lrc file (tap to advance sync, swipe up to go bac to previous entry/start on first entry, swipe left to remove a line, swipe right to insert a break) with onscreen controls and instructions, as well as step 5-10seconds buttons forwards/backwards
   * this same editor should also cover the multi-language case: a track's native-language .lrc is sometimes itself unsynced (plain text) while its `<track>.<lang>.lrc` translation sibling (see `matchTranslationLines`/`loadAssignedLyrics` in `packages/core/src/lyrics/`) is fully synced - real example found on-device, "Ester Dean - Rio Music From The Motion Picture/Take You To Rio.lrc" (native, `[lang:pt]`, plain text) vs its `.en.lrc` (synced). Today BPMix just shows the unsynced native text and silently drops the synced translation in this case (a deliberate, simple choice for now). The editor should let the user manually sync the native lyrics later using the translation's existing timestamps as a starting reference/guide (or otherwise carry the translation's timing over) instead of that being a dead end
   * add a separate time adjust mode, sometimes lyrics just star at different times but other timings might already be consistent, for simple cases like this we can just shift all time entries by a customizable amount instead of having to resync the whole song
