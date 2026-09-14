@@ -8,4 +8,11 @@ services:
       - '8080:8080'
     volumes:
       - ~/Music:/music/MyLibrary:ro
+      # A folder of .lrc files with no matching audio - list its name in
+      # BPMIX_LYRICS_ROOTS (comma-separated for more than one) so the client
+      # treats it as a lyrics scope instead of a permanently-empty library.
+      # See apps/server/README.md.
+      # - ~/Music/Lyrics:/music/Lyrics:ro
+    # environment:
+    #   BPMIX_LYRICS_ROOTS: Lyrics
     restart: unless-stopped

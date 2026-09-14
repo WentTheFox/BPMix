@@ -5,6 +5,7 @@ export interface DiscoveredRoot {
   id: string;
   displayName: string;
   absolutePath: string;
+  kind: 'library' | 'lyrics';
 }
 
 /**
@@ -13,7 +14,7 @@ export interface DiscoveredRoot {
  * or env var per root needed. Re-scanned per request rather than cached, since
  * a self-hosted library is small and volumes can be added/removed at runtime.
  */
-export async function discoverRoots(baseDir: string): Promise<DiscoveredRoot[]> {
+export async function discoverRoots(baseDir: string, lyricsRootIds: ReadonlySet<string> = new Set()): Promise<DiscoveredRoot[]> {
   let entries;
   try {
     entries = await readdir(baseDir, { withFileTypes: true });
@@ -26,5 +27,6 @@ export async function discoverRoots(baseDir: string): Promise<DiscoveredRoot[]> 
       id: entry.name,
       displayName: entry.name,
       absolutePath: path.join(baseDir, entry.name),
+      kind: lyricsRootIds.has(entry.name) ? ('lyrics' as const) : ('library' as const),
     }));
 }

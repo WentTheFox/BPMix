@@ -377,6 +377,18 @@ function App() {
     ).filter((entry): entry is RootWithLibrary => entry !== null);
     setRootsWithLibrary(withLibrary);
 
+    // A 'lyrics'-kind root can reach listGrantedRoots() without ever going
+    // through addLyricsFolder's own requestRoot('lyrics') gesture - e.g. the
+    // self-hosted server exposing one via BPMIX_LYRICS_ROOTS just by having
+    // the volume mounted (same reasoning as the library auto-scan above).
+    // addLyricsScope is an upsert keyed by rootId+relativePath, so calling it
+    // again for an already-registered scope on every refresh is a no-op.
+    await Promise.all(
+      roots
+        .filter((root) => root.kind === 'lyrics')
+        .map((root) => libraryStore.addLyricsScope({ rootId: root.id, relativePath: '' })),
+    );
+
     // Lyrics scopes are subfolders of an already-granted root (see
     // LyricsScope's doc), so this doesn't need its own root list at all -
     // just walk each configured scope for .lrc files.

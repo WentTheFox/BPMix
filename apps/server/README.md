@@ -67,10 +67,32 @@ Environment variables, all optional:
 | ---------------------- | --------- | ------------------------------------------------------------------------ |
 | `PORT`                | `8080`    | Port the server listens on.                                             |
 | `BPMIX_LIBRARY_ROOT`   | `/music`  | Base directory scanned for library roots (its immediate subdirectories).|
+| `BPMIX_LYRICS_ROOTS`   | *(none)*  | Comma-separated subdirectory names (under `BPMIX_LIBRARY_ROOT`) that hold only `.lrc` files rather than playable tracks — see below. |
 | `BPMIX_WEB_DIST`       | `../web`  | Where the built web app's static files live. Only relevant if you're running `apps/server` outside the Docker image (its Dockerfile stage sets this for you). |
 
 There's no separate per-root configuration — add or remove a folder by
 adding or removing its volume mount and restarting the container.
+
+### Mounting a separate lyrics folder
+
+If your `.lrc` files live in their own folder rather than next to each
+track, mount it as another subdirectory of `BPMIX_LIBRARY_ROOT` and list
+its name in `BPMIX_LYRICS_ROOTS`:
+
+```sh
+docker run -p 8080:8080 \
+  -v ~/Music:/music/MyLibrary \
+  -v ~/Music/Lyrics:/music/Lyrics:ro \
+  -e BPMIX_LYRICS_ROOTS=Lyrics \
+  bpmix
+```
+
+Without `BPMIX_LYRICS_ROOTS`, that mount would show up as its own
+permanently-empty "Lyrics" library. With it, the client recognizes it as a
+lyrics-only scope and matches its `.lrc` files against tracks in every
+other root automatically — no picking a folder from the UI needed (the
+server grants roots via volume mounts, not a user gesture, so there's
+nothing for a folder picker to do here).
 
 ## How the web app finds it
 

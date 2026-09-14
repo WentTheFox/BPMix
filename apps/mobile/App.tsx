@@ -390,6 +390,17 @@ function AppContent() {
     ).filter((entry): entry is RootWithLibrary => entry !== null);
     setRootsWithLibrary(withLibrary);
 
+    // A 'lyrics'-kind root can reach listGrantedRoots() without ever going
+    // through addLyricsFolder's own requestRoot('lyrics') gesture - see
+    // apps/web/src/App.tsx's refresh() for the identical logic/reasoning
+    // (currently only the self-hosted server adapter produces one this way;
+    // a no-op elsewhere since addLyricsScope is an idempotent upsert).
+    await Promise.all(
+      roots
+        .filter((root) => root.kind === 'lyrics')
+        .map((root) => libraryStore.addLyricsScope({ rootId: root.id, relativePath: '' })),
+    );
+
     // Lyrics scopes are subfolders of an already-granted root (see
     // LyricsScope's doc) - see apps/web/src/App.tsx's refresh() for the
     // identical logic/reasoning.

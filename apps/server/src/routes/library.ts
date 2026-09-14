@@ -10,12 +10,19 @@ function toFileRef(rootId: string, relativePath: string, name: string, sizeBytes
   return { id: `${rootId}:${relativePath}`, name, relativePath, sizeBytes, lastModifiedMs };
 }
 
-/** baseDir is the mounted library base (BPMIX_LIBRARY_ROOT); each top-level subdir is a root. */
-export function createLibraryRouter(baseDir: string): Router {
+/**
+ * baseDir is the mounted library base (BPMIX_LIBRARY_ROOT); each top-level
+ * subdir is a root. lyricsRootIds names the subset of those subdirs (from
+ * BPMIX_LYRICS_ROOTS) that hold only .lrc files, not playable tracks - they
+ * come back with kind: 'lyrics' so the client never scans them as a music
+ * library and auto-registers them as a lyrics scope instead (see
+ * GrantedRoot.kind's doc and apps/web/src/App.tsx's refresh()).
+ */
+export function createLibraryRouter(baseDir: string, lyricsRootIds: ReadonlySet<string> = new Set()): Router {
   const router = Router();
 
   async function findRootOrThrow(rootId: string) {
-    const roots = await discoverRoots(baseDir);
+    const roots = await discoverRoots(baseDir, lyricsRootIds);
     const root = roots.find((r) => r.id === rootId);
     if (!root) {
       const err = new Error(`No library root "${rootId}"`);
@@ -27,8 +34,8 @@ export function createLibraryRouter(baseDir: string): Router {
 
   router.get('/roots', async (_req, res, next) => {
     try {
-      const roots = await discoverRoots(baseDir);
-      const body: GrantedRoot[] = roots.map((r) => ({ id: r.id, displayName: r.displayName }));
+      const roots = await discoverRoots(baseDir, lyricsRootIds);
+      const body: GrantedRoot[] = roots.map((r) => ({ id: r.id, displayName: r.displayName, kind: r.kind }));
       res.json(body);
     } catch (err) {
       next(err);
