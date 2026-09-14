@@ -1,15 +1,8 @@
 import type { FileAccess, FileRef } from '../file-access/types';
 import { formatM3u8 } from '../playlist/m3u8';
 import { readTags } from '../metadata/readTags';
+import { isAudioFileName } from './audioFiles';
 import { walkDirectory } from './walk';
-
-/**
- * Best-effort heuristic, not a guarantee of playability - matches whatever
- * react-native-audio-api's underlying decoder actually supports on a given
- * platform. Broad on purpose (a folder full of loose audio files, unlike
- * scanRoot's m3u8-driven discovery, has no other signal to filter on).
- */
-const AUDIO_FILE_EXTENSIONS = ['.mp3', '.m4a', '.aac', '.flac', '.wav', '.ogg', '.opus', '.wma'];
 
 const PLAYLIST_EXTENSIONS = ['.m3u8', '.m3u'];
 
@@ -50,7 +43,7 @@ export async function findPlaylistCandidateTracks(
   folderRelativePath: string,
 ): Promise<PlaylistCandidateTrack[]> {
   const { files } = await walkDirectory(fileAccess, rootId, folderRelativePath || undefined);
-  const audioFiles = files.filter((f) => hasExtension(f.name, AUDIO_FILE_EXTENSIONS) && !hasExtension(f.name, PLAYLIST_EXTENSIONS));
+  const audioFiles = files.filter((f) => isAudioFileName(f.name) && !hasExtension(f.name, PLAYLIST_EXTENSIONS));
 
   return Promise.all(
     audioFiles.map(async (file): Promise<PlaylistCandidateTrack> => {

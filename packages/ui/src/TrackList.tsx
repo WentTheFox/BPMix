@@ -92,7 +92,7 @@ export function TrackList({
               colors={colors}
               onPress={onPressTrack}
               libraryStore={libraryStore}
-              isMissing={missingFileIds?.has(fileId)}
+              isMissing={track.missing || missingFileIds?.has(fileId)}
             />
           );
         }}

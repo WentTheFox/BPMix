@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatM3u8, parseM3u8, resolveM3u8EntryPath } from './m3u8';
+import { formatM3u8, parseM3u8, relativizeM3u8EntryPath, resolveM3u8EntryPath } from './m3u8';
 
 describe('parseM3u8', () => {
   it('parses EXTINF duration and title alongside the path', () => {
@@ -49,6 +49,26 @@ describe('resolveM3u8EntryPath', () => {
 
   it('resolves a playlist at the root with no directory prefix', () => {
     expect(resolveM3u8EntryPath('Mix.m3u8', 'Track.mp3')).toBe('Track.mp3');
+  });
+});
+
+describe('relativizeM3u8EntryPath', () => {
+  it('is the inverse of resolveM3u8EntryPath for a sibling-directory move', () => {
+    const target = 'Artist/Album/Track.mp3';
+    expect(relativizeM3u8EntryPath('Playlists/Mix.m3u8', target)).toBe('../Artist/Album/Track.mp3');
+    expect(resolveM3u8EntryPath('Playlists/Mix.m3u8', relativizeM3u8EntryPath('Playlists/Mix.m3u8', target))).toBe(target);
+  });
+
+  it('stays in the same directory as the playlist when the target is a sibling file', () => {
+    expect(relativizeM3u8EntryPath('Mix.m3u8', 'Track.mp3')).toBe('Track.mp3');
+  });
+
+  it('descends into a subfolder relative to the playlist', () => {
+    expect(relativizeM3u8EntryPath('Mix.m3u8', 'Artist/Track.mp3')).toBe('Artist/Track.mp3');
+  });
+
+  it('shares a common prefix without introducing unnecessary ../ hops', () => {
+    expect(relativizeM3u8EntryPath('Music/Playlists/Mix.m3u8', 'Music/Artist/Track.mp3')).toBe('../Artist/Track.mp3');
   });
 });
 

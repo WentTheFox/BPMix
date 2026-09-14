@@ -6,8 +6,37 @@ import { walkDirectory } from './walk';
 export interface ScanResult {
   playlists: PlaylistRecord[];
   tracks: TrackRecord[];
-  /** Playlist entries that didn't resolve to a file under the root - surfaced for diagnostics, not fatal. */
-  unresolvedEntries: { playlistRelativePath: string; rawPath: string }[];
+  /** Playlist entries that didn't resolve to a file under the root - surfaced for diagnostics, not fatal (each also gets a `missing: true` placeholder TrackRecord - see missingTrackId). */
+  unresolvedEntries: { playlistRelativePath: string; playlistName: string; rawPath: string; resolvedPath: string }[];
+}
+
+/**
+ * Deterministic id for a missing-track placeholder, derived from where it
+ * was expected to be rather than a real FileRef.id (there's no file to have
+ * one) - stable across rescans so the exact same missing entry upserts in
+ * place instead of accumulating a fresh placeholder row every time, and so
+ * "locate this file" (relocateMissingTrack) can be pointed at the same
+ * resolvedPath it was synthesized from.
+ */
+export function missingTrackId(rootId: string, resolvedPath: string): string {
+  return `missing:${rootId}:${resolvedPath}`;
+}
+
+/**
+ * Turns a scan's unresolvedEntries into a notification-ready title/detail
+ * pair (see NotificationCenter.addError) - null when there's nothing to
+ * report. Shared between apps/web and apps/mobile's App.tsx (both call
+ * scanRoot via useLibraryRootActions) so the wording can't drift between
+ * them the way a per-app ad hoc message would.
+ */
+export function describeUnresolvedEntries(
+  unresolvedEntries: ScanResult['unresolvedEntries'],
+  rootDisplayName: string,
+): { title: string; detail: string } | null {
+  if (unresolvedEntries.length === 0) return null;
+  const title = `${unresolvedEntries.length} missing file${unresolvedEntries.length === 1 ? '' : 's'} in "${rootDisplayName}"`;
+  const detail = unresolvedEntries.map((e) => `${e.playlistName}: ${e.rawPath}`).join('\n');
+  return { title, detail };
 }
 
 /**
@@ -34,11 +63,20 @@ export async function scanRoot(fileAccess: FileAccess, store: LibraryStore, root
     const entries = parseM3u8(text);
     const trackFileIds: string[] = [];
 
+    const playlistName = playlistFile.name.replace(/\.m3u8?$/i, '');
+
     for (const entry of entries) {
       const resolvedPath = resolveM3u8EntryPath(playlistFile.relativePath, entry.rawPath);
       const trackFile = filesByRelativePath.get(resolvedPath);
       if (!trackFile) {
-        unresolvedEntries.push({ playlistRelativePath: playlistFile.relativePath, rawPath: entry.rawPath });
+        unresolvedEntries.push({ playlistRelativePath: playlistFile.relativePath, playlistName, rawPath: entry.rawPath, resolvedPath });
+        // A placeholder, not a dropped entry - see TrackRecord.missing's doc.
+        // sizeBytes/lastModifiedMs are 0 (there's no real file to read them
+        // from); relativePath is where it was expected, so trackDisplayName
+        // shows its filename rather than nothing.
+        const id = missingTrackId(rootId, resolvedPath);
+        trackFileIds.push(id);
+        tracksById.set(id, { fileId: id, rootId, relativePath: resolvedPath, sizeBytes: 0, lastModifiedMs: 0, missing: true });
         continue;
       }
       trackFileIds.push(trackFile.id);
@@ -55,7 +93,7 @@ export async function scanRoot(fileAccess: FileAccess, store: LibraryStore, root
       id: playlistFile.id,
       rootId,
       fileId: playlistFile.id,
-      name: playlistFile.name.replace(/\.m3u8?$/i, ''),
+      name: playlistName,
       trackFileIds,
     });
   }

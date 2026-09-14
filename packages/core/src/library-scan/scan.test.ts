@@ -147,7 +147,7 @@ describe('scanRoot', () => {
     expect(store.playlists.get('Playlists/Party Mix.m3u8')?.name).toBe('Party Mix');
   });
 
-  it('surfaces playlist entries that do not resolve to an existing file instead of throwing', async () => {
+  it('surfaces playlist entries that do not resolve to an existing file as a missing-track placeholder instead of dropping them', async () => {
     const fileAccess = new FakeFileAccess({
       'Mix.m3u8': ['Missing.mp3'].join('\n'),
     });
@@ -155,8 +155,13 @@ describe('scanRoot', () => {
 
     const result = await scanRoot(fileAccess, store, 'root-1');
 
-    expect(result.unresolvedEntries).toEqual([{ playlistRelativePath: 'Mix.m3u8', rawPath: 'Missing.mp3' }]);
-    expect(result.playlists[0]!.trackFileIds).toEqual([]);
+    expect(result.unresolvedEntries).toEqual([
+      { playlistRelativePath: 'Mix.m3u8', playlistName: 'Mix', rawPath: 'Missing.mp3', resolvedPath: 'Missing.mp3' },
+    ]);
+    // Still appears in the playlist (as a placeholder), not silently dropped.
+    expect(result.playlists[0]!.trackFileIds).toEqual(['missing:root-1:Missing.mp3']);
+    const placeholder = store.tracks.get('missing:root-1:Missing.mp3');
+    expect(placeholder).toEqual({ fileId: 'missing:root-1:Missing.mp3', rootId: 'root-1', relativePath: 'Missing.mp3', sizeBytes: 0, lastModifiedMs: 0, missing: true });
   });
 
   it('re-scanning an unchanged root is idempotent', async () => {

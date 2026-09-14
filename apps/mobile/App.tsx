@@ -15,10 +15,12 @@ import {
   PlaylistPlayer,
   scanLibraryMetadata,
   scanRoot,
+  trackDisplayName,
 } from '@bpmix/core';
 import {
   AppTitle,
   BackButton,
+  ConfirmDialog,
   CreatePlaylistScreen,
   FolderBrowser,
   FolderPickerButton,
@@ -26,6 +28,7 @@ import {
   HeaderActions,
   HeaderRow,
   LibraryScreen,
+  LocateMissingFileScreen,
   LyricsFolderSection,
   MiniPlayerBar,
   NowPlayingScreen,
@@ -38,6 +41,7 @@ import {
   useCrossfadePlaybackDisplay,
   useLibraryRootActions,
   useMemoryUsageLogging,
+  useMissingTrackRelocation,
   useNotificationCenter,
   useBackNavigation,
   usePlaybackPersistence,
@@ -419,7 +423,10 @@ function AppContent() {
       // never visibly moves at all.
       const lastKnownCount = await libraryStore.getSetting(LYRICS_MATCHED_COUNT_SETTING_KEY);
       setMatchedLyricsCount(lastKnownCount != null ? Number(lastKnownCount) : null);
-      const allTracks = withLibrary.flatMap(({ tracksById }) => [...tracksById.values()]);
+      // A missing-track placeholder (see TrackRecord.missing) has no real
+      // file to match a lyrics scope against - excluded here (and from
+      // scanLibraryMetadata below), same as apps/web/src/App.tsx's refresh().
+      const allTracks = withLibrary.flatMap(({ tracksById }) => [...tracksById.values()].filter((t) => !t.missing));
       // Idle-chunked, same reasoning as scanLibraryMetadata below - matching
       // every track in the library against every .lrc candidate is real
       // synchronous work that shouldn't run straight through and compete
@@ -469,7 +476,7 @@ function AppContent() {
     // wrapper needed here anymore - that API is deprecated on this RN
     // version, and requestIdle already defers past the current interaction
     // on its own.
-    void scanLibraryMetadata(fileAccess, libraryStore, withLibrary.flatMap(({ tracksById }) => [...tracksById.values()]), {
+    void scanLibraryMetadata(fileAccess, libraryStore, withLibrary.flatMap(({ tracksById }) => [...tracksById.values()].filter((t) => !t.missing)), {
       resizer: coverArtResizer,
       // Bumps whatever's actually on screen (now playing + up next) ahead
       // of the rest of the library, evaluated fresh on every step - so a
@@ -659,8 +666,11 @@ function AppContent() {
           setNeedsAllFilesAccess(true);
         }
       },
+      onUnresolvedEntries: (title, detail) => notificationCenter.addError(title, detail),
       browseDeviceStorage,
     });
+
+  const missingTrackRelocation = useMissingTrackRelocation({ fileAccess, rescan, setError });
 
   const {
     playFromTrack,
@@ -895,6 +905,24 @@ function AppContent() {
     );
   }
 
+  if (missingTrackRelocation.locateTarget) {
+    return (
+      <>
+        <AppStatusBar barStyle={statusBarStyle} />
+        <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom, backgroundColor: colors.background }]}>
+          <LocateMissingFileScreen
+            colors={colors}
+            missingTrackName={trackDisplayName(missingTrackRelocation.locateTarget.track)}
+            candidates={missingTrackRelocation.candidates}
+            relocating={missingTrackRelocation.relocating}
+            onSelect={(file) => void missingTrackRelocation.selectCandidate(file)}
+            onCancel={missingTrackRelocation.cancelLocate}
+          />
+        </View>
+      </>
+    );
+  }
+
   if (createPlaylistRootId) {
     const root = grantedRoots.find((r) => r.id === createPlaylistRootId);
     return (
@@ -962,7 +990,9 @@ function AppContent() {
           isLoading={playerState.isLoadingForPlayback}
           textColor={colors.text}
           colors={colors}
-          onPressTrack={(t) => void playFromTrack(playlist, tracksById, t)}
+          onPressTrack={(t) =>
+            t.missing ? missingTrackRelocation.explainMissingTrack(t, playlist.rootId) : void playFromTrack(playlist, tracksById, t)
+          }
           libraryStore={libraryStore}
           initialNumToRender={20}
           missingFileIds={missingFileIds}
@@ -1019,6 +1049,16 @@ function AppContent() {
         {miniPlayerBar}
         {nowPlayingScreen}
         {settingsScreen}
+        {missingTrackRelocation.explainTarget && (
+          <ConfirmDialog
+            colors={colors}
+            title="Missing File"
+            message={`BPMix couldn't find "${trackDisplayName(missingTrackRelocation.explainTarget.track)}" at its expected location (${missingTrackRelocation.explainTarget.track.relativePath}). It may have been moved, renamed, or deleted.`}
+            confirmLabel="Locate File…"
+            onCancel={missingTrackRelocation.cancelExplain}
+            onConfirm={missingTrackRelocation.beginLocate}
+          />
+        )}
       </View>
     </>
   );

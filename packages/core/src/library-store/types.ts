@@ -1,12 +1,24 @@
 import type { CoverArtBytes, TrackMetadata } from '../metadata/types';
 
 export interface TrackRecord {
-  /** Matches FileRef.id. */
+  /** Matches FileRef.id. For a missing track (see `missing` below) this is a synthetic id derived from rootId+relativePath instead - never a real FileRef.id, since no file exists to have one. */
   fileId: string;
   rootId: string;
   relativePath: string;
   sizeBytes: number;
   lastModifiedMs: number;
+  /**
+   * True for a placeholder standing in for a playlist entry that scanRoot
+   * couldn't resolve to a real file (relativePath is the path it expected
+   * to find, for display and for "locate this file" to search from) -
+   * without this, an unresolved entry used to just silently vanish from the
+   * playlist instead of showing up at all (see scan.ts's ScanResult.
+   * unresolvedEntries, which this is built from). Never true for a track
+   * that resolved fine at scan time and later failed to *decode* at play
+   * time - that's a separate, playback-time-only condition surfaced via
+   * TrackRow.isMissing/missingFileIds instead, not persisted here.
+   */
+  missing?: boolean;
 }
 
 export interface PlaylistRecord {

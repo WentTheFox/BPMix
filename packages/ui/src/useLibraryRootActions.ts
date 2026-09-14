@@ -1,4 +1,5 @@
 import {
+  describeUnresolvedEntries,
   errorMessage,
   logLibraryAction,
   scanRoot,
@@ -39,6 +40,16 @@ export interface LibraryRootActionsInput {
    * just without this Android-only shortcut.
    */
   browseDeviceStorage?: () => Promise<{ path: string } | null>;
+  /**
+   * Reports a scanRoot() call's unresolved playlist entries (see
+   * describeUnresolvedEntries) after addFolder or a manual rescan - always
+   * an 'error'-kind notification (turns the bell red), since a missing file
+   * needs the user to either fix the playlist or use each track's own
+   * "locate this file" action, not something to silently note and move on
+   * from. Omitted entirely by a caller that doesn't have a NotificationCenter
+   * to report through.
+   */
+  onUnresolvedEntries?: (title: string, detail: string) => void;
 }
 
 export interface LibraryRootActions {
@@ -60,7 +71,8 @@ export interface LibraryRootActions {
  * optional seams rather than duplicated per app.
  */
 export function useLibraryRootActions(input: LibraryRootActionsInput): LibraryRootActions {
-  const { fileAccess, libraryStore, grantedRoots, refresh, setError, onAddFolderStart, onAddFolderError, browseDeviceStorage } = input;
+  const { fileAccess, libraryStore, grantedRoots, refresh, setError, onAddFolderStart, onAddFolderError, browseDeviceStorage, onUnresolvedEntries } =
+    input;
 
   const [busyRootId, setBusyRootId] = useState<string | null>(null);
   const [busyLyricsScopeKey, setBusyLyricsScopeKey] = useState<string | null>(null);
@@ -72,8 +84,10 @@ export function useLibraryRootActions(input: LibraryRootActionsInput): LibraryRo
       const root = await fileAccess.requestRoot();
       if (!root) return; // user cancelled the picker
       setBusyRootId(root.id);
-      await scanRoot(fileAccess, libraryStore, root.id);
+      const result = await scanRoot(fileAccess, libraryStore, root.id);
       await refresh();
+      const description = describeUnresolvedEntries(result.unresolvedEntries, root.displayName);
+      if (description) onUnresolvedEntries?.(description.title, description.detail);
       logLibraryAction('addFolder', { rootId: root.id });
     } catch (err) {
       setError(errorMessage(err));
@@ -82,15 +96,18 @@ export function useLibraryRootActions(input: LibraryRootActionsInput): LibraryRo
     } finally {
       setBusyRootId(null);
     }
-  }, [fileAccess, libraryStore, refresh, setError, onAddFolderStart, onAddFolderError]);
+  }, [fileAccess, libraryStore, refresh, setError, onAddFolderStart, onAddFolderError, onUnresolvedEntries]);
 
   const rescan = useCallback(
     async (rootId: string) => {
       setError(null);
       setBusyRootId(rootId);
       try {
-        await scanRoot(fileAccess, libraryStore, rootId);
+        const result = await scanRoot(fileAccess, libraryStore, rootId);
         await refresh();
+        const rootDisplayName = grantedRoots.find((r) => r.id === rootId)?.displayName ?? rootId;
+        const description = describeUnresolvedEntries(result.unresolvedEntries, rootDisplayName);
+        if (description) onUnresolvedEntries?.(description.title, description.detail);
         logLibraryAction('rescan', { rootId });
       } catch (err) {
         setError(errorMessage(err));
@@ -99,7 +116,7 @@ export function useLibraryRootActions(input: LibraryRootActionsInput): LibraryRo
         setBusyRootId(null);
       }
     },
-    [fileAccess, libraryStore, refresh, setError],
+    [fileAccess, libraryStore, grantedRoots, refresh, setError, onUnresolvedEntries],
   );
 
   const removeRoot = useCallback(

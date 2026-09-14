@@ -11,9 +11,11 @@ import {
   PlaylistPlayer,
   scanLibraryMetadata,
   scanRoot,
+  trackDisplayName,
 } from '@bpmix/core';
 import {
   BackButton,
+  ConfirmDialog,
   CreatePlaylistScreen,
   FolderBrowser,
   FolderPickerButton,
@@ -21,6 +23,7 @@ import {
   getAccentColorHex,
   HeaderRow,
   LibraryScreen,
+  LocateMissingFileScreen,
   LyricsFolderSection,
   MiniPlayerBar,
   NowPlayingScreen,
@@ -33,6 +36,7 @@ import {
   useCrossfadePlaybackDisplay,
   useLibraryRootActions,
   useMemoryUsageLogging,
+  useMissingTrackRelocation,
   useNotificationCenter,
   useBackNavigation,
   usePlaybackPersistence,
@@ -412,7 +416,11 @@ function App() {
       // never visibly moves at all.
       const lastKnownCount = await libraryStore.getSetting(LYRICS_MATCHED_COUNT_SETTING_KEY);
       setMatchedLyricsCount(lastKnownCount != null ? Number(lastKnownCount) : null);
-      const allTracks = withLibrary.flatMap(({ tracksById }) => [...tracksById.values()]);
+      // A missing-track placeholder (see TrackRecord.missing) has no real
+      // file to match a lyrics scope against - it's excluded here (and from
+      // scanLibraryMetadata below) rather than let those scans fail trying
+      // to read a file that was never there in the first place.
+      const allTracks = withLibrary.flatMap(({ tracksById }) => [...tracksById.values()].filter((t) => !t.missing));
       // Idle-chunked, same reasoning as scanLibraryMetadata below - matching
       // every track in the library against every .lrc candidate is real
       // synchronous work that shouldn't run straight through and compete
@@ -463,7 +471,7 @@ function App() {
     // wrapper needed here anymore - that API is deprecated on this RN
     // version, and requestIdle already defers past the current interaction
     // on its own.
-    void scanLibraryMetadata(backgroundFileAccess, libraryStore, withLibrary.flatMap(({ tracksById }) => [...tracksById.values()]), {
+    void scanLibraryMetadata(backgroundFileAccess, libraryStore, withLibrary.flatMap(({ tracksById }) => [...tracksById.values()].filter((t) => !t.missing)), {
       resizer: coverArtResizer,
       // Bumps whatever's actually on screen (now playing + up next) ahead
       // of the rest of the library, evaluated fresh on every step - so a
@@ -601,7 +609,16 @@ function App() {
   // GrantedRoot.kind now lets refresh() skip exactly that, so this can just
   // grant its own root like addFolder does.
   const { addFolder, rescan, removeRoot, addLyricsFolder, rescanLyricsScope, removeLyricsScope, busyRootId, busyLyricsScopeKey } =
-    useLibraryRootActions({ fileAccess, libraryStore, grantedRoots, refresh, setError });
+    useLibraryRootActions({
+      fileAccess,
+      libraryStore,
+      grantedRoots,
+      refresh,
+      setError,
+      onUnresolvedEntries: (title, detail) => notificationCenter.addError(title, detail),
+    });
+
+  const missingTrackRelocation = useMissingTrackRelocation({ fileAccess, rescan, setError });
 
   const {
     playFromTrack,
@@ -811,6 +828,21 @@ function App() {
     );
   }
 
+  if (missingTrackRelocation.locateTarget) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <LocateMissingFileScreen
+          colors={colors}
+          missingTrackName={trackDisplayName(missingTrackRelocation.locateTarget.track)}
+          candidates={missingTrackRelocation.candidates}
+          relocating={missingTrackRelocation.relocating}
+          onSelect={(file) => void missingTrackRelocation.selectCandidate(file)}
+          onCancel={missingTrackRelocation.cancelLocate}
+        />
+      </View>
+    );
+  }
+
   if (createPlaylistTarget) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -849,7 +881,9 @@ function App() {
           isLoading={playerState.isLoadingForPlayback}
           textColor={colors.text}
           colors={colors}
-          onPressTrack={(t) => void playFromTrack(playlist, tracksById, t)}
+          onPressTrack={(t) =>
+            t.missing ? missingTrackRelocation.explainMissingTrack(t, playlist.rootId) : void playFromTrack(playlist, tracksById, t)
+          }
           libraryStore={libraryStore}
           initialNumToRender={30}
           missingFileIds={missingFileIds}
@@ -932,6 +966,16 @@ function App() {
       {miniPlayerBar}
       {nowPlayingScreen}
       {settingsScreen}
+      {missingTrackRelocation.explainTarget && (
+        <ConfirmDialog
+          colors={colors}
+          title="Missing File"
+          message={`BPMix couldn't find "${trackDisplayName(missingTrackRelocation.explainTarget.track)}" at its expected location (${missingTrackRelocation.explainTarget.track.relativePath}). It may have been moved, renamed, or deleted.`}
+          confirmLabel="Locate File…"
+          onCancel={missingTrackRelocation.cancelExplain}
+          onConfirm={missingTrackRelocation.beginLocate}
+        />
+      )}
     </View>
   );
 }

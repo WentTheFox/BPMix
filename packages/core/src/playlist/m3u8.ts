@@ -96,3 +96,29 @@ export function resolveM3u8EntryPath(playlistRelativePath: string, rawPath: stri
   }
   return resolved.join('/');
 }
+
+/**
+ * Inverse of resolveM3u8EntryPath - expresses a root-relative target path as
+ * a path relative to the playlist's own location, for writing a corrected
+ * entry back into the m3u8 (see relocateMissingTrack). Always a plain
+ * forward-slashed relative path, never absolute - a rewritten entry doesn't
+ * need to preserve whatever absolute-path quirk the original happened to be
+ * written with, now that the target's real root-relative location is known.
+ */
+export function relativizeM3u8EntryPath(playlistRelativePath: string, targetRelativePath: string): string {
+  const playlistDirParts = playlistRelativePath.split('/').slice(0, -1);
+  const targetParts = targetRelativePath.split('/');
+
+  let commonLength = 0;
+  while (
+    commonLength < playlistDirParts.length &&
+    commonLength < targetParts.length - 1 &&
+    playlistDirParts[commonLength] === targetParts[commonLength]
+  ) {
+    commonLength++;
+  }
+
+  const ups = playlistDirParts.slice(commonLength).map(() => '..');
+  const downs = targetParts.slice(commonLength);
+  return [...ups, ...downs].join('/');
+}
