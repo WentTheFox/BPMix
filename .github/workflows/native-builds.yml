@@ -14,7 +14,13 @@ jobs:
   android:
     runs-on: ubuntu-latest
     steps:
+      # Full history, not the default shallow clone - apps/mobile/android/
+      # app/build.gradle's versionCode is `git rev-list --count HEAD`,
+      # which needs it, and buildInfo.ts's git describe needs real tag
+      # history too (though GIT_VERSION_OVERRIDE below covers that one).
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
         with:

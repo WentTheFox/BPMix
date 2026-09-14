@@ -72,6 +72,35 @@ def enableProguardInReleaseBuilds = false
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
+/**
+ * versionCode/versionName derived straight from git rather than hand-
+ * bumped constants - an F-Droid (or any store) submission needs
+ * versionCode to strictly increase release over release, and a hardcoded
+ * "1"/"1.0" here never actually reflected that. `git rev-list --count
+ * HEAD` is monotonic across the whole history regardless of branching, so
+ * it can't accidentally go backwards or collide the way a manually
+ * maintained counter could. Independent of packages/core/src/buildInfo.ts's
+ * own git-describe/rev-parse (see scripts/generate-build-info.mjs) on
+ * purpose - versionCode correctness matters enough (a wrong value can
+ * block a real store update) that it shouldn't depend on some separate JS
+ * pre-hook having already run first; a plain `./gradlew assembleRelease`
+ * (or Android Studio's Run button, which never touches pnpm scripts at
+ * all) still gets a correct value this way. Needs full git history to be
+ * present - CI's checkout step uses fetch-depth: 0 for exactly this.
+ */
+def gitCommand(List<String> args) {
+    try {
+        def process = args.execute(null, rootDir)
+        process.waitFor()
+        def output = process.inputStream.text.trim()
+        return process.exitValue() == 0 && output ? output : null
+    } catch (Exception ignored) {
+        return null
+    }
+}
+def gitVersionCode = (gitCommand(['git', 'rev-list', '--count', 'HEAD']) ?: '1') as Integer
+def gitVersionName = gitCommand(['git', 'describe', '--tags', '--always']) ?: '0.0.0-dev'
+
 android {
     ndkVersion = rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
@@ -82,8 +111,8 @@ android {
         applicationId "tf.went.bpmix"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode gitVersionCode
+        versionName gitVersionName
     }
     signingConfigs {
         debug {
