@@ -28,3 +28,24 @@ export async function resolveSafePath(rootAbsolutePath: string, relativePath: st
   }
   return realJoined;
 }
+
+/**
+ * Like resolveSafePath, but for a target file that doesn't need to exist
+ * yet (writeFileText's create-or-overwrite contract - a new playlist, or a
+ * relocated entry rewritten into an existing one). Only relativePath's
+ * PARENT directory has to already exist: that's the part resolved (and
+ * symlink-checked) via resolveSafePath, same as any read. The final path
+ * segment is validated separately (rejecting empty/"."/".." - a bare
+ * path.posix.basename doesn't rule out a lone ".." segment on its own)
+ * and joined back on afterward, which can't escape parentDir since it's
+ * used as a single literal segment, never re-split on "/".
+ */
+export async function resolveSafeWritePath(rootAbsolutePath: string, relativePath: string): Promise<string> {
+  const dir = path.posix.dirname(relativePath);
+  const fileName = path.posix.basename(relativePath);
+  if (!fileName || fileName === '.' || fileName === '..') {
+    throw new UnsafePathError(`Invalid file name in "${relativePath}"`);
+  }
+  const parentDir = await resolveSafePath(rootAbsolutePath, dir === '.' ? undefined : dir);
+  return path.join(parentDir, fileName);
+}

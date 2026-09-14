@@ -1,10 +1,10 @@
-import { readdir, stat } from 'node:fs/promises';
+import { readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { Router } from 'express';
+import express, { Router } from 'express';
 import type { ErrorRequestHandler } from 'express';
 import type { DirectoryEntry, FileRef, GrantedRoot } from '@bpmix/core';
 import { discoverRoots } from '../rootDiscovery.js';
-import { resolveSafePath, UnsafePathError } from '../pathSafety.js';
+import { resolveSafePath, resolveSafeWritePath, UnsafePathError } from '../pathSafety.js';
 
 function toFileRef(rootId: string, relativePath: string, name: string, sizeBytes: number, lastModifiedMs: number): FileRef {
   return { id: `${rootId}:${relativePath}`, name, relativePath, sizeBytes, lastModifiedMs };
@@ -69,6 +69,28 @@ export function createLibraryRouter(baseDir: string, lyricsRootIds: ReadonlySet<
         }),
       );
       res.json(entries);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // text() (not json()) since the request body is the playlist file's raw
+  // .m3u8 contents, not a JSON envelope - matches how it's read back (a
+  // plain GET through the /library static mount above returns raw bytes
+  // too). limit is generous but bounded - this only ever writes a
+  // human-curated .m3u8 playlist (a list of paths), never track audio.
+  router.put('/roots/:rootId/file', express.text({ type: '*/*', limit: '2mb' }), async (req, res, next) => {
+    try {
+      const root = await findRootOrThrow(req.params.rootId);
+      const relativePath = typeof req.query.path === 'string' ? req.query.path : '';
+      if (!relativePath) {
+        const err = new Error('Missing "path" query parameter') as Error & { status?: number };
+        err.status = 400;
+        throw err;
+      }
+      const targetPath = await resolveSafeWritePath(root.absolutePath, relativePath);
+      await writeFile(targetPath, req.body, 'utf8');
+      res.status(204).end();
     } catch (err) {
       next(err);
     }
