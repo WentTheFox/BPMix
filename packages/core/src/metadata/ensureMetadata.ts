@@ -1,7 +1,7 @@
 import type { FileAccess, FileRef } from '../file-access/types';
 import type { LibraryStore } from '../library-store/types';
 import type { CoverArtResizer } from './coverArtResizer';
-import { readTags } from './readTags';
+import { readTags, readTagsFromUrl } from './readTags';
 import type { CoverArtBytes, TrackMetadata } from './types';
 
 /** Bumped whenever readTags' behavior changes, so already-scanned files get re-read instead of keeping a stale result forever - same role as ANALYSIS_ALGORITHM_VERSION. (v2: also extracts cover art. v3: downscales/cuts off oversized art instead of storing it verbatim - a bump here is what gets already-v2-scanned tracks' oversized art reprocessed, not just newly-scanned ones.) */
@@ -96,8 +96,13 @@ export async function ensureTrackMetadata(
   if (isMetadataFresh(existing, ref)) {
     return existing;
   }
-  const bytes = await fileAccess.readFileBytes(ref);
-  const tags = await readTags(bytes);
+  // Prefer a ranged HTTP read over the file's full bytes when the adapter
+  // can give us one - see FileAccess.getStreamUrl's doc. Metadata scanning
+  // otherwise means downloading every track's entire audio payload just to
+  // read a header, which is both wasted bandwidth and (self-hosted, over a
+  // real network) the dominant cost of an initial library scan.
+  const streamUrl = fileAccess.getStreamUrl?.(ref);
+  const tags = streamUrl ? await readTagsFromUrl(streamUrl) : await readTags(await fileAccess.readFileBytes(ref));
   const result: TrackMetadata = {
     fileId: ref.id,
     title: tags?.title ?? null,

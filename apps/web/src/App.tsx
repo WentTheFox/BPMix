@@ -53,7 +53,7 @@ import type { DimensionValue } from 'react-native';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { createAudioEngine } from './adapters/audioEngine';
 import { createCoverArtResizer } from './adapters/coverArtResizer';
-import { createCompositeFileAccess, isServerBackendAvailable } from './adapters/fileAccess.composite';
+import { createCompositeFileAccess, isServerBackendAvailable, isServerRootId } from './adapters/fileAccess.composite';
 import { createLibraryStore } from './adapters/libraryStore';
 import { useMediaSessionNotification } from './adapters/mediaSessionNotification';
 import { isRunningInstalled, promptInstall, usePwaInstallAvailable } from './adapters/pwaInstall';
@@ -347,16 +347,28 @@ function App() {
                 libraryStore.listPlaylists(root.id),
                 libraryStore.listTracks(root.id),
               ]);
-              if (playlists.length === 0 && tracks.length === 0) {
-                // A root can reach listGrantedRoots() without ever going through
-                // addFolder's explicit requestRoot+scanRoot flow - e.g. a
-                // composite-adapter root the self-hosted server exposes just by
-                // having a volume mounted. Scan it now instead of silently
-                // showing an empty library until the user notices and clicks
-                // Rescan themselves. Uses backgroundFileAccess, not fileAccess -
-                // refresh() itself runs automatically (on mount, after restore)
-                // with no user gesture behind it, same reasoning as
-                // matchLibraryLyrics/scanLibraryMetadata above.
+              // A root can reach listGrantedRoots() without ever going through
+              // addFolder's explicit requestRoot+scanRoot flow - e.g. a
+              // composite-adapter root the self-hosted server exposes just by
+              // having a volume mounted. Scan it now instead of silently
+              // showing an empty library until the user notices and clicks
+              // Rescan themselves. Uses backgroundFileAccess, not fileAccess -
+              // refresh() itself runs automatically (on mount, after restore)
+              // with no user gesture behind it, same reasoning as
+              // matchLibraryLyrics/scanLibraryMetadata above.
+              //
+              // A server root is always rescanned here, not just when its
+              // cache is empty - unlike a browser-granted local folder,
+              // there's no OS permission prompt to worry about triggering
+              // outside a user gesture, and a self-hosted library's files
+              // can change on disk with zero app interaction (e.g. Syncthing
+              // dropping a new track straight into the mounted folder), so
+              // trusting the cache indefinitely there just means newly
+              // synced tracks silently never show up until someone happens
+              // to click Rescan. rootDiscovery.ts's own doc notes the same
+              // reasoning for why the server re-lists roots on every request
+              // rather than caching them either.
+              if ((playlists.length === 0 && tracks.length === 0) || isServerRootId(root.id)) {
                 await scanRoot(backgroundFileAccess, libraryStore, root.id);
                 [playlists, tracks] = await Promise.all([
                   libraryStore.listPlaylists(root.id),

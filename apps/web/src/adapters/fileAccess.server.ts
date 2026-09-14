@@ -48,6 +48,16 @@ export function createServerFileAccess(): FileAccess {
       return res.json();
     },
 
+    getStreamUrl(ref: FileRef): string {
+      const [rootId] = ref.id.split(':');
+      // Absolute (scheme + origin), not relative - jsmediatags' bundled
+      // XhrFileReader only recognizes a location as URL-fetchable when it
+      // matches `scheme://...` (see readTagsFromUrl's doc); a bare
+      // "/library/..." path would instead be treated as an in-memory byte
+      // array location and fail.
+      return new URL(fileUrl(rootId!, ref.relativePath), window.location.origin).toString();
+    },
+
     async readFileBytes(ref: FileRef): Promise<ArrayBuffer> {
       const [rootId] = ref.id.split(':');
       const res = await fetch(fileUrl(rootId!, ref.relativePath));

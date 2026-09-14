@@ -114,6 +114,22 @@ export interface FileAccess {
   readFileText(ref: FileRef, opts?: FileAccessCallOptions): Promise<string>;
 
   /**
+   * When present, an absolute, same-origin HTTP(S) URL the file's bytes can
+   * be fetched from with Range support - used by ensureTrackMetadata to
+   * read only the small header/footer chunks tag parsing needs (via
+   * readTagsFromUrl) instead of a full readFileBytes download. Only
+   * fileAccess.server.ts implements this today (its files are already
+   * served over HTTP by apps/server); every other adapter reads local
+   * device storage with no HTTP URL to give, and omits this entirely -
+   * ensureTrackMetadata falls back to readFileBytes for those. Also
+   * declared optional per-call (not just per-adapter) since the composite
+   * web adapter (fileAccess.composite.ts) implements this once across both
+   * a server-backed and a local, no-URL backend - it returns undefined for
+   * any ref that resolves to the local one.
+   */
+  getStreamUrl?(ref: FileRef): string | undefined;
+
+  /**
    * Creates (or overwrites) a text file at `relativePath` under `rootId` -
    * the one write operation this interface exposes, added specifically for
    * playlist-from-folder generation (see createPlaylistFromFolder). The

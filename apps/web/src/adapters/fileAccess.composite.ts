@@ -64,6 +64,18 @@ export async function isServerBackendAvailable(): Promise<boolean> {
   return serverAvailable;
 }
 
+/**
+ * True for a root id this composite adapter issued for a server-backed
+ * root (an operator-mounted Docker volume, exposed via fileAccess.server.ts)
+ * as opposed to a browser-granted local folder. Used by App.tsx's refresh()
+ * to always rescan server roots rather than trusting the cached track list -
+ * see that call site's doc for why server roots specifically get this
+ * treatment.
+ */
+export function isServerRootId(rootId: string): boolean {
+  return decode(rootId).scheme === SERVER;
+}
+
 export function createCompositeFileAccess(): FileAccess {
   const browser = createFileAccess();
   const server = createServerFileAccess();
@@ -124,6 +136,19 @@ export function createCompositeFileAccess(): FileAccess {
       const [innerRootId] = innerId.split(':');
       const adapter = scheme === SERVER ? server : browser;
       return adapter.readFileText({ ...ref, id: innerRootId! }, opts);
+    },
+
+    // Only server-backed refs have an HTTP URL to give - the browser
+    // adapter reads local disk via the File System Access API, with
+    // nothing to route a ranged fetch through. Omitting this for local
+    // refs (rather than returning something unusable) is what makes
+    // ensureTrackMetadata's `getStreamUrl?.(ref)` check correctly fall
+    // back to a full readFileBytes for those.
+    getStreamUrl(ref: FileRef): string | undefined {
+      const { scheme, innerId } = decode(ref.id);
+      if (scheme !== SERVER) return undefined;
+      const [innerRootId] = innerId.split(':');
+      return server.getStreamUrl!({ ...ref, id: innerRootId! });
     },
 
     async writeFileText(rootId: string, relativePath: string, contents: string): Promise<void> {

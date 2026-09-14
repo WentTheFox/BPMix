@@ -41,6 +41,26 @@ function parseCoverArt(picture: PictureType | undefined): ParsedTags['coverArt']
   return { mimeType: normalizeMimeType(picture.format), data: new Uint8Array(picture.data) };
 }
 
+function readWith(location: number[] | string): Promise<ParsedTags | null> {
+  return new Promise((resolve) => {
+    new Reader(location)
+      .setTagsToRead(['title', 'artist', 'album', 'picture'])
+      .read({
+        onSuccess: (tag) => {
+          const { title, artist, album, picture } = tag.tags;
+          resolve({
+            title: title?.trim() || null,
+            artists: artist ? splitArtists(artist) : [],
+            album: album?.trim() || null,
+            coverArt: parseCoverArt(picture),
+          });
+        },
+        // No supported tag found (or a malformed one) - that's "no metadata for this file", not a scan failure.
+        onError: () => resolve(null),
+      });
+  });
+}
+
 /**
  * Reads ID3v1/ID3v2/MP4/FLAC tags via jsmediatags rather than hand-rolling
  * a binary tag parser, since the format's edge cases (synchsafe sizes,
@@ -57,22 +77,21 @@ function parseCoverArt(picture: PictureType | undefined): ParsedTags['coverArt']
  * which an ArrayBuffer/Uint8Array satisfies.
  */
 export function readTags(fileBytes: ArrayBuffer): Promise<ParsedTags | null> {
-  const byteArray = Array.from(new Uint8Array(fileBytes));
-  return new Promise((resolve) => {
-    new Reader(byteArray)
-      .setTagsToRead(['title', 'artist', 'album', 'picture'])
-      .read({
-        onSuccess: (tag) => {
-          const { title, artist, album, picture } = tag.tags;
-          resolve({
-            title: title?.trim() || null,
-            artists: artist ? splitArtists(artist) : [],
-            album: album?.trim() || null,
-            coverArt: parseCoverArt(picture),
-          });
-        },
-        // No supported tag found (or a malformed one) - that's "no metadata for this file", not a scan failure.
-        onError: () => resolve(null),
-      });
-  });
+  return readWith(Array.from(new Uint8Array(fileBytes)));
+}
+
+/**
+ * Same as readTags, but for a same-origin HTTP(S) URL instead of
+ * already-in-memory bytes - used by ensureTrackMetadata when the
+ * FileAccess adapter exposes one (currently only fileAccess.server.ts).
+ * jsmediatags' bundled XhrFileReader detects a plain URL string
+ * (`canReadFile` matches `scheme://`) and issues ranged GET requests
+ * (Range: bytes=...) for only the header/footer chunks tag parsing
+ * actually touches, rather than downloading the whole audio file - the
+ * server's express.static mount already answers those with 206 Partial
+ * Content. Falls back to a full GET only if the server doesn't honor
+ * Range (see XhrFileReader's own _fetchSizeWithGetRequest).
+ */
+export function readTagsFromUrl(url: string): Promise<ParsedTags | null> {
+  return readWith(url);
 }
