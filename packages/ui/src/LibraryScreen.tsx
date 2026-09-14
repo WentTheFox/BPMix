@@ -29,6 +29,15 @@ export interface LibraryScreenProps {
    * FolderPickerButton's doc.
    */
   isAddingFolder?: boolean;
+  /**
+   * True until the initial background refresh (see App.tsx's isLoadingRoots
+   * doc) resolves rootsWithLibrary at least once. Shows a "Loading your
+   * library…" placeholder instead of a bare empty list - without it, the
+   * first few seconds after launch (RestoringScreen dismisses well before
+   * this finishes, especially for a self-hosted server root needing a real
+   * HTTP round trip) looked identical to "no folders added yet".
+   */
+  isLoadingRoots?: boolean;
   onAddFolder: () => Promise<void>;
   onRescan: (rootId: string) => void;
   /** Revokes the root's grant and drops it from the library screen - if omitted, no Remove action is shown for roots. */
@@ -68,6 +77,7 @@ export function LibraryScreen({
   rootsWithLibrary,
   busyRootId,
   isAddingFolder = false,
+  isLoadingRoots = false,
   onAddFolder,
   onRescan,
   onRemoveRoot,
@@ -103,6 +113,7 @@ export function LibraryScreen({
         style={[styles.list, listStyle]}
         data={rootsWithLibrary}
         keyExtractor={({ root }) => root.id}
+        ListEmptyComponent={isLoadingRoots ? <Text style={[styles.empty, { color: colors.subtleText }]}>Loading your library…</Text> : null}
         renderItem={({ item: { root, playlists, tracksById } }) => (
           <View style={styles.rootSection}>
             <View style={styles.rootHeader}>

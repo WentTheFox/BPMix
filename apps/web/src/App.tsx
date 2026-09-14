@@ -167,6 +167,17 @@ function App() {
   const colors = useThemeColors(settings.themeMode, getAccentColorHex(settings.accentColor));
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [rootsWithLibrary, setRootsWithLibrary] = useState<RootWithLibrary[]>([]);
+  // True until refresh()'s first pass resolves rootsWithLibrary at least
+  // once - refresh() itself is fire-and-forget from usePlaybackPersistence
+  // (see its own doc: the startup restore path must not block on scanning
+  // every other root), so RestoringScreen dismisses well before this
+  // finishes, especially for a self-hosted server root (a real HTTP round
+  // trip, and always force-rescanned - see refresh()'s isServerRootId
+  // branch). Without this, the Library screen rendered underneath just
+  // looked permanently empty for those first few seconds, identical to
+  // "you haven't added any folders yet" - LibraryScreen uses this to show
+  // a real loading state instead.
+  const [isLoadingRoots, setIsLoadingRoots] = useState(true);
   const [grantedRoots, setGrantedRoots] = useState<GrantedRoot[]>([]);
   const [lyricsScopes, setLyricsScopes] = useState<LyricsScope[]>([]);
   const [matchedLyricsCount, setMatchedLyricsCount] = useState<number | null>(null);
@@ -322,7 +333,16 @@ function App() {
 
   const refresh = useCallback(async () => {
     advanceStep('listingFolders');
-    const roots = await fileAccess.listGrantedRoots();
+    let roots: GrantedRoot[];
+    try {
+      roots = await fileAccess.listGrantedRoots();
+    } catch (err) {
+      // Otherwise isLoadingRoots (see its own doc) would stay stuck true
+      // forever on a genuine failure here - the success path clears it
+      // itself, right after setRootsWithLibrary below.
+      setIsLoadingRoots(false);
+      throw err;
+    }
     setGrantedRoots(roots);
     advanceStep('scanningLibrary');
 
@@ -392,6 +412,7 @@ function App() {
       )
     ).filter((entry): entry is RootWithLibrary => entry !== null);
     setRootsWithLibrary(withLibrary);
+    setIsLoadingRoots(false);
 
     // A 'lyrics'-kind root can reach listGrantedRoots() without ever going
     // through addLyricsFolder's own requestRoot('lyrics') gesture - e.g. the
@@ -911,6 +932,7 @@ function App() {
         colors={colors}
         rootsWithLibrary={rootsWithLibrary}
         busyRootId={busyRootId}
+        isLoadingRoots={isLoadingRoots}
         isAddingFolder={busyRootId !== null && !rootsWithLibrary.some(({ root }) => root.id === busyRootId)}
         onAddFolder={addFolder}
         onRescan={rescan}

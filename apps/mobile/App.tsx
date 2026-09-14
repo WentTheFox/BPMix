@@ -198,6 +198,10 @@ function AppContent() {
   const statusBarStyle = settings.themeMode === 'dark' || settings.themeMode === 'amoled' ? 'light-content' : 'dark-content';
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [rootsWithLibrary, setRootsWithLibrary] = useState<RootWithLibrary[]>([]);
+  // See apps/web/src/App.tsx's identical isLoadingRoots doc - kept in sync
+  // with it rather than letting the two App.tsx files drift (CLAUDE.md's
+  // own convention note on this pair of files).
+  const [isLoadingRoots, setIsLoadingRoots] = useState(true);
   const [grantedRoots, setGrantedRoots] = useState<GrantedRoot[]>([]);
   const [lyricsScopes, setLyricsScopes] = useState<LyricsScope[]>([]);
   const [matchedLyricsCount, setMatchedLyricsCount] = useState<number | null>(null);
@@ -346,7 +350,16 @@ function AppContent() {
 
   const refresh = useCallback(async () => {
     advanceStep('listingFolders');
-    const roots = await fileAccess.listGrantedRoots();
+    let roots: GrantedRoot[];
+    try {
+      roots = await fileAccess.listGrantedRoots();
+    } catch (err) {
+      // Otherwise isLoadingRoots (see its own doc) would stay stuck true
+      // forever on a genuine failure here - the success path clears it
+      // itself, right after setRootsWithLibrary below.
+      setIsLoadingRoots(false);
+      throw err;
+    }
     setGrantedRoots(roots);
     advanceStep('scanningLibrary');
 
@@ -393,6 +406,7 @@ function AppContent() {
       )
     ).filter((entry): entry is RootWithLibrary => entry !== null);
     setRootsWithLibrary(withLibrary);
+    setIsLoadingRoots(false);
 
     // A 'lyrics'-kind root can reach listGrantedRoots() without ever going
     // through addLyricsFolder's own requestRoot('lyrics') gesture - see
@@ -1008,6 +1022,7 @@ function AppContent() {
         colors={colors}
         rootsWithLibrary={rootsWithLibrary}
         busyRootId={busyRootId}
+        isLoadingRoots={isLoadingRoots}
         isAddingFolder={isAddingFolder}
         onAddFolder={addFolder}
         onRescan={rescan}
