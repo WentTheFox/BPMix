@@ -6,7 +6,6 @@
     "node": ">=20"
   },
   "scripts": {
-    "postinstall": "node scripts/generate-build-info.mjs",
     "android": "pnpm --filter @bpmix/mobile android",
     "web": "pnpm --filter @bpmix/web dev",
     "build": "pnpm --filter @bpmix/web build && pnpm --filter @bpmix/server build",

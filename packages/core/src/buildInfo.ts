@@ -2,5 +2,5 @@
 // Regenerated before every dev/build/start (see apps/web and apps/mobile's
 // package.json pre* hooks) - a locally modified diff here after running
 // one of those is expected, not a stray edit to revert.
-export const BUILD_COMMIT = "e94eaad";
-export const BUILD_TIME = "2026-09-14T11:24:51.539Z";
+export const BUILD_COMMIT = "2d0fbaf";
+export const BUILD_TIME = "2026-09-14T11:30:06.890Z";

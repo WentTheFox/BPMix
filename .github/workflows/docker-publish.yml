@@ -42,6 +42,8 @@ jobs:
         with:
           context: .
           platforms: ${{ matrix.platform }}
+          build-args: |
+            GIT_COMMIT=${{ github.sha }}
           push: true
           outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true
           cache-from: type=gha,scope=${{ steps.platform-pair.outputs.pair }}

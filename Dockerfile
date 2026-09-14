@@ -8,10 +8,21 @@ FROM node:22-alpine AS build
 RUN corepack enable && corepack prepare pnpm@11.22.0 --activate
 WORKDIR /repo
 
+# .dockerignore excludes .git, so scripts/generate-build-info.mjs (run via
+# postinstall/prebuild) has no repo history to read `git rev-parse` from in
+# here - docker-publish.yml passes the real commit through this build arg
+# instead (see that script's GIT_COMMIT_OVERRIDE check).
+ARG GIT_COMMIT=unknown
+ENV GIT_COMMIT_OVERRIDE=$GIT_COMMIT
+
 # Install first with only manifests + lockfile so this layer is cached
 # whenever source changes but dependencies don't.
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY patches ./patches
+# The workspace root's postinstall (scripts/generate-build-info.mjs) runs on
+# every `pnpm install`, including this manifests-only layer - needs to be
+# present before that command, not just after the full `COPY . .` below.
+COPY scripts ./scripts
 COPY apps/web/package.json apps/web/package.json
 COPY apps/server/package.json apps/server/package.json
 COPY apps/mobile/package.json apps/mobile/package.json

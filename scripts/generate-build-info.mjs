@@ -16,6 +16,10 @@ const dirname = path.dirname(fileURLToPath(import.meta.url));
 const outPath = path.join(dirname, '../packages/core/src/buildInfo.ts');
 
 function gitShortCommit() {
+  // The Docker build context excludes .git entirely (see .dockerignore) -
+  // docker-publish.yml passes the real commit in as this build arg/env var
+  // instead, since `git rev-parse` has nothing to read in that environment.
+  if (process.env.GIT_COMMIT_OVERRIDE) return process.env.GIT_COMMIT_OVERRIDE.slice(0, 7);
   try {
     return execSync('git rev-parse --short HEAD', { cwd: dirname }).toString().trim();
   } catch {
