@@ -39,12 +39,13 @@ Notes for tasks that still have to be done/investigated are left here, grouped b
 * Settings toggle to display a single disk visualization at a time only, handle track switching and prelading gracefully still
 * Allow access to the now playing controls (specifically volume, repeat, and shuffle) even with no playlist or song loaded, or an empty library
 * Remove the "use Dockerized server" from the web UI when the user is already using the dockerized servers - replace with non-red bind mount suggestion text
+* Dynamic "Songs not in a playlist" playlist created out of songs in a library that aren' in any playlist
 
 ## new features
 
 * Support for embedded track id3 lyrics/syncedlyrics
-* Playlist editor - be able to add songs to the start OR end of playlists, file paths relative to the m3u8 file
-* add an lrc syncing UI for songs with nt synced plaintext lyrics, or a resyn option that reconstructs the plain lyrics from the lrc file (tap to advance sync, swipe up to go bac to previous entry/start on first entry, swipe left to remove a line, swipe right to insert a break) with onscreen controls and instructions, as well as step 5-10seconds buttons forwards/backwards
+* Playlist editor - be able to add songs to the start OR end of playlists, file paths relative to the m3u8 file, ability to move playlist items by multi-selection and long-pressing/right-clicking (context menu) on an existing song to be able to move songs before-after
+* add an lrc syncing UI for songs with nt synced plaintext lyrics, or a resync option that reconstructs the plain lyrics from the lrc file (tap to advance sync, swipe up to go bac to previous entry/start on first entry, swipe left to remove a line, swipe right to insert a break) with onscreen controls and instructions, as well as step 5-10seconds buttons forwards/backwards
   * this same editor should also cover the multi-language case: a track's native-language .lrc is sometimes itself unsynced (plain text) while its `<track>.<lang>.lrc` translation sibling (see `matchTranslationLines`/`loadAssignedLyrics` in `packages/core/src/lyrics/`) is fully synced - real example found on-device, "Ester Dean - Rio Music From The Motion Picture/Take You To Rio.lrc" (native, `[lang:pt]`, plain text) vs its `.en.lrc` (synced). Today BPMix just shows the unsynced native text and silently drops the synced translation in this case (a deliberate, simple choice for now). The editor should let the user manually sync the native lyrics later using the translation's existing timestamps as a starting reference/guide (or otherwise carry the translation's timing over) instead of that being a dead end
   * add a separate time adjust mode, sometimes lyrics just star at different times but other timings might already be consistent, for simple cases like this we can just shift all time entries by a customizable amount instead of having to resync the whole song
 * advanced: sound recognition-based automatic pre-syncing with manual review (requires large R&D effort, needs eternal library maybe)
