@@ -175,8 +175,8 @@ const ready = (async () => {
   );
   // Same reasoning/pattern as the analysis table's migration guard above -
   // a table created before the `volume`/`rootId`/`nowPlayingOpen`/
-  // `shuffleOrder` columns existed would silently reject every
-  // putPlaybackState() insert with "no such column".
+  // `shuffleOrder`/`openedPlaylistId`/`openedRootId` columns existed would
+  // silently reject every putPlaybackState() insert with "no such column".
   const playbackStateTableInfo = await run('PRAGMA table_info(playback_state)');
   const playbackStateColumns = new Set<string>();
   for (let i = 0; i < playbackStateTableInfo.rows.length; i++) {
@@ -187,7 +187,9 @@ const ready = (async () => {
     (!playbackStateColumns.has('volume') ||
       !playbackStateColumns.has('rootId') ||
       !playbackStateColumns.has('nowPlayingOpen') ||
-      !playbackStateColumns.has('shuffleOrder'))
+      !playbackStateColumns.has('shuffleOrder') ||
+      !playbackStateColumns.has('openedPlaylistId') ||
+      !playbackStateColumns.has('openedRootId'))
   ) {
     await run('DROP TABLE playback_state');
   }
@@ -232,6 +234,8 @@ const ready = (async () => {
       playlistId TEXT,
       currentTrackFileId TEXT,
       rootId TEXT,
+      openedPlaylistId TEXT,
+      openedRootId TEXT,
       positionSeconds REAL NOT NULL,
       loopMode TEXT NOT NULL,
       shuffleEnabled INTEGER NOT NULL,
@@ -441,6 +445,8 @@ export function createLibraryStore(): LibraryStore {
         playlistId: string | null;
         currentTrackFileId: string | null;
         rootId: string | null;
+        openedPlaylistId: string | null;
+        openedRootId: string | null;
         positionSeconds: number;
         loopMode: PlaybackState['loopMode'];
         shuffleEnabled: number;
@@ -461,16 +467,19 @@ export function createLibraryStore(): LibraryStore {
     async putPlaybackState(state: PlaybackState): Promise<void> {
       await ready;
       await run(
-        `INSERT INTO playback_state (id, playlistId, currentTrackFileId, rootId, positionSeconds, loopMode, shuffleEnabled, shuffleOrder, volume, nowPlayingOpen)
-         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO playback_state (id, playlistId, currentTrackFileId, rootId, openedPlaylistId, openedRootId, positionSeconds, loopMode, shuffleEnabled, shuffleOrder, volume, nowPlayingOpen)
+         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET playlistId=excluded.playlistId, currentTrackFileId=excluded.currentTrackFileId,
-           rootId=excluded.rootId, positionSeconds=excluded.positionSeconds, loopMode=excluded.loopMode,
+           rootId=excluded.rootId, openedPlaylistId=excluded.openedPlaylistId, openedRootId=excluded.openedRootId,
+           positionSeconds=excluded.positionSeconds, loopMode=excluded.loopMode,
            shuffleEnabled=excluded.shuffleEnabled, shuffleOrder=excluded.shuffleOrder, volume=excluded.volume,
            nowPlayingOpen=excluded.nowPlayingOpen`,
         [
           state.playlistId,
           state.currentTrackFileId,
           state.rootId,
+          state.openedPlaylistId,
+          state.openedRootId,
           state.positionSeconds,
           state.loopMode,
           state.shuffleEnabled ? 1 : 0,

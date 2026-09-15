@@ -67,6 +67,7 @@ export interface LyricsScope {
 }
 
 export interface PlaybackState {
+  /** The playlist the CURRENTLY PLAYING track belongs to - see openedPlaylistId's doc for why this is a separate field from "the playlist screen that's open". */
   playlistId: string | null;
   currentTrackFileId: string | null;
   /**
@@ -78,6 +79,21 @@ export interface PlaybackState {
    * search across granted roots' cached playlists in that case.
    */
   rootId: string | null;
+  /**
+   * The playlist screen the user last had OPEN, which may not be the same
+   * playlist as `playlistId` (the one actually playing) - e.g. browsing
+   * playlist B's track list while a track from playlist A keeps playing.
+   * `null` means the user was explicitly on the Library screen (not any
+   * playlist) when this was last persisted - restore then leaves `screen`
+   * at its default `{ kind: 'library' }` instead of forcing the playing
+   * playlist's screen open. `undefined` on read (state persisted before
+   * this field existed) is treated the same as "not yet navigated away
+   * from the playing playlist" and falls back to `playlistId` - see
+   * usePlaybackPersistence's restore effect.
+   */
+  openedPlaylistId: string | null;
+  /** Which granted root openedPlaylistId belongs to - same role/fallback as rootId, just for the opened screen instead of the playing track. */
+  openedRootId: string | null;
   positionSeconds: number;
   loopMode: LoopMode;
   shuffleEnabled: boolean;

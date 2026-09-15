@@ -26,6 +26,7 @@ import {
   LocateMissingFileScreen,
   LyricsFolderSection,
   MiniPlayerBar,
+  MultiPaneLayout,
   NowPlayingScreen,
   PlayerControlsRow,
   RestoringScreen,
@@ -43,11 +44,12 @@ import {
   usePlaylistTransport,
   useRestoringProgress,
   useThemeColors,
+  useViewportTier,
   useVolumeControl,
 } from '@bpmix/ui';
 import type { RootWithLibrary } from '@bpmix/ui';
 import { mdiSubtitles } from '@mdi/js';
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties } from 'react';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { DimensionValue } from 'react-native';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -165,6 +167,9 @@ type Screen =
 function App() {
   const { settings, updateSettings, resetSettings } = useAppSettings(libraryStore);
   const colors = useThemeColors(settings.themeMode, getAccentColorHex(settings.accentColor));
+  // See useViewportTier's doc - 'narrow' keeps today's single-screen-plus-
+  // overlay behavior below; 'medium'/'wide' switch to MultiPaneLayout.
+  const tier = useViewportTier();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [rootsWithLibrary, setRootsWithLibrary] = useState<RootWithLibrary[]>([]);
   // True until refresh()'s first pass resolves rootsWithLibrary at least
@@ -266,16 +271,23 @@ function App() {
   // Same close-priority order as the mobile app (see useBackNavigation's
   // doc) - Settings, then Now Playing, then Playlist back to Library, then
   // (nothing left of ours to close) the browser's own back behavior of
-  // leaving the page.
+  // leaving the page. nowPlayingOpen is forced false here once Now Playing
+  // is docked (medium/wide tier, see MultiPaneLayout) rather than an
+  // overlay - there's nothing for back/escape to "close" about a pane
+  // that's permanently visible, so it's simply excluded from this
+  // priority stack in that case.
   useBackNavigation(
-    { settingsOpen, nowPlayingOpen: nowPlayingScreenOpen, screenKind: screen.kind },
+    { settingsOpen, nowPlayingOpen: tier === 'narrow' && nowPlayingScreenOpen, screenKind: screen.kind },
     {
       closeSettings: () => setSettingsOpen(false),
       closeNowPlaying: () => {
         setNowPlayingScreenOpen(false);
         persistPlaybackPatch({ nowPlayingOpen: false });
       },
-      closePlaylist: () => setScreen({ kind: 'library' }),
+      closePlaylist: () => {
+        setScreen({ kind: 'library' });
+        persistPlaybackPatch({ openedPlaylistId: null, openedRootId: null });
+      },
     },
   );
 
@@ -579,8 +591,8 @@ function App() {
     setActiveTracksById: (tracksById) => {
       activeTracksById = tracksById;
     },
-    onRestoreScreen: (root, playlist, tracksById, nowPlayingOpen) => {
-      setScreen({ kind: 'playlist', root, playlist, tracksById });
+    onRestoreScreen: (opened, nowPlayingOpen) => {
+      if (opened) setScreen({ kind: 'playlist', root: opened.root, playlist: opened.playlist, tracksById: opened.tracksById });
       if (nowPlayingOpen) setNowPlayingScreenOpen(true);
     },
     onError: (err) => {
@@ -836,27 +848,22 @@ function App() {
   // headerRight) - hoisted once rather than reconstructed per site.
   const headerActionsEl = <HeaderActions colors={colors} center={notificationCenter} onOpenSettings={() => setSettingsOpen(true)} />;
 
-  const nowPlayingScreen = nowPlayingScreenOpen && playerState.currentFileId && (
-    // zIndex + backgroundColor here must beat/cover HeaderRow's own zIndex
-    // (1, see its doc) - without an explicit, higher zIndex, the playlist/
-    // library screen underneath's own HeaderRow (its back-row title +
-    // NotificationBell) painted ABOVE this whole overlay despite being
-    // mounted earlier: a nested descendant's zIndex doesn't just win among
-    // its own siblings, it also outranks an ancestor-level sibling with no
-    // zIndex of its own - confirmed on the mobile app as two overlapping
-    // header rows/bells ("Playlist: In Order" bleeding through "Now
-    // Playing"'s own header). Also needed an explicit background (which
-    // ScreenLayer always sets) since NowPlayingScreen's own container has
-    // none either - without one this overlay was fully transparent on web,
-    // which would show the exact same bleed-through for the WHOLE screen,
-    // not just the header band.
-    <ScreenLayer zIndex={10} colors={colors}>
-      <NowPlayingScreen
+  // Bare content, reused two ways below: wrapped in a ScreenLayer overlay
+  // (narrow tier, opened/closed via MiniPlayerBar/onClose) or placed
+  // directly as MultiPaneLayout's docked pane (medium/wide tier, always
+  // visible whenever a track is loaded - see NowPlayingScreen's onClose
+  // doc for why it's omitted, not just a no-op, in that case).
+  const nowPlayingContent = playerState.currentFileId && (
+    <NowPlayingScreen
         colors={colors}
-        onClose={() => {
-          setNowPlayingScreenOpen(false);
-          persistPlaybackPatch({ nowPlayingOpen: false });
-        }}
+        onClose={
+          tier === 'narrow'
+            ? () => {
+                setNowPlayingScreenOpen(false);
+                persistPlaybackPatch({ nowPlayingOpen: false });
+              }
+            : undefined
+        }
         title={currentTitle ?? ''}
         upNextTitle={settledNextTrack ? formatTrackTitle(settledNextMetadata, settledNextTrack) : null}
         lyricsTrackKey={(pendingIncoming ? incomingTrack?.fileId : outgoingTrack?.fileId) ?? null}
@@ -896,6 +903,26 @@ function App() {
           />
         }
       />
+  );
+
+  // zIndex + backgroundColor here must beat/cover HeaderRow's own zIndex
+  // (1, see its doc) - without an explicit, higher zIndex, the playlist/
+  // library screen underneath's own HeaderRow (its back-row title +
+  // NotificationBell) painted ABOVE this whole overlay despite being
+  // mounted earlier: a nested descendant's zIndex doesn't just win among
+  // its own siblings, it also outranks an ancestor-level sibling with no
+  // zIndex of its own - confirmed on the mobile app as two overlapping
+  // header rows/bells ("Playlist: In Order" bleeding through "Now
+  // Playing"'s own header). Also needed an explicit background (which
+  // ScreenLayer always sets) since NowPlayingScreen's own container has
+  // none either - without one this overlay was fully transparent on web,
+  // which would show the exact same bleed-through for the WHOLE screen,
+  // not just the header band. Only rendered on the narrow tier - medium/
+  // wide instead place nowPlayingContent directly as MultiPaneLayout's
+  // docked pane, unwrapped, always visible rather than opened/closed.
+  const nowPlayingScreen = tier === 'narrow' && nowPlayingScreenOpen && nowPlayingContent && (
+    <ScreenLayer zIndex={10} colors={colors}>
+      {nowPlayingContent}
     </ScreenLayer>
   );
 
@@ -985,36 +1012,43 @@ function App() {
     );
   }
 
-  let screenContent: ReactNode;
-  if (screen.kind === 'playlist') {
-    const { playlist, tracksById } = screen;
-    screenContent = (
+  // closePlaylistScreen is shared between this back button and
+  // useBackNavigation's closePlaylist action above, both of which have to
+  // agree on clearing the persisted "opened" playlist the same way.
+  const closePlaylistScreen = () => {
+    setScreen({ kind: 'library' });
+    persistPlaybackPatch({ openedPlaylistId: null, openedRootId: null });
+  };
+
+  // Split into two independent elements (rather than one screenContent
+  // picked by screen.kind, as before) - the narrow tier still shows only
+  // one of them at a time (see screenContent below), but medium/wide need
+  // library and playlist as separate simultaneous panes (see
+  // MultiPaneLayout).
+  const playlistPaneContent =
+    screen.kind === 'playlist' ? (
       <>
-        <HeaderRow
-          style={styles.backRow}
-          left={<BackButton text={`Playlist: ${playlist.name}`} color={colors.text} onPress={() => setScreen({ kind: 'library' })} />}
-          right={headerActionsEl}
-        />
+        <HeaderRow style={styles.backRow} left={<BackButton text={`Playlist: ${screen.playlist.name}`} color={colors.text} onPress={closePlaylistScreen} />} right={headerActionsEl} />
         {error && <Text style={styles.error}>{error}</Text>}
         <TrackList
-          trackFileIds={playlist.trackFileIds}
-          tracksById={tracksById}
+          trackFileIds={screen.playlist.trackFileIds}
+          tracksById={screen.tracksById}
           currentFileId={playerState.currentFileId}
           isPlaying={playerState.track.status === 'playing'}
           isLoading={playerState.isLoadingForPlayback}
           textColor={colors.text}
           colors={colors}
           onPressTrack={(t) =>
-            t.missing ? missingTrackRelocation.explainMissingTrack(t, playlist.rootId) : void playFromTrack(playlist, tracksById, t)
+            t.missing ? missingTrackRelocation.explainMissingTrack(t, screen.playlist.rootId) : void playFromTrack(screen.playlist, screen.tracksById, t)
           }
           libraryStore={libraryStore}
           initialNumToRender={30}
           missingFileIds={missingFileIds}
         />
       </>
-    );
-  } else {
-    screenContent = (
+    ) : null;
+
+  const libraryPaneContent = (
       <LibraryScreen
         colors={colors}
         rootsWithLibrary={rootsWithLibrary}
@@ -1026,7 +1060,10 @@ function App() {
         onRescan={rescan}
         onRemoveRoot={(rootId) => void removeRoot(rootId)}
         onCreatePlaylist={(rootId) => setCreatePlaylistRootId(rootId)}
-        onSelectPlaylist={(root, playlist, tracksById) => setScreen({ kind: 'playlist', root, playlist, tracksById })}
+        onSelectPlaylist={(root, playlist, tracksById) => {
+          setScreen({ kind: 'playlist', root, playlist, tracksById });
+          persistPlaybackPatch({ openedPlaylistId: playlist.id, openedRootId: root.id });
+        }}
         error={error}
         listStyle={styles.list}
         headerRight={headerActionsEl}
@@ -1082,25 +1119,39 @@ function App() {
           />
         }
       />
+  );
+
+  const missingFileDialog = missingTrackRelocation.explainTarget && (
+    <ConfirmDialog
+      colors={colors}
+      title="Missing File"
+      message={`BPMix couldn't find "${trackDisplayName(missingTrackRelocation.explainTarget.track)}" at its expected location (${missingTrackRelocation.explainTarget.track.relativePath}). It may have been moved, renamed, or deleted.`}
+      confirmLabel="Locate File…"
+      onCancel={missingTrackRelocation.cancelExplain}
+      onConfirm={missingTrackRelocation.beginLocate}
+    />
+  );
+
+  if (tier === 'narrow') {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={styles.screenArea}>{playlistPaneContent ?? libraryPaneContent}</View>
+        {miniPlayerBar}
+        {nowPlayingScreen}
+        {settingsScreen}
+        {missingFileDialog}
+      </View>
     );
   }
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={styles.screenArea}>{screenContent}</View>
+      <View style={styles.screenArea}>
+        <MultiPaneLayout tier={tier} libraryPane={libraryPaneContent} playlistPane={playlistPaneContent} nowPlayingPane={nowPlayingContent} />
+      </View>
       {miniPlayerBar}
-      {nowPlayingScreen}
       {settingsScreen}
-      {missingTrackRelocation.explainTarget && (
-        <ConfirmDialog
-          colors={colors}
-          title="Missing File"
-          message={`BPMix couldn't find "${trackDisplayName(missingTrackRelocation.explainTarget.track)}" at its expected location (${missingTrackRelocation.explainTarget.track.relativePath}). It may have been moved, renamed, or deleted.`}
-          confirmLabel="Locate File…"
-          onCancel={missingTrackRelocation.cancelExplain}
-          onConfirm={missingTrackRelocation.beginLocate}
-        />
-      )}
+      {missingFileDialog}
     </View>
   );
 }

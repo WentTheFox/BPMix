@@ -26,7 +26,8 @@ function formatSeconds(seconds: number): string {
 
 export interface NowPlayingScreenProps {
   colors: Colors;
-  onClose: () => void;
+  /** Omitted for a docked pane (medium/wide viewport tiers - see MultiPaneLayout) rather than a full-screen overlay: there's nothing to "close" when this is permanently visible alongside the library/playlist pane, so the back button is replaced with a plain, non-interactive "Now Playing" label instead. */
+  onClose?: () => void;
   /** Already-formatted title text (or a bare fileId fallback) - callers own formatTrackTitle/useTrackMetadata, this just renders the result. */
   title: string;
   upNextTitle?: string | null;
@@ -109,7 +110,13 @@ export function NowPlayingScreen({
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <HeaderRow
-        left={<BackButton text="Now Playing" color={colors.text} onPress={onClose} />}
+        left={
+          onClose ? (
+            <BackButton text="Now Playing" color={colors.text} onPress={onClose} />
+          ) : (
+            <Text style={[styles.dockedTitle, { color: colors.text }]}>Now Playing</Text>
+          )
+        }
         right={headerRight}
       />
       <View style={styles.content}>
@@ -194,6 +201,12 @@ const styles = StyleSheet.create({
   nowPlayingName: {
     fontSize: 22,
     fontWeight: '700',
+  },
+  // Matches BackButton's own text size/weight (18/600) so a docked pane's
+  // header reads the same as an overlay's, just without the arrow/tap target.
+  dockedTitle: {
+    fontSize: 18,
+    fontWeight: '600',
   },
   seekTimesRow: {
     flexDirection: 'row',

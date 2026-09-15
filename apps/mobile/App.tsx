@@ -32,6 +32,7 @@ import {
   LocateMissingFileScreen,
   LyricsFolderSection,
   MiniPlayerBar,
+  MultiPaneLayout,
   NowPlayingScreen,
   PlayerControlsRow,
   RestoringScreen,
@@ -50,11 +51,11 @@ import {
   usePlaylistTransport,
   useRestoringProgress,
   useThemeColors,
+  useViewportTier,
   useVolumeControl,
 } from '@bpmix/ui';
 import type { RootWithLibrary } from '@bpmix/ui';
 import { mdiSubtitles } from '@mdi/js';
-import type { ReactNode } from 'react';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Linking, Pressable, StatusBar, StyleSheet, Text, View } from 'react-native';
 import {
@@ -196,6 +197,9 @@ function AppContent() {
   const insets = useSafeAreaInsets();
   const { settings, updateSettings, resetSettings } = useAppSettings(libraryStore);
   const colors = useThemeColors(settings.themeMode, getAccentColorHex(settings.accentColor));
+  // See useViewportTier's doc - 'narrow' keeps today's single-screen-plus-
+  // overlay behavior below; 'medium'/'wide' switch to MultiPaneLayout.
+  const tier = useViewportTier();
   // StatusBar text needs to track the resolved theme, not the raw system
   // scheme - a user who explicitly picks Dark/AMOLED against a light-mode
   // system would otherwise get dark-on-dark, unreadable status bar text.
@@ -271,14 +275,17 @@ function AppContent() {
   // extraHandler runs first: it closes BPMix's Android-only folder-picker
   // overlays, which the web app has no equivalent of at all.
   useBackNavigation(
-    { settingsOpen, nowPlayingOpen: nowPlayingScreenOpen, screenKind: screen.kind },
+    { settingsOpen, nowPlayingOpen: tier === 'narrow' && nowPlayingScreenOpen, screenKind: screen.kind },
     {
       closeSettings: () => setSettingsOpen(false),
       closeNowPlaying: () => {
         setNowPlayingScreenOpen(false);
         persistPlaybackPatch({ nowPlayingOpen: false });
       },
-      closePlaylist: () => setScreen({ kind: 'library' }),
+      closePlaylist: () => {
+        setScreen({ kind: 'library' });
+        persistPlaybackPatch({ openedPlaylistId: null, openedRootId: null });
+      },
     },
     () => {
       if (rootBrowserRequest) {
@@ -561,8 +568,8 @@ function AppContent() {
     setActiveTracksById: (tracksById) => {
       activeTracksById = tracksById;
     },
-    onRestoreScreen: (root, playlist, tracksById, nowPlayingOpen) => {
-      setScreen({ kind: 'playlist', root, playlist, tracksById });
+    onRestoreScreen: (opened, nowPlayingOpen) => {
+      if (opened) setScreen({ kind: 'playlist', root: opened.root, playlist: opened.playlist, tracksById: opened.tracksById });
       if (nowPlayingOpen) setNowPlayingScreenOpen(true);
     },
     onError: (err) => {
@@ -870,24 +877,21 @@ function AppContent() {
   // headerRight) - hoisted once rather than reconstructed per site.
   const headerActionsEl = <HeaderActions colors={colors} center={notificationCenter} onOpenSettings={() => setSettingsOpen(true)} />;
 
-  const nowPlayingScreen = nowPlayingScreenOpen && playerState.currentFileId && (
-    // zIndex here must beat HeaderRow's own (1, see its doc) - without an
-    // explicit, higher one, the playlist/library screen underneath's own
-    // HeaderRow (its back-row title + NotificationBell) painted ABOVE this
-    // whole overlay despite being mounted earlier: a nested descendant's
-    // zIndex doesn't just win among its own siblings on this RN/Fabric
-    // version, it also outranks an ancestor-level sibling with no zIndex of
-    // its own - confirmed on-device as two overlapping header rows/bells
-    // ("Playlist: In Order" bleeding through "Now Playing"'s own header),
-    // while everything below the header (screenArea's TrackList, no zIndex
-    // of its own) stayed correctly hidden beneath this overlay as expected.
-    <ScreenLayer zIndex={10} colors={colors} paddingTop={insets.top} paddingBottom={insets.bottom}>
+  // Bare content, reused two ways below - see apps/web/src/App.tsx's
+  // identical nowPlayingContent for why (wrapped in a ScreenLayer overlay
+  // on the narrow tier, placed directly as MultiPaneLayout's docked pane
+  // on medium/wide).
+  const nowPlayingContent = playerState.currentFileId && (
       <NowPlayingScreen
         colors={colors}
-        onClose={() => {
-          setNowPlayingScreenOpen(false);
-          persistPlaybackPatch({ nowPlayingOpen: false });
-        }}
+        onClose={
+          tier === 'narrow'
+            ? () => {
+                setNowPlayingScreenOpen(false);
+                persistPlaybackPatch({ nowPlayingOpen: false });
+              }
+            : undefined
+        }
         title={currentTitle ?? ''}
         upNextTitle={settledNextTrack ? formatTrackTitle(settledNextMetadata, settledNextTrack) : null}
         lyricsTrackKey={(pendingIncoming ? incomingTrack?.fileId : outgoingTrack?.fileId) ?? null}
@@ -927,6 +931,23 @@ function AppContent() {
           />
         }
       />
+  );
+
+  // zIndex here must beat HeaderRow's own (1, see its doc) - without an
+  // explicit, higher one, the playlist/library screen underneath's own
+  // HeaderRow (its back-row title + NotificationBell) painted ABOVE this
+  // whole overlay despite being mounted earlier: a nested descendant's
+  // zIndex doesn't just win among its own siblings on this RN/Fabric
+  // version, it also outranks an ancestor-level sibling with no zIndex of
+  // its own - confirmed on-device as two overlapping header rows/bells
+  // ("Playlist: In Order" bleeding through "Now Playing"'s own header),
+  // while everything below the header (screenArea's TrackList, no zIndex
+  // of its own) stayed correctly hidden beneath this overlay as expected.
+  // Only rendered on the narrow tier - medium/wide instead place
+  // nowPlayingContent directly as MultiPaneLayout's docked pane.
+  const nowPlayingScreen = tier === 'narrow' && nowPlayingScreenOpen && nowPlayingContent && (
+    <ScreenLayer zIndex={10} colors={colors} paddingTop={insets.top} paddingBottom={insets.bottom}>
+      {nowPlayingContent}
     </ScreenLayer>
   );
 
@@ -1066,36 +1087,42 @@ function AppContent() {
     );
   }
 
-  let screenContent: ReactNode;
-  if (screen.kind === 'playlist') {
-    const { playlist, tracksById } = screen;
-    screenContent = (
+  // closePlaylistScreen is shared between this back button and
+  // useBackNavigation's closePlaylist action above - see
+  // apps/web/src/App.tsx's identical helper.
+  const closePlaylistScreen = () => {
+    setScreen({ kind: 'library' });
+    persistPlaybackPatch({ openedPlaylistId: null, openedRootId: null });
+  };
+
+  // Split into two independent elements rather than one screenContent
+  // picked by screen.kind - see apps/web/src/App.tsx's identical split for
+  // why (medium/wide tiers need library and playlist as separate
+  // simultaneous panes).
+  const playlistPaneContent =
+    screen.kind === 'playlist' ? (
       <>
-        <HeaderRow
-          style={styles.backRow}
-          left={<BackButton text={`Playlist: ${playlist.name}`} color={colors.text} onPress={() => setScreen({ kind: 'library' })} />}
-          right={headerActionsEl}
-        />
+        <HeaderRow style={styles.backRow} left={<BackButton text={`Playlist: ${screen.playlist.name}`} color={colors.text} onPress={closePlaylistScreen} />} right={headerActionsEl} />
         {error && <Text style={styles.error}>{error}</Text>}
         <TrackList
-          trackFileIds={playlist.trackFileIds}
-          tracksById={tracksById}
+          trackFileIds={screen.playlist.trackFileIds}
+          tracksById={screen.tracksById}
           currentFileId={playerState.currentFileId}
           isPlaying={playerState.track.status === 'playing'}
           isLoading={playerState.isLoadingForPlayback}
           textColor={colors.text}
           colors={colors}
           onPressTrack={(t) =>
-            t.missing ? missingTrackRelocation.explainMissingTrack(t, playlist.rootId) : void playFromTrack(playlist, tracksById, t)
+            t.missing ? missingTrackRelocation.explainMissingTrack(t, screen.playlist.rootId) : void playFromTrack(screen.playlist, screen.tracksById, t)
           }
           libraryStore={libraryStore}
           initialNumToRender={20}
           missingFileIds={missingFileIds}
         />
       </>
-    );
-  } else {
-    screenContent = (
+    ) : null;
+
+  const libraryPaneContent = (
       <LibraryScreen
         colors={colors}
         rootsWithLibrary={rootsWithLibrary}
@@ -1107,7 +1134,10 @@ function AppContent() {
         onRescan={rescan}
         onRemoveRoot={(rootId) => void removeRoot(rootId)}
         onCreatePlaylist={(rootId) => setCreatePlaylistRootId(rootId)}
-        onSelectPlaylist={(root, playlist, tracksById) => setScreen({ kind: 'playlist', root, playlist, tracksById })}
+        onSelectPlaylist={(root, playlist, tracksById) => {
+          setScreen({ kind: 'playlist', root, playlist, tracksById });
+          persistPlaybackPatch({ openedPlaylistId: playlist.id, openedRootId: root.id });
+        }}
         error={error}
         errorAction={
           needsAllFilesAccess && (
@@ -1134,28 +1164,37 @@ function AppContent() {
           />
         }
       />
-    );
-  }
+  );
+
+  const missingFileDialog = missingTrackRelocation.explainTarget && (
+    <ConfirmDialog
+      colors={colors}
+      title="Missing File"
+      message={`BPMix couldn't find "${trackDisplayName(missingTrackRelocation.explainTarget.track)}" at its expected location (${missingTrackRelocation.explainTarget.track.relativePath}). It may have been moved, renamed, or deleted.`}
+      confirmLabel="Locate File…"
+      onCancel={missingTrackRelocation.cancelExplain}
+      onConfirm={missingTrackRelocation.beginLocate}
+    />
+  );
 
   return (
     <>
       <AppStatusBar barStyle={statusBarStyle} />
       <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom, backgroundColor: colors.background }]}>
         {__DEV__ && SHOW_MEMORY_OVERLAY && <MemoryOverlay />}
-        <View style={styles.screenArea}>{screenContent}</View>
-        {miniPlayerBar}
-        {nowPlayingScreen}
-        {settingsScreen}
-        {missingTrackRelocation.explainTarget && (
-          <ConfirmDialog
-            colors={colors}
-            title="Missing File"
-            message={`BPMix couldn't find "${trackDisplayName(missingTrackRelocation.explainTarget.track)}" at its expected location (${missingTrackRelocation.explainTarget.track.relativePath}). It may have been moved, renamed, or deleted.`}
-            confirmLabel="Locate File…"
-            onCancel={missingTrackRelocation.cancelExplain}
-            onConfirm={missingTrackRelocation.beginLocate}
-          />
+        {tier === 'narrow' ? (
+          <>
+            <View style={styles.screenArea}>{playlistPaneContent ?? libraryPaneContent}</View>
+            {nowPlayingScreen}
+          </>
+        ) : (
+          <View style={styles.screenArea}>
+            <MultiPaneLayout tier={tier} libraryPane={libraryPaneContent} playlistPane={playlistPaneContent} nowPlayingPane={nowPlayingContent} />
+          </View>
         )}
+        {miniPlayerBar}
+        {settingsScreen}
+        {missingFileDialog}
       </View>
     </>
   );

@@ -54,8 +54,18 @@ interface UsePlaybackPersistenceOptions {
   setPlayerState: (state: PlaylistPlayerState) => void;
   /** Points the caller's activeTracksById (a module-level map PlaylistPlayer's resolveTrack callback reads from) at the restored playlist's tracks. */
   setActiveTracksById: (tracksById: Map<string, TrackRecord>) => void;
-  /** Switches the caller's screen state to the restored playlist once one was found - nowPlayingOpen reflects whether the Now Playing screen was showing when this state was last persisted. */
-  onRestoreScreen: (root: GrantedRoot, playlist: PlaylistRecord, tracksById: Map<string, TrackRecord>, nowPlayingOpen: boolean) => void;
+  /**
+   * Switches the caller's screen state to whatever was last open -
+   * `opened` is null when the user was explicitly on the Library screen
+   * (see PlaybackState.openedPlaylistId's doc), non-null for a playlist
+   * screen (which may not be the same playlist as the one actually
+   * playing). `nowPlayingOpen` reflects whether the Now Playing screen was
+   * showing when this state was last persisted.
+   */
+  onRestoreScreen: (
+    opened: { root: GrantedRoot; playlist: PlaylistRecord; tracksById: Map<string, TrackRecord> } | null,
+    nowPlayingOpen: boolean,
+  ) => void;
   onError: (error: unknown) => void;
   /** Advances the caller's restoring checklist (see RestoringScreen/useRestoringProgress) to this step. */
   onStepChange?: (step: RestoringStepKey) => void;
@@ -144,6 +154,8 @@ export function usePlaybackPersistence({
     playlistId: null,
     currentTrackFileId: null,
     rootId: null,
+    openedPlaylistId: null,
+    openedRootId: null,
     positionSeconds: 0,
     loopMode: 'off',
     shuffleEnabled: false,
@@ -309,10 +321,55 @@ export function usePlaybackPersistence({
                 shuffleOrder: stored.shuffleOrder ?? undefined,
                 playlistId: playlist.id,
               });
+
+              // Resolve which playlist screen to show as "open" - see
+              // PlaybackState.openedPlaylistId's doc. `undefined` (the key
+              // is simply absent on state persisted before this field
+              // existed) falls back to the playing playlist/root/tracksById
+              // already resolved above, exactly matching this hook's
+              // pre-openedPlaylistId restore behavior for that case.
+              let opened: { root: GrantedRoot; playlist: PlaylistRecord; tracksById: Map<string, TrackRecord> } | null;
+              if (stored.openedPlaylistId === undefined || stored.openedPlaylistId === stored.playlistId) {
+                opened = { root: targetRoot, playlist, tracksById };
+              } else if (stored.openedPlaylistId === null) {
+                opened = null;
+              } else {
+                // A different root's playlist was open than the one
+                // actually playing - same root-then-linear-search
+                // resolution as the playing playlist above, just for this
+                // one. Left null (falls back to showing Library) if it
+                // can't be found - a removed/renamed playlist or a lapsed
+                // browser grant on this no-user-gesture startup path (see
+                // FileAccessPermissionPendingError below) is no worse than
+                // today's "not found" handling for the playing playlist.
+                let openedRoot = stored.openedRootId ? roots.find((r) => r.id === stored.openedRootId) : undefined;
+                if (!openedRoot) {
+                  for (const r of roots) {
+                    const openedRootPlaylists = await libraryStore.listPlaylists(r.id);
+                    if (cancelled) return;
+                    if (openedRootPlaylists.some((p) => p.id === stored.openedPlaylistId)) {
+                      openedRoot = r;
+                      break;
+                    }
+                  }
+                }
+                opened = null;
+                if (openedRoot) {
+                  try {
+                    const openedLoaded = await loadRootLibrary(backgroundFileAccess, libraryStore, openedRoot);
+                    if (cancelled) return;
+                    const openedPlaylist = openedLoaded.playlists.find((p) => p.id === stored.openedPlaylistId);
+                    if (openedPlaylist) opened = { root: openedRoot, playlist: openedPlaylist, tracksById: openedLoaded.tracksById };
+                  } catch (err) {
+                    if (!(err instanceof FileAccessPermissionPendingError)) throw err;
+                  }
+                }
+              }
+
               // ?? false covers state persisted before nowPlayingOpen existed
               // (web/Windows store PlaybackState as a plain object, so an
               // older blob simply lacks the field rather than defaulting it).
-              onRestoreScreen(targetRoot, playlist, tracksById, stored.nowPlayingOpen ?? false);
+              onRestoreScreen(opened, stored.nowPlayingOpen ?? false);
               loadPromise
                 .then(() => {
                   // One more recheck: the decode itself (loadPromise) can

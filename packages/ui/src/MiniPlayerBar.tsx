@@ -104,9 +104,19 @@ const styles = StyleSheet.create({
   progressFill: {
     height: 2,
   },
+  // Capped and centered rather than stretching edge-to-edge - on a wide
+  // viewport (see useViewportTier) an uncapped flex:1 infoArea/controls
+  // pairing spread the art+title and transport buttons apart across the
+  // whole window width, which is exactly the "now playing bar... spread out
+  // across the entire width of the screen" CLAUDE.md's UI/UX TODO called
+  // out. A narrow phone screen is already well under this cap, so it's a
+  // no-op there.
   row: {
     flexDirection: 'row',
     alignItems: 'center',
+    width: '100%',
+    maxWidth: 900,
+    alignSelf: 'center',
     paddingHorizontal: 12,
     paddingVertical: 8,
     gap: 12,
