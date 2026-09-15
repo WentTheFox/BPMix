@@ -1,3 +1,12 @@
+// Needed even though packages/core's own tsconfig "include" already sweeps
+// up jsmediatags.d.ts on its own - apps/server's tsc run also type-checks
+// this file (via its own reference to packages/core/src, not just core's
+// built output) but doesn't have that sibling .d.ts in ITS OWN "include"
+// glob, so without this explicit reference it can't discover the ambient
+// module declaration and fails with "implicitly has an 'any' type" -
+// confirmed live (removing this line passed packages/core's own typecheck
+// but broke apps/server's).
+// eslint-disable-next-line @typescript-eslint/triple-slash-reference
 /// <reference path="./jsmediatags.d.ts" />
 // A direct subpath import, not the bare 'jsmediatags' specifier (whose
 // package.json "browser" field points to this same file, but that field

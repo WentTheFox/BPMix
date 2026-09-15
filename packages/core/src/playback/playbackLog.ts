@@ -30,7 +30,6 @@ function formatDetails(details?: Record<string, unknown>): string {
 }
 
 export function logPlayback(event: string, details?: Record<string, unknown>): void {
-  // eslint-disable-next-line no-console
   console.log(`${TAG} ${new Date().toISOString()} ${event}${formatDetails(details)}`);
 }
 
@@ -64,7 +63,6 @@ function readHermesHeapStats(): Record<string, unknown> | undefined {
 const LIBRARY_TAG = '[BPMix:library]';
 
 export function logLibraryAction(event: string, details?: Record<string, unknown>): void {
-  // eslint-disable-next-line no-console
   console.log(`${LIBRARY_TAG} ${new Date().toISOString()} ${event}${formatDetails(details)}`);
 }
 
@@ -91,13 +89,11 @@ const MEMORY_TAG = '[BPMix:memory]';
 export function logMemorySnapshot(reason?: string): void {
   const heapStats = readHermesHeapStats();
   if (heapStats) {
-    // eslint-disable-next-line no-console
     console.log(`${MEMORY_TAG} ${new Date().toISOString()} hermes ${reason ?? ''}${formatDetails(heapStats)}`);
     return;
   }
   const perf = (globalThis as { performance?: { memory?: Record<string, unknown> } }).performance;
   if (perf?.memory) {
-    // eslint-disable-next-line no-console
     console.log(`${MEMORY_TAG} ${new Date().toISOString()} performance.memory ${reason ?? ''}${formatDetails(perf.memory)}`);
   }
 }

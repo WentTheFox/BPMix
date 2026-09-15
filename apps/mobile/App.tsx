@@ -19,7 +19,6 @@ import {
   trackDisplayName,
 } from '@bpmix/core';
 import {
-  AppTitle,
   BackButton,
   ConfirmDialog,
   CreatePlaylistScreen,
@@ -703,7 +702,7 @@ function AppContent() {
       });
       await refresh();
     },
-    [libraryStore, notificationCenter, refresh],
+    [notificationCenter, refresh],
   );
 
   const {
@@ -763,6 +762,10 @@ function AppContent() {
       });
     }
     previouslyScanningRootIdsRef.current = scanningRootIds;
+    // Deliberately keyed on scanningRootIdsKey alone - see
+    // apps/web/src/App.tsx's identical effect for why (avoids an infinite
+    // loop from notificationCenter's changing identity).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scanningRootIdsKey]);
 
   const missingTrackRelocation = useMissingTrackRelocation({ fileAccess, rescan, setError });
@@ -786,6 +789,18 @@ function AppContent() {
     setError,
     setActiveTracksById,
   });
+
+  // See apps/web/src/App.tsx's identical handlePressTrack for why this is
+  // memoized - stabilizes TrackList's renderItem, which is what lets
+  // TrackRow's memo() actually skip re-rendering unchanged rows.
+  const handlePressTrack = useCallback(
+    (t: TrackRecord) => {
+      if (screen.kind !== 'playlist') return;
+      if (t.missing) missingTrackRelocation.explainMissingTrack(t, screen.playlist.rootId);
+      else void playFromTrack(screen.playlist, screen.tracksById, t);
+    },
+    [screen, missingTrackRelocation, playFromTrack],
+  );
 
   const { volume, handleVolumeChange } = useVolumeControl({ playlistPlayer, libraryStore, persistPlaybackPatch });
   const appUpdate = useAppUpdateCheck({ currentVersion: BUILD_VERSION, bridge: appUpdateBridge });
@@ -812,7 +827,6 @@ function AppContent() {
     displayPositionSeconds,
     displayDurationSeconds,
     currentTurnsPerSecond,
-    settledCurrentTrack,
     settledCurrentMetadata,
     settledNextTrack,
     settledNextMetadata,
@@ -1112,9 +1126,7 @@ function AppContent() {
           isLoading={playerState.isLoadingForPlayback}
           textColor={colors.text}
           colors={colors}
-          onPressTrack={(t) =>
-            t.missing ? missingTrackRelocation.explainMissingTrack(t, screen.playlist.rootId) : void playFromTrack(screen.playlist, screen.tracksById, t)
-          }
+          onPressTrack={handlePressTrack}
           libraryStore={libraryStore}
           initialNumToRender={20}
           missingFileIds={missingFileIds}
@@ -1126,7 +1138,6 @@ function AppContent() {
       <LibraryScreen
         colors={colors}
         rootsWithLibrary={rootsWithLibrary}
-        busyRootId={busyRootId}
         isLoadingRoots={isLoadingRoots}
         isAddingFolder={isAddingFolder}
         isRootScanning={isRootScanning}

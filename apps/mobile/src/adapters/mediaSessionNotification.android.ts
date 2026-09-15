@@ -68,7 +68,6 @@ export function useMediaSessionNotification(info: MediaSessionNotificationInfo |
       void PlaybackNotificationManager.hide();
     };
     // Registered once for the lifetime of the app - see callbacksRef's doc.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

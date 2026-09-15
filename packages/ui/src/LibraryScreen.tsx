@@ -19,7 +19,6 @@ import type { RootWithLibrary } from './usePlaybackPersistence';
 export interface LibraryScreenProps {
   colors: Colors;
   rootsWithLibrary: RootWithLibrary[];
-  busyRootId: string | null;
   /**
    * Disables the Add Folder button and swaps its label for a spinner while
    * a brand-new root's first scan is in flight (see App.tsx's
@@ -87,7 +86,6 @@ export interface LibraryScreenProps {
 export function LibraryScreen({
   colors,
   rootsWithLibrary,
-  busyRootId,
   isAddingFolder = false,
   isLoadingRoots = false,
   isRootScanning,

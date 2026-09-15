@@ -50,7 +50,7 @@ import {
 import type { RootWithLibrary } from '@bpmix/ui';
 import { mdiSubtitles } from '@mdi/js';
 import type { CSSProperties } from 'react';
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DimensionValue } from 'react-native';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { createAudioEngine } from './adapters/audioEngine';
@@ -684,7 +684,7 @@ function App() {
       // Picks up any title/artist/art that actually changed.
       await refresh();
     },
-    [libraryStore, notificationCenter, refresh],
+    [notificationCenter, refresh],
   );
 
   // A real, independent OS directory picker (requestRoot('lyrics')) rather
@@ -746,6 +746,12 @@ function App() {
       });
     }
     previouslyScanningRootIdsRef.current = scanningRootIds;
+    // Deliberately keyed on scanningRootIdsKey alone - see the comment
+    // above this effect for why including grantedRoots/notificationCenter/
+    // cancelScan/scanningRootIds directly would reintroduce an infinite
+    // loop (notificationCenter is a new object every render once this
+    // effect itself calls upsertProgress/dismiss).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scanningRootIdsKey]);
 
   const missingTrackRelocation = useMissingTrackRelocation({ fileAccess, rescan, setError });
@@ -770,6 +776,23 @@ function App() {
     setActiveTracksById,
   });
 
+  // Stable across renders where the open playlist itself hasn't changed
+  // (not recreated on every ~200ms playback poll tick, unlike an inline
+  // arrow function here would be) - feeds into TrackList's own memoized
+  // renderItem, which in turn is what lets TrackRow's memo() actually skip
+  // re-rendering unchanged rows. Reads screen.kind at call time rather than
+  // being defined only inside the screen.kind === 'playlist' branch below -
+  // hooks can't be called conditionally, so this closes over `screen`
+  // itself and no-ops if it's since navigated away from a playlist.
+  const handlePressTrack = useCallback(
+    (t: TrackRecord) => {
+      if (screen.kind !== 'playlist') return;
+      if (t.missing) missingTrackRelocation.explainMissingTrack(t, screen.playlist.rootId);
+      else void playFromTrack(screen.playlist, screen.tracksById, t);
+    },
+    [screen, missingTrackRelocation, playFromTrack],
+  );
+
   const { volume, handleVolumeChange } = useVolumeControl({ playlistPlayer, libraryStore, persistPlaybackPatch });
 
   const {
@@ -783,7 +806,6 @@ function App() {
     displayPositionSeconds,
     displayDurationSeconds,
     currentTurnsPerSecond,
-    settledCurrentTrack,
     settledCurrentMetadata,
     settledNextTrack,
     settledNextMetadata,
@@ -1038,9 +1060,7 @@ function App() {
           isLoading={playerState.isLoadingForPlayback}
           textColor={colors.text}
           colors={colors}
-          onPressTrack={(t) =>
-            t.missing ? missingTrackRelocation.explainMissingTrack(t, screen.playlist.rootId) : void playFromTrack(screen.playlist, screen.tracksById, t)
-          }
+          onPressTrack={handlePressTrack}
           libraryStore={libraryStore}
           initialNumToRender={30}
           missingFileIds={missingFileIds}
@@ -1052,7 +1072,6 @@ function App() {
       <LibraryScreen
         colors={colors}
         rootsWithLibrary={rootsWithLibrary}
-        busyRootId={busyRootId}
         isLoadingRoots={isLoadingRoots}
         isAddingFolder={busyRootId !== null && !rootsWithLibrary.some(({ root }) => root.id === busyRootId)}
         isRootScanning={isRootScanning}
@@ -1074,7 +1093,7 @@ function App() {
           <>
             {!SUPPORTS_DIRECTORY_PICKER && (
               <Text style={styles.warning}>
-                This browser can't pick local folders. Use the self-hosted Docker server instead to browse a mounted music
+                This browser can’t pick local folders. Use the self-hosted Docker server instead to browse a mounted music
                 library -{' '}
                 <a href={SELF_HOSTING_DOCS_URL} target="_blank" rel="noopener noreferrer" style={webLinkStyle}>
                   see the setup guide
@@ -1086,7 +1105,7 @@ function App() {
               <View style={[styles.installOnboarding, { borderColor: colors.accent }]}>
                 <Text style={[styles.installOnboardingText, { color: colors.text }]}>
                   Install BPMix as an app to keep folder access working across reloads - a browser tab has to ask again every
-                  so often, but an installed app doesn't.
+                  so often, but an installed app doesn’t.
                 </Text>
                 <View style={styles.installOnboardingActions}>
                   <Pressable

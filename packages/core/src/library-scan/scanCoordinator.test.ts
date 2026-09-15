@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { DirectoryEntry, FileAccess, FileRef, GrantedRoot } from '../file-access/types';
+import type { DirectoryEntry, FileAccess, GrantedRoot } from '../file-access/types';
 import type {
   AnalysisResult,
   LibraryStore,

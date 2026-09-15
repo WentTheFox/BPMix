@@ -31,10 +31,6 @@ function readUint32LE(bytes: Uint8Array, offset: number): number {
   return ((bytes[offset + 3]! << 24) | (bytes[offset + 2]! << 16) | (bytes[offset + 1]! << 8) | bytes[offset]!) >>> 0;
 }
 
-function readUint16LE(bytes: Uint8Array, offset: number): number {
-  return bytes[offset]! | (bytes[offset + 1]! << 8);
-}
-
 function matchesAscii(bytes: Uint8Array, offset: number, text: string): boolean {
   if (offset + text.length > bytes.length) return false;
   for (let i = 0; i < text.length; i++) {

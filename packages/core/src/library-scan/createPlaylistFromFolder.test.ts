@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { DirectoryEntry, FileAccess, FileRef, GrantedRoot } from '../file-access/types';
+import type { DirectoryEntry, FileAccess, GrantedRoot } from '../file-access/types';
 import { parseM3u8 } from '../playlist/m3u8';
 import { sortPlaylistCandidates, writePlaylistFile, type PlaylistCandidateTrack } from './createPlaylistFromFolder';
 

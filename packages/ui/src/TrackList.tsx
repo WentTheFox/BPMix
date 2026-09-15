@@ -1,5 +1,5 @@
 import { trackDisplayName, type LibraryStore, type TrackRecord } from '@bpmix/core';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { FlatList, StyleSheet, TextInput } from 'react-native';
 import type { Colors } from './theme';
 import { TRACK_ROW_HEIGHT, TrackRow } from './TrackRow';
@@ -64,6 +64,32 @@ export function TrackList({
     });
   }, [trackFileIds, tracksById, query]);
 
+  // TrackRow is wrapped in memo() specifically so a long list's off-screen/
+  // unchanged rows don't re-render on every ~200ms playback poll tick (see
+  // its own doc) - an inline renderItem here would defeat that entirely,
+  // since FlatList treats a changed renderItem identity as a reason to
+  // re-render every currently-mounted row, not just this list's own JSX.
+  const renderItem = useCallback(
+    ({ item: fileId }: { item: string }) => {
+      const track = tracksById.get(fileId);
+      if (!track) return null;
+      return (
+        <TrackRow
+          track={track}
+          isCurrent={currentFileId === fileId}
+          isPlaying={isPlaying}
+          isLoading={isLoading}
+          textColor={textColor}
+          colors={colors}
+          onPress={onPressTrack}
+          libraryStore={libraryStore}
+          isMissing={track.missing || missingFileIds?.has(fileId)}
+        />
+      );
+    },
+    [tracksById, currentFileId, isPlaying, isLoading, textColor, colors, onPressTrack, libraryStore, missingFileIds],
+  );
+
   return (
     <>
       <TextInput
@@ -79,23 +105,7 @@ export function TrackList({
         style={styles.list}
         data={filteredFileIds}
         keyExtractor={(fileId, index) => `${fileId}-${index}`}
-        renderItem={({ item: fileId }) => {
-          const track = tracksById.get(fileId);
-          if (!track) return null;
-          return (
-            <TrackRow
-              track={track}
-              isCurrent={currentFileId === fileId}
-              isPlaying={isPlaying}
-              isLoading={isLoading}
-              textColor={textColor}
-              colors={colors}
-              onPress={onPressTrack}
-              libraryStore={libraryStore}
-              isMissing={track.missing || missingFileIds?.has(fileId)}
-            />
-          );
-        }}
+        renderItem={renderItem}
         initialNumToRender={initialNumToRender}
         windowSize={7}
         // FlatList only re-renders already-mounted rows when `data` or

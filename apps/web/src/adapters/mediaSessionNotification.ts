@@ -54,7 +54,6 @@ export function useMediaSessionNotification(info: MediaSessionNotificationInfo |
       navigator.mediaSession.playbackState = 'none';
     };
     // Registered once for the page's lifetime - see callbacksRef's doc.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -87,5 +86,15 @@ export function useMediaSessionNotification(info: MediaSessionNotificationInfo |
     // position on its own, so setPositionState needs a fresh position each
     // time to keep the OS/browser scrubber in sync with BPMix's own
     // ~200ms poll.
+    //
+    // Deliberately depends on `info`'s individual fields, not `info`
+    // itself - the caller (App.tsx) passes a fresh object literal every
+    // render, so depending on the object's identity would rerun this
+    // effect on every render regardless of whether anything it actually
+    // reads changed, not just the ~200ms poll ticks that genuinely move
+    // positionSeconds. exhaustive-deps can't see that every field it reads
+    // (including the `!info` null check) is already covered field-by-field
+    // here, hence the disable below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [info?.title, info?.artist, info?.album, info?.artworkUri, info?.durationSeconds, info?.isPlaying, info?.positionSeconds]);
 }

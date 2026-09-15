@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { AudioEngine, DecodedAudio, RampSpec, SourceNode } from '../audio-engine/types';
 import type { TransitionPlan } from '../crossfade/computeTransitionPlan';
 import type { FileRef } from '../file-access/types';

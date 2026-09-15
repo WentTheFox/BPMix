@@ -103,7 +103,6 @@ export function useSpin(
       cancelled = true;
       anim?.stop();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [turnsPerSecond, rotationDeg]);
 
   const rotate = rotationDeg.interpolate({ inputRange: [0, 360], outputRange: ['0deg', '360deg'], extrapolate: 'extend' });

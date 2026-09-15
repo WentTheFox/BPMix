@@ -1,3 +1,13 @@
+# Verification
+
+Before considering a code change done, run from the repo root:
+
+  * `pnpm lint` - ESLint (flat config at `eslint.config.mjs`) across the whole monorepo in one shot: `typescript-eslint`'s recommended rules everywhere, plus `eslint-plugin-react`'s recommended/jsx-runtime rules and the classic `react-hooks/rules-of-hooks` + `react-hooks/exhaustive-deps` pair (deliberately NOT `eslint-plugin-react-hooks`'s newer `recommended` config, which as of v7 also bundles React Compiler readiness rules - purity/refs/immutability/set-state-in-effect checks aimed at codebases opting into the compiler, not this one; that broader set flagged several already-deliberate, already-documented patterns here as errors, not real bugs) - see the config file's own comments for the reasoning behind each deviation from a plugin's stock "recommended" preset.
+  * `pnpm typecheck` - runs each package's own `tsc --noEmit` (see each package's own `tsconfig.json` for why this isn't just one repo-wide invocation - `apps/server`, for instance, type-checks `packages/core`'s source directly, not just `apps/web`/`apps/mobile`'s own trees).
+  * `pnpm test` - runs every package's test suite (currently just `packages/core`'s Vitest suite and `apps/mobile`'s Jest smoke test).
+  * A real `pnpm --filter @bpmix/web build` (or `pnpm web` and click through it) whenever a change touches a `.web.ts`/`.web.tsx` file - see the `.web.ts`/moduleSuffixes note below for why `pnpm typecheck` alone can silently miss a type error that only exists in the `.web.ts` variant.
+  * For a UI/frontend change, also actually run the app (`pnpm web`, or the mobile/Windows app) and use the feature - the commands above verify correctness, not that the feature works as intended.
+
 # Conventions
 
   * We're using React Native mainly to avoid duplicating code between mobile and web - implement shared components (and other shareable logic) in `packages/ui`/`packages/core` rather than duplicating them per-app whenever possible. This has been missed more than once (identical `FlatList` wiring, a debug-preview component, prop-threading for the same hook) because `apps/mobile/App.tsx` and `apps/web/src/App.tsx` are still large inline-JSX files that a per-app UI change is easy to make without noticing the other file already has the same shape. **When editing UI logic in one of those two files, check the same area of the other one before considering the change done** - if a second copy of the same JSX/logic would now exist (or already exists from a past change), extract it into `packages/ui` as a real component (not just a leaf widget like `TrackRow`) rather than letting both copies sit there to drift apart later.

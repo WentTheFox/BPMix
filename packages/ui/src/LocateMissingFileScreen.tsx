@@ -40,7 +40,7 @@ export function LocateMissingFileScreen({ colors, missingTrackName, candidates, 
     <View style={styles.container}>
       <BackButton text="Locate File" color={colors.text} onPress={onCancel} disabled={relocating} fontSize={16} style={styles.backRow} />
       <Text style={[styles.subtitle, { color: colors.subtleText }]} numberOfLines={1}>
-        Find the file that replaces "{missingTrackName}"
+        Find the file that replaces “{missingTrackName}”
       </Text>
 
       <TextInput

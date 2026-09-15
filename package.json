@@ -10,6 +10,14 @@
     "web": "pnpm --filter @bpmix/web dev",
     "build": "pnpm --filter @bpmix/web build && pnpm --filter @bpmix/server build",
     "typecheck": "pnpm -r --if-present typecheck",
-    "test": "pnpm -r --if-present test"
+    "test": "pnpm -r --if-present test",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "eslint": "^10.9.1",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.12.0",
+    "typescript-eslint": "^8.69.0"
   }
 }
