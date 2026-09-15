@@ -2,11 +2,12 @@ import type { FileAccess, FileRef } from '../file-access/types';
 import type { LibraryStore } from '../library-store/types';
 import { hashBytes } from './contentHash';
 import type { CoverArtResizer } from './coverArtResizer';
+import { DURATION_PREFIX_BYTES, parseDurationSeconds } from './parseDuration';
 import { readTags, readTagsFromUrl } from './readTags';
 import type { CoverArtBytes, TrackMetadata } from './types';
 
-/** Bumped whenever readTags' behavior changes, so already-scanned files get re-read instead of keeping a stale result forever - same role as ANALYSIS_ALGORITHM_VERSION. (v2: also extracts cover art. v3: downscales/cuts off oversized art instead of storing it verbatim - a bump here is what gets already-v2-scanned tracks' oversized art reprocessed, not just newly-scanned ones.) */
-export const METADATA_PARSER_VERSION = 4;
+/** Bumped whenever readTags' behavior changes, so already-scanned files get re-read instead of keeping a stale result forever - same role as ANALYSIS_ALGORITHM_VERSION. (v2: also extracts cover art. v3: downscales/cuts off oversized art instead of storing it verbatim - a bump here is what gets already-v2-scanned tracks' oversized art reprocessed, not just newly-scanned ones. v4: contentHash. v5: durationSeconds.) */
+export const METADATA_PARSER_VERSION = 5;
 
 /** Cover art is only ever displayed at small thumbnail sizes - shrink it toward this before storing. */
 export const COVER_ART_MAX_DIMENSION_PX = 300;
@@ -21,6 +22,29 @@ export const COVER_ART_MAX_DIMENSION_PX = 300;
  * none.
  */
 const MAX_COVER_ART_BYTES = 500_000;
+
+/**
+ * Fetches up to `maxBytes` from the start of `url` via a Range request -
+ * used to get parseDurationSeconds a prefix without downloading the whole
+ * file, on the same streamUrl path that already avoids that for tag
+ * parsing (see ensureTrackMetadata). apps/server's static file mount
+ * already honors Range (see its own doc comment), so this is a real
+ * partial transfer there, not a full download truncated client-side -
+ * but this slices the response regardless, in case some other
+ * FileAccess.getStreamUrl source ever doesn't honor Range and returns
+ * the whole body instead.
+ */
+async function fetchPrefix(url: string, maxBytes: number): Promise<Uint8Array | null> {
+  try {
+    const res = await fetch(url, { headers: { Range: `bytes=0-${maxBytes - 1}` } });
+    if (!res.ok && res.status !== 206) return null;
+    const buffer = await res.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    return bytes.length > maxBytes ? bytes.subarray(0, maxBytes) : bytes;
+  } catch {
+    return null;
+  }
+}
 
 /** True if a stored TrackMetadata can still be trusted for the given file - see TrackMetadata's field docs and isAnalysisFresh (the same pattern, for analysis results). */
 export function isMetadataFresh(
@@ -113,18 +137,32 @@ export async function ensureTrackMetadata(
   // otherwise means downloading every track's entire audio payload just to
   // read a header, which is both wasted bandwidth and (self-hosted, over a
   // real network) the dominant cost of an initial library scan. The
-  // direct-bytes path hashes those bytes itself; the streamUrl path asks
-  // the adapter for a hash instead (see FileAccess.getContentHash's doc -
-  // only fileAccess.server.ts implements it, hashing its own local disk
-  // copy so the client never has to download the file just for this).
+  // direct-bytes path hashes those bytes itself and slices its own prefix
+  // for parseDurationSeconds (both free - the bytes are already in hand);
+  // the streamUrl path asks the adapter for a hash instead (see
+  // FileAccess.getContentHash's doc - only fileAccess.server.ts
+  // implements it, hashing its own local disk copy so the client never
+  // has to download the file just for this) and fetches its own small
+  // Range request for a duration prefix (fetchPrefix below) - still far
+  // cheaper than a full download, just not free the way the direct-bytes
+  // path's is.
   const streamUrl = fileAccess.getStreamUrl?.(ref);
   let contentHash: string | null;
+  let durationSeconds: number | null;
   let tags;
   if (streamUrl) {
-    [tags, contentHash] = await Promise.all([readTagsFromUrl(streamUrl), fileAccess.getContentHash?.(ref) ?? Promise.resolve(null)]);
+    let durationPrefix: Uint8Array | null;
+    [tags, contentHash, durationPrefix] = await Promise.all([
+      readTagsFromUrl(streamUrl),
+      fileAccess.getContentHash?.(ref) ?? Promise.resolve(null),
+      fetchPrefix(streamUrl, DURATION_PREFIX_BYTES),
+    ]);
+    durationSeconds = durationPrefix ? parseDurationSeconds(durationPrefix, ref.name, ref.sizeBytes) : null;
   } else {
     const bytes = await fileAccess.readFileBytes(ref);
-    contentHash = hashBytes(new Uint8Array(bytes));
+    const byteArray = new Uint8Array(bytes);
+    contentHash = hashBytes(byteArray);
+    durationSeconds = parseDurationSeconds(byteArray.subarray(0, DURATION_PREFIX_BYTES), ref.name, ref.sizeBytes);
     tags = await readTags(bytes);
   }
   const result: TrackMetadata = {
@@ -132,6 +170,7 @@ export async function ensureTrackMetadata(
     title: tags?.title ?? null,
     artists: tags?.artists ?? [],
     album: tags?.album ?? null,
+    durationSeconds,
     sizeBytes: ref.sizeBytes,
     lastModifiedMs: ref.lastModifiedMs,
     parserVersion: METADATA_PARSER_VERSION,

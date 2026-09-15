@@ -30,8 +30,6 @@ Notes for tasks that still have to be done/investigated are left here, grouped b
 
 ## Track metadata
 
-* audio files should be displayed with their ID3 metadata intact, cover art on the left, title on one line, artist(s) (multiple are stored with a delimiter), and album name under it, standard stuff, along with song length
-* we can scan audio metadata asynchronously and update it as playback progresses, showing only the filename until this is done
 * display live waveform of the current song
 
 ## UI/UX improvements

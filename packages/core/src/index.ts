@@ -37,6 +37,8 @@ export * from './metadata/base64';
 export * from './metadata/contentHash';
 export * from './metadata/coverArtResizer';
 export * from './metadata/ensureMetadata';
+export * from './metadata/formatDuration';
+export * from './metadata/parseDuration';
 export * from './metadata/scanLibraryMetadata';
 export * from './metadata/formatTrackTitle';
 export * from './crossfade/computeTransitionPlan';

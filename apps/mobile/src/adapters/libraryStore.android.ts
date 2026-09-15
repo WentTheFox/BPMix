@@ -194,14 +194,14 @@ const ready = (async () => {
 
   // Same drop-and-recreate pattern as the analysis table above - metadata
   // is just as fully re-derivable by re-scanning the file, so a schema
-  // mismatch (here: a table from before contentHash existed) gets dropped
-  // rather than migrated.
+  // mismatch (here: a table from before contentHash/durationSeconds existed)
+  // gets dropped rather than migrated.
   const metadataTableInfo = await run('PRAGMA table_info(metadata)');
   const metadataColumns = new Set<string>();
   for (let i = 0; i < metadataTableInfo.rows.length; i++) {
     metadataColumns.add((metadataTableInfo.rows.item(i) as { name: string }).name);
   }
-  if (metadataColumns.size > 0 && !metadataColumns.has('contentHash')) {
+  if (metadataColumns.size > 0 && (!metadataColumns.has('contentHash') || !metadataColumns.has('durationSeconds'))) {
     await run('DROP TABLE metadata');
   }
 
@@ -211,6 +211,7 @@ const ready = (async () => {
       title TEXT,
       artists TEXT NOT NULL,
       album TEXT,
+      durationSeconds REAL,
       sizeBytes INTEGER NOT NULL,
       lastModifiedMs INTEGER NOT NULL,
       parserVersion INTEGER NOT NULL,
@@ -365,6 +366,7 @@ export function createLibraryStore(): LibraryStore {
         title: string | null;
         artists: string;
         album: string | null;
+        durationSeconds: number | null;
         sizeBytes: number;
         lastModifiedMs: number;
         parserVersion: number;
@@ -379,10 +381,10 @@ export function createLibraryStore(): LibraryStore {
       await ready;
       await run(
         `INSERT INTO metadata (
-           fileId, title, artists, album, sizeBytes, lastModifiedMs, parserVersion, contentHash
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           fileId, title, artists, album, durationSeconds, sizeBytes, lastModifiedMs, parserVersion, contentHash
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(fileId) DO UPDATE SET
-           title=excluded.title, artists=excluded.artists, album=excluded.album,
+           title=excluded.title, artists=excluded.artists, album=excluded.album, durationSeconds=excluded.durationSeconds,
            sizeBytes=excluded.sizeBytes, lastModifiedMs=excluded.lastModifiedMs, parserVersion=excluded.parserVersion,
            contentHash=excluded.contentHash`,
         [
@@ -390,6 +392,7 @@ export function createLibraryStore(): LibraryStore {
           result.title,
           JSON.stringify(result.artists),
           result.album,
+          result.durationSeconds,
           result.sizeBytes,
           result.lastModifiedMs,
           result.parserVersion,

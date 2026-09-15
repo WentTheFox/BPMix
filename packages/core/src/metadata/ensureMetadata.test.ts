@@ -286,6 +286,7 @@ describe('ensureTrackMetadata', () => {
       lastModifiedMs: 5,
       parserVersion: METADATA_PARSER_VERSION - 1,
       contentHash: null,
+      durationSeconds: null,
     };
     expect(isMetadataFresh(stale, ref)).toBe(false);
   });

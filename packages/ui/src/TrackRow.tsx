@@ -1,4 +1,4 @@
-import { isMetadataCurrent, trackDisplayName, type LibraryStore, type TrackRecord } from '@bpmix/core';
+import { formatDuration, isMetadataCurrent, trackDisplayName, type LibraryStore, type TrackRecord } from '@bpmix/core';
 import { mdiAlertCircleOutline, mdiPause, mdiPlay, mdiSubtitles } from '@mdi/js';
 import { memo, useEffect, useRef } from 'react';
 import { ActivityIndicator, Animated, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -79,6 +79,9 @@ export const TrackRow = memo(function TrackRow({ track, isCurrent, isPlaying, is
 
   const title = metadata?.title || trackDisplayName(track);
   const artist = metadata?.artists.join(', ') || null;
+  const album = metadata?.album || null;
+  const artistLine = artist && album ? `${artist} — ${album}` : artist || album;
+  const duration = metadata?.durationSeconds != null ? formatDuration(metadata.durationSeconds) : null;
 
   return (
     <Pressable style={styles.trackRow} onPress={() => onPress(track)}>
@@ -99,14 +102,19 @@ export const TrackRow = memo(function TrackRow({ track, isCurrent, isPlaying, is
             </Text>
             {hasLyrics && <Icon path={mdiSubtitles} size={13} color={isCurrent ? colors.accent : textColor} />}
           </View>
-          {artist ? (
+          {artistLine ? (
             <Text style={[styles.trackArtist, { color: textColor }]} numberOfLines={1}>
-              {artist}
+              {artistLine}
             </Text>
           ) : (
             artLoading && <Skeleton style={styles.artistSkeleton} />
           )}
         </View>
+        {duration && (
+          <Text style={[styles.trackDuration, { color: textColor }]} numberOfLines={1}>
+            {duration}
+          </Text>
+        )}
         {isMissing && (
           <View style={styles.missingIcon}>
             <Icon path={mdiAlertCircleOutline} size={18} color="#dc2626" />
@@ -132,6 +140,12 @@ const styles = StyleSheet.create({
   },
   missingIcon: {
     marginLeft: 'auto',
+  },
+  trackDuration: {
+    fontSize: 12,
+    opacity: 0.6,
+    marginLeft: 'auto',
+    flexShrink: 0,
   },
   art: {
     width: ART_SIZE,

@@ -11,6 +11,8 @@ export interface TrackMetadata {
   /** Multiple artists as stored (e.g. ID3v2.4's null-separated TPE1, or v2.3's "/"-separated form) split into individual names; empty when the file has no artist tag. */
   artists: string[];
   album: string | null;
+  /** Seconds, parsed from the audio container's own header (FLAC STREAMINFO, MP4 mvhd, MP3 Xing/VBRI or a bitrate estimate - see parseDuration.ts) rather than an ID3 tag (unreliable - the optional TLEN frame is rarely set) or a full decode (too expensive to do for every track in a background scan). Null for a format parseDuration.ts doesn't cover (OGG/Opus/WMA - their duration lives at the end of the file) or one it couldn't confidently parse. */
+  durationSeconds: number | null;
   /**
    * The TrackRecord's sizeBytes/lastModifiedMs at the time metadata was
    * read - same freshness-check role as AnalysisResult's fields (see its
