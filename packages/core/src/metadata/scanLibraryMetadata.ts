@@ -38,6 +38,16 @@ export interface ScanLibraryMetadataOptions {
    * take a while to reach whatever the user actually has on screen.
    */
   getPriorityFileIds?: () => string[];
+  /**
+   * Skips the cheap sizeBytes/lastModifiedMs freshness check for every
+   * track in this pass and re-reads/re-hashes them unconditionally - the
+   * only way to catch a file whose content changed but whose size and
+   * mtime happen not to (see TrackMetadata.contentHash's doc). Not set by
+   * the normal passive background scan; a caller sets this for an
+   * explicit, user-initiated "verify this" pass (e.g. the Rescan button -
+   * see useLibraryRootActions), where the extra read cost is expected.
+   */
+  forceRefresh?: boolean;
 }
 
 function trackToFileRef(track: TrackRecord): FileRef {
@@ -94,14 +104,16 @@ export function scanLibraryMetadata(
     const track = remaining.splice(nextIndex, 1)[0]!;
     const currentIndex = index++;
 
-    const existing = await store.getMetadata(track.fileId);
-    if (isMetadataFresh(existing, track)) {
-      options.onProgress?.({ track, index: currentIndex, total, skipped: true });
-      return;
+    if (!options.forceRefresh) {
+      const existing = await store.getMetadata(track.fileId);
+      if (isMetadataFresh(existing, track)) {
+        options.onProgress?.({ track, index: currentIndex, total, skipped: true });
+        return;
+      }
     }
 
     try {
-      await ensureTrackMetadata(store, fileAccess, trackToFileRef(track), options.resizer);
+      await ensureTrackMetadata(store, fileAccess, trackToFileRef(track), options.resizer, { forceRefresh: options.forceRefresh });
       options.onProgress?.({ track, index: currentIndex, total, skipped: false });
     } catch (error) {
       options.onProgress?.({ track, index: currentIndex, total, skipped: false, error });

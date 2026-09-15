@@ -58,6 +58,17 @@ export function createServerFileAccess(): FileAccess {
       return new URL(fileUrl(rootId!, ref.relativePath), window.location.origin).toString();
     },
 
+    async getContentHash(ref: FileRef): Promise<string | null> {
+      const [rootId] = ref.id.split(':');
+      const params = new URLSearchParams({ path: ref.relativePath });
+      const res = await fetch(`/api/roots/${encodeURIComponent(rootId!)}/hash?${params}`);
+      if (!res.ok) {
+        throw new Error(`Failed to hash "${ref.relativePath}": ${res.status}`);
+      }
+      const body = (await res.json()) as { sha256: string };
+      return body.sha256;
+    },
+
     async readFileBytes(ref: FileRef): Promise<ArrayBuffer> {
       const [rootId] = ref.id.split(':');
       const res = await fetch(fileUrl(rootId!, ref.relativePath));

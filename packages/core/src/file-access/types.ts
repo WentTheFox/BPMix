@@ -130,6 +130,20 @@ export interface FileAccess {
   getStreamUrl?(ref: FileRef): string | undefined;
 
   /**
+   * When present, a real content hash for `ref` computed WITHOUT the
+   * caller having to download the file - see @bpmix/core's
+   * TrackMetadata.contentHash and ensureTrackMetadata's forceRefresh doc,
+   * which is what this exists for. Only fileAccess.server.ts implements
+   * this for real (the server hashes its own local disk copy and returns
+   * just the digest - see apps/server/src/routes/library.ts's /hash
+   * route); every other adapter already has the file's full bytes on hand
+   * whenever it actually needs a hash (see ensureTrackMetadata's
+   * direct-readFileBytes branch) and has no use for this. Same optional-
+   * per-call shape as getStreamUrl, for the same composite-adapter reason.
+   */
+  getContentHash?(ref: FileRef): Promise<string | null>;
+
+  /**
    * Creates (or overwrites) a text file at `relativePath` under `rootId` -
    * the one write operation this interface exposes, added specifically for
    * playlist-from-folder generation (see createPlaylistFromFolder). The

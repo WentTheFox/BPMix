@@ -151,6 +151,17 @@ export function createCompositeFileAccess(): FileAccess {
       return server.getStreamUrl!({ ...ref, id: innerRootId! });
     },
 
+    // Same reasoning as getStreamUrl above - only a server-backed ref has
+    // anything to hash server-side; the browser adapter's local refs go
+    // through ensureTrackMetadata's direct-readFileBytes branch instead,
+    // which already has the bytes on hand to hash itself.
+    async getContentHash(ref: FileRef): Promise<string | null> {
+      const { scheme, innerId } = decode(ref.id);
+      if (scheme !== SERVER) return null;
+      const [innerRootId] = innerId.split(':');
+      return server.getContentHash!({ ...ref, id: innerRootId! });
+    },
+
     async writeFileText(rootId: string, relativePath: string, contents: string): Promise<void> {
       const { scheme, innerId } = decode(rootId);
       const adapter = scheme === SERVER ? server : browser;

@@ -22,11 +22,15 @@ export interface TrackMetadata {
   /** METADATA_PARSER_VERSION at read time - a mismatch means the parser changed since, so the result is stale even though the file itself didn't. */
   parserVersion: number;
   /**
-   * FNV-1a of the file's full bytes at read time (see contentHash.ts) -
-   * null when this result came from a platform that only ever reads a
-   * ranged chunk of the file for tag parsing (currently just
-   * fileAccess.server.ts's streamUrl path - see ensureTrackMetadata),
-   * where hashing would mean a second full download purely for this.
+   * A real content hash of the file at read time - FNV-1a of the full
+   * bytes (contentHash.ts) for a platform that reads them directly, or a
+   * server-computed sha256 for fileAccess.server.ts's streamUrl path (see
+   * FileAccess.getContentHash's doc - the server hashes its own local disk
+   * copy, so the client never downloads the file just for this). The two
+   * algorithms differing is fine: this is only ever compared against a
+   * prior value from the same adapter for the same file, never across
+   * adapters. Null only if an adapter implements neither path (none
+   * currently do).
    *
    * sizeBytes/lastModifiedMs are what isMetadataFresh actually gates a
    * re-read on (see that function's doc) - a hash can't do that job

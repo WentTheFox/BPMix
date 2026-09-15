@@ -112,16 +112,16 @@ export async function ensureTrackMetadata(
   // can give us one - see FileAccess.getStreamUrl's doc. Metadata scanning
   // otherwise means downloading every track's entire audio payload just to
   // read a header, which is both wasted bandwidth and (self-hosted, over a
-  // real network) the dominant cost of an initial library scan. Only the
-  // direct-bytes path can cheaply hash the file too (see contentHash's
-  // field doc) - jsmediatags' own XhrFileReader does the streamUrl path's
-  // ranged fetching internally, so there are no bytes on this side of that
-  // call to hash without a second, purpose-built read.
+  // real network) the dominant cost of an initial library scan. The
+  // direct-bytes path hashes those bytes itself; the streamUrl path asks
+  // the adapter for a hash instead (see FileAccess.getContentHash's doc -
+  // only fileAccess.server.ts implements it, hashing its own local disk
+  // copy so the client never has to download the file just for this).
   const streamUrl = fileAccess.getStreamUrl?.(ref);
-  let contentHash: string | null = null;
+  let contentHash: string | null;
   let tags;
   if (streamUrl) {
-    tags = await readTagsFromUrl(streamUrl);
+    [tags, contentHash] = await Promise.all([readTagsFromUrl(streamUrl), fileAccess.getContentHash?.(ref) ?? Promise.resolve(null)]);
   } else {
     const bytes = await fileAccess.readFileBytes(ref);
     contentHash = hashBytes(new Uint8Array(bytes));

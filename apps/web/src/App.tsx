@@ -634,6 +634,42 @@ function App() {
   // in use" error during a scan) lives in FolderPickerButton (packages/ui)
   // now, not here - this is just the plain pick-and-handle operation it
   // wraps.
+  // Rescan is the one place a user explicitly asks to re-check a folder, so
+  // it's also where forcing past the cheap sizeBytes/lastModifiedMs
+  // freshness gate (see TrackMetadata.contentHash's doc) makes sense - a
+  // file whose content silently changed without its size/mtime doing so
+  // (a sync tool preserving timestamps, e.g.) only ever gets caught here,
+  // not by the passive background scan. Runs as its own idle-chunked pass
+  // (fire-and-forget - onRescanned below doesn't await this) with its own
+  // notification row, same pattern as refresh()'s own background
+  // scanLibraryMetadata call, just scoped to the rescanned root and always
+  // forced rather than freshness-gated.
+  const verifyRootMetadata = useCallback(
+    async (rootId: string) => {
+      // Most-recently-modified first - a file that changed on disk without
+      // its name changing (what forceRefresh exists to catch - see
+      // TrackMetadata.contentHash's doc) is far more likely to be one that
+      // was touched recently than an old, untouched one, so this is where
+      // a genuinely stale/wrong result is most worth finding first on a
+      // large library this pass won't necessarily finish quickly.
+      const tracks = (await libraryStore.listTracks(rootId)).filter((t) => !t.missing).sort((a, b) => b.lastModifiedMs - a.lastModifiedMs);
+      const notificationId = `metadata-verify-${rootId}`;
+      await scanLibraryMetadata(backgroundFileAccess, libraryStore, tracks, {
+        resizer: coverArtResizer,
+        forceRefresh: true,
+        onProgress: ({ index, total, skipped }) => {
+          const done = index + 1 >= total;
+          if (skipped && !done) return;
+          notificationCenter.upsertProgress(notificationId, 'Verifying track metadata', index + 1, total, done);
+          if (done) setTimeout(() => notificationCenter.dismiss(notificationId), METADATA_SCAN_AUTO_DISMISS_MS);
+        },
+      });
+      // Picks up any title/artist/art that actually changed.
+      await refresh();
+    },
+    [libraryStore, notificationCenter, refresh],
+  );
+
   // A real, independent OS directory picker (requestRoot('lyrics')) rather
   // than FolderBrowser over an already-granted music root - the old
   // subfolder-only flow existed only because every granted root used to be
@@ -649,6 +685,7 @@ function App() {
       refresh,
       setError,
       onUnresolvedEntries: (title, detail) => notificationCenter.addError(title, detail),
+      onRescanned: (rootId) => void verifyRootMetadata(rootId),
     });
 
   const missingTrackRelocation = useMissingTrackRelocation({ fileAccess, rescan, setError });

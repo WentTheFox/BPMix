@@ -124,6 +124,28 @@ describe('scanLibraryMetadata', () => {
     expect(seen[0]!.skipped).toBe(true);
   });
 
+  it('forceRefresh re-reads a track even though its stored metadata still looks fresh', async () => {
+    const store = new FakeLibraryStore();
+    const ref = track('a');
+    await store.putMetadata({
+      fileId: 'a',
+      title: 'Cached',
+      artists: [],
+      album: null,
+      sizeBytes: 64,
+      lastModifiedMs: 1,
+      parserVersion: METADATA_PARSER_VERSION,
+      contentHash: null,
+    });
+    const fileAccess = new FakeFileAccess(new Map([['a', new Uint8Array(64).buffer]]));
+    const seen: ScanMetadataProgress[] = [];
+
+    await scanLibraryMetadata(fileAccess, store, [ref], { forceRefresh: true, onProgress: (info) => seen.push(info) });
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.skipped).toBe(false);
+  });
+
   it('bumps a priority fileId ahead of the rest of the list, re-evaluated on every step', async () => {
     const store = new FakeLibraryStore();
     const tracks = [track('a'), track('b'), track('c')];

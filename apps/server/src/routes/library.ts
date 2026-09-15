@@ -1,5 +1,8 @@
+import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import { readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { pipeline } from 'node:stream/promises';
 import express, { Router } from 'express';
 import type { ErrorRequestHandler } from 'express';
 import type { DirectoryEntry, FileRef, GrantedRoot } from '@bpmix/core';
@@ -69,6 +72,33 @@ export function createLibraryRouter(baseDir: string, lyricsRootIds: ReadonlySet<
         }),
       );
       res.json(entries);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Lets a client verify a track's actual content changed (see @bpmix/core's
+  // TrackMetadata.contentHash and ensureTrackMetadata's forceRefresh doc)
+  // without downloading the file itself - the server hashes its own local
+  // disk copy (cheap: no network transfer, just a local read) and returns
+  // only the digest. sha256, not FNV-1a (the algorithm local-platform
+  // adapters use for the same field) - contentHash is only ever compared
+  // against a prior value from the same adapter for the same file, never
+  // across adapters, so there's no need for the two to match; Node's
+  // built-in crypto makes a real cryptographic hash just as cheap here.
+  router.get('/roots/:rootId/hash', async (req, res, next) => {
+    try {
+      const root = await findRootOrThrow(req.params.rootId);
+      const relativePath = typeof req.query.path === 'string' ? req.query.path : '';
+      if (!relativePath) {
+        const err = new Error('Missing "path" query parameter') as Error & { status?: number };
+        err.status = 400;
+        throw err;
+      }
+      const filePath = await resolveSafePath(root.absolutePath, relativePath);
+      const hash = createHash('sha256');
+      await pipeline(createReadStream(filePath), hash);
+      res.json({ sha256: hash.digest('hex') });
     } catch (err) {
       next(err);
     }

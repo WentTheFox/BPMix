@@ -671,6 +671,34 @@ function AppContent() {
   // (refresh() above); GrantedRoot.kind now lets refresh() skip a
   // lyrics-only root, so this can just grant its own root like addFolder
   // does - see GrantedRoot.kind's doc.
+  //
+  // Rescan is the one place a user explicitly asks to re-check a folder, so
+  // it's also where forcing past the cheap sizeBytes/lastModifiedMs
+  // freshness gate (see TrackMetadata.contentHash's doc) makes sense - see
+  // apps/web/src/App.tsx's identical verifyRootMetadata for the full
+  // reasoning. Runs as its own idle-chunked pass with its own notification
+  // row, scoped to the rescanned root and always forced.
+  const verifyRootMetadata = useCallback(
+    async (rootId: string) => {
+      // Most-recently-modified first - see apps/web/src/App.tsx's identical
+      // verifyRootMetadata for why.
+      const tracks = (await libraryStore.listTracks(rootId)).filter((t) => !t.missing).sort((a, b) => b.lastModifiedMs - a.lastModifiedMs);
+      const notificationId = `metadata-verify-${rootId}`;
+      await scanLibraryMetadata(fileAccess, libraryStore, tracks, {
+        resizer: coverArtResizer,
+        forceRefresh: true,
+        onProgress: ({ index, total, skipped }) => {
+          const done = index + 1 >= total;
+          if (skipped && !done) return;
+          notificationCenter.upsertProgress(notificationId, 'Verifying track metadata', index + 1, total, done);
+          if (done) setTimeout(() => notificationCenter.dismiss(notificationId), METADATA_SCAN_AUTO_DISMISS_MS);
+        },
+      });
+      await refresh();
+    },
+    [libraryStore, notificationCenter, refresh],
+  );
+
   const { addFolder, rescan, removeRoot, addLyricsFolder, rescanLyricsScope, removeLyricsScope, busyRootId, busyLyricsScopeKey } =
     useLibraryRootActions({
       fileAccess,
@@ -685,6 +713,7 @@ function AppContent() {
         }
       },
       onUnresolvedEntries: (title, detail) => notificationCenter.addError(title, detail),
+      onRescanned: (rootId) => void verifyRootMetadata(rootId),
       browseDeviceStorage,
     });
 

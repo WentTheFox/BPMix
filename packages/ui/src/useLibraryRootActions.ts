@@ -50,6 +50,19 @@ export interface LibraryRootActionsInput {
    * to report through.
    */
   onUnresolvedEntries?: (title: string, detail: string) => void;
+  /**
+   * Called (fire-and-forget - rescan() doesn't await it) right after a
+   * successful manual rescan, with the rootId that was just rescanned.
+   * Rescan is the one place a user explicitly asks BPMix to re-check a
+   * folder, so it's also where the metadata-freshness gate that keeps the
+   * normal background scan cheap (see ensureTrackMetadata's forceRefresh
+   * doc / TrackMetadata.contentHash) makes sense to bypass for this root's
+   * tracks specifically - the caller (App.tsx, which already owns
+   * scanLibraryMetadata/resizer/progress-notification wiring) is what
+   * actually runs that forced pass. Omitted entirely by a caller that
+   * doesn't want Rescan to also re-verify metadata.
+   */
+  onRescanned?: (rootId: string) => void;
 }
 
 export interface LibraryRootActions {
@@ -71,8 +84,18 @@ export interface LibraryRootActions {
  * optional seams rather than duplicated per app.
  */
 export function useLibraryRootActions(input: LibraryRootActionsInput): LibraryRootActions {
-  const { fileAccess, libraryStore, grantedRoots, refresh, setError, onAddFolderStart, onAddFolderError, browseDeviceStorage, onUnresolvedEntries } =
-    input;
+  const {
+    fileAccess,
+    libraryStore,
+    grantedRoots,
+    refresh,
+    setError,
+    onAddFolderStart,
+    onAddFolderError,
+    browseDeviceStorage,
+    onUnresolvedEntries,
+    onRescanned,
+  } = input;
 
   const [busyRootId, setBusyRootId] = useState<string | null>(null);
   const [busyLyricsScopeKey, setBusyLyricsScopeKey] = useState<string | null>(null);
@@ -109,6 +132,7 @@ export function useLibraryRootActions(input: LibraryRootActionsInput): LibraryRo
         const description = describeUnresolvedEntries(result.unresolvedEntries, rootDisplayName);
         if (description) onUnresolvedEntries?.(description.title, description.detail);
         logLibraryAction('rescan', { rootId });
+        onRescanned?.(rootId);
       } catch (err) {
         setError(errorMessage(err));
         logLibraryAction('rescan:failed', { rootId, error: String(err) });
@@ -116,7 +140,7 @@ export function useLibraryRootActions(input: LibraryRootActionsInput): LibraryRo
         setBusyRootId(null);
       }
     },
-    [fileAccess, libraryStore, grantedRoots, refresh, setError, onUnresolvedEntries],
+    [fileAccess, libraryStore, grantedRoots, refresh, setError, onUnresolvedEntries, onRescanned],
   );
 
   const removeRoot = useCallback(
