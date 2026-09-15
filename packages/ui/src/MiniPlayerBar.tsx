@@ -2,6 +2,7 @@ import { mdiPause, mdiPlay, mdiSkipNext, mdiSkipPrevious } from '@mdi/js';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Icon } from './Icon';
 import type { Colors } from './theme';
+import { VolumeButton } from './VolumeButton';
 
 export interface MiniPlayerBarProps {
   colors: Colors;
@@ -13,6 +14,8 @@ export interface MiniPlayerBarProps {
   isPlaying: boolean;
   positionSeconds: number;
   durationSeconds: number;
+  volume: number;
+  onChangeVolume: (volume: number) => void;
   /** Opens the full NowPlayingScreen - fired by tapping the art/title area, not the transport buttons. */
   onPress: () => void;
   onPlayPause: () => void;
@@ -22,11 +25,13 @@ export interface MiniPlayerBarProps {
 
 /**
  * The fixed bottom bar every screen shows once a track is loaded - art +
- * title (tap to open NowPlayingScreen) on the left, play/pause/next/previous
- * on the right, with a thin progress line along the top edge. Deliberately
- * just these four transport actions per the TODO this replaces ("play-pause-
- * next-previous controls on the right") - loop, shuffle, seek, and volume
- * all moved to NowPlayingScreen instead of crowding this bar.
+ * title (tap to open NowPlayingScreen) on the left, volume/play-pause/next/
+ * previous on the right, with a thin progress line along the top edge. Loop,
+ * shuffle, and seek stayed on NowPlayingScreen per the TODO this replaces,
+ * but volume is shown here unconditionally (ignoring
+ * settings.showVolumeButtonOnNowPlaying, which only hides the copy on
+ * NowPlayingScreen's PlayerControlsRow) since it's the one control users
+ * reach for without opening the full screen first.
  */
 export function MiniPlayerBar({
   colors,
@@ -36,6 +41,8 @@ export function MiniPlayerBar({
   isPlaying,
   positionSeconds,
   durationSeconds,
+  volume,
+  onChangeVolume,
   onPress,
   onPlayPause,
   onNext,
@@ -67,6 +74,7 @@ export function MiniPlayerBar({
           </View>
         </Pressable>
         <View style={styles.controls}>
+          <VolumeButton colors={colors} volume={volume} onChangeVolume={onChangeVolume} />
           <Pressable style={styles.controlButton} onPress={onPrevious}>
             <Icon path={mdiSkipPrevious} size={22} color={colors.text} />
           </Pressable>

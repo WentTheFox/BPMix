@@ -1,9 +1,13 @@
 import { mdiVolumeHigh, mdiVolumeLow, mdiVolumeMedium, mdiVolumeOff } from '@mdi/js';
 import { useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import type { ViewStyle } from 'react-native';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { Icon } from './Icon';
 import type { Colors } from './theme';
 import { VolumeSlider } from './VolumeSlider';
+
+/** react-native-web accepts (and needs, see the `backdrop` style below) a `position: 'fixed'` value that isn't part of React Native's own ViewStyle - @types/react-native has no idea about it, same situation as MarqueeText.tsx's MeasurerStyle. */
+type WebBackdropStyle = ViewStyle & { position?: 'fixed' };
 
 export interface VolumeButtonProps {
   colors: Colors;
@@ -44,7 +48,7 @@ export function VolumeButton({ colors, volume, onChangeVolume }: VolumeButtonPro
       {open && (
         <>
           {/* Covers the whole screen (not just this row) so a tap anywhere outside the popover closes it. */}
-          <Pressable style={styles.backdrop} onPress={() => setOpen(false)} />
+          <Pressable style={Platform.OS === 'web' ? styles.webBackdrop : styles.backdrop} onPress={() => setOpen(false)} />
           <View style={[styles.popover, { backgroundColor: colors.background, borderColor: colors.accent }]}>
             <VolumeSlider colors={colors} volume={volume} onChangeVolume={onChangeVolume} />
           </View>
@@ -67,7 +71,11 @@ const styles = StyleSheet.create({
   },
   // A big fixed-position rect rather than StyleSheet.absoluteFill relative
   // to `container` - container only wraps the button itself (auto height),
-  // so an absoluteFill here would be button-sized, not full-screen.
+  // so an absoluteFill here would be button-sized, not full-screen. Harmless
+  // on native (Android/Windows), but on react-native-web this -2000 rect
+  // expands past the document's actual content, growing the page's
+  // scrollable area and popping a scrollbar into existence the instant the
+  // popover opens - see webBackdrop for the web-only fix.
   backdrop: {
     position: 'absolute',
     top: -2000,
@@ -75,6 +83,17 @@ const styles = StyleSheet.create({
     left: -2000,
     right: -2000,
   },
+  // web-only: `position: 'fixed'` anchors to the viewport instead of the
+  // document, so a plain 0/0/0/0 rect covers the whole screen without
+  // extending the page's own scrollable bounds the way the native
+  // `backdrop` style's huge negative offsets do.
+  webBackdrop: {
+    position: 'fixed',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+  } as WebBackdropStyle,
   // Re-centered over the button (the button is only 36px wide, narrower
   // than this) - left is negative by half the width difference so the
   // popover's midpoint lines up with the button's midpoint rather than its

@@ -812,6 +812,8 @@ function AppContent() {
       isPlaying={playerState.track.status === 'playing'}
       positionSeconds={displayPositionSeconds}
       durationSeconds={displayDurationSeconds}
+      volume={volume}
+      onChangeVolume={handleVolumeChange}
       onPress={() => {
         setNowPlayingScreenOpen(true);
         persistPlaybackPatch({ nowPlayingOpen: true });
