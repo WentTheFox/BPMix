@@ -114,7 +114,7 @@ describe('scanLibraryMetadata', () => {
   it('skips a track whose stored metadata is already fresh, without touching fileAccess for it', async () => {
     const store = new FakeLibraryStore();
     const staleRef = track('a');
-    await store.putMetadata({ fileId: 'a', title: 'Cached', artists: [], album: null, sizeBytes: 64, lastModifiedMs: 1, parserVersion: METADATA_PARSER_VERSION });
+    await store.putMetadata({ fileId: 'a', title: 'Cached', artists: [], album: null, sizeBytes: 64, lastModifiedMs: 1, parserVersion: METADATA_PARSER_VERSION, contentHash: null });
     const fileAccess = new FakeFileAccess(new Map()); // throws if read - proves the skip really skipped
     const seen: ScanMetadataProgress[] = [];
 

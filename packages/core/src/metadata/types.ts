@@ -21,4 +21,22 @@ export interface TrackMetadata {
   lastModifiedMs: number;
   /** METADATA_PARSER_VERSION at read time - a mismatch means the parser changed since, so the result is stale even though the file itself didn't. */
   parserVersion: number;
+  /**
+   * FNV-1a of the file's full bytes at read time (see contentHash.ts) -
+   * null when this result came from a platform that only ever reads a
+   * ranged chunk of the file for tag parsing (currently just
+   * fileAccess.server.ts's streamUrl path - see ensureTrackMetadata),
+   * where hashing would mean a second full download purely for this.
+   *
+   * sizeBytes/lastModifiedMs are what isMetadataFresh actually gates a
+   * re-read on (see that function's doc) - a hash can't do that job
+   * itself, since computing one requires reading the file, which is
+   * exactly the read a freshness check exists to avoid for an unchanged
+   * file. This field exists for the case that check can't catch: a file
+   * whose content changed but whose size and mtime happen not to (a sync
+   * tool that preserves timestamps, e.g.) - passing forceRefresh to
+   * ensureTrackMetadata bypasses isMetadataFresh and re-derives this,
+   * which is how that gets caught, not automatic background detection.
+   */
+  contentHash: string | null;
 }

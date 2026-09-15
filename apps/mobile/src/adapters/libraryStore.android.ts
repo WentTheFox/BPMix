@@ -192,6 +192,19 @@ const ready = (async () => {
     await run('DROP TABLE playback_state');
   }
 
+  // Same drop-and-recreate pattern as the analysis table above - metadata
+  // is just as fully re-derivable by re-scanning the file, so a schema
+  // mismatch (here: a table from before contentHash existed) gets dropped
+  // rather than migrated.
+  const metadataTableInfo = await run('PRAGMA table_info(metadata)');
+  const metadataColumns = new Set<string>();
+  for (let i = 0; i < metadataTableInfo.rows.length; i++) {
+    metadataColumns.add((metadataTableInfo.rows.item(i) as { name: string }).name);
+  }
+  if (metadataColumns.size > 0 && !metadataColumns.has('contentHash')) {
+    await run('DROP TABLE metadata');
+  }
+
   await run(
     `CREATE TABLE IF NOT EXISTS metadata (
       fileId TEXT PRIMARY KEY,
@@ -200,7 +213,8 @@ const ready = (async () => {
       album TEXT,
       sizeBytes INTEGER NOT NULL,
       lastModifiedMs INTEGER NOT NULL,
-      parserVersion INTEGER NOT NULL
+      parserVersion INTEGER NOT NULL,
+      contentHash TEXT
     )`,
   );
 
@@ -354,6 +368,7 @@ export function createLibraryStore(): LibraryStore {
         sizeBytes: number;
         lastModifiedMs: number;
         parserVersion: number;
+        contentHash: string | null;
       }>(result);
       const row = rows[0];
       if (!row) return null;
@@ -364,11 +379,12 @@ export function createLibraryStore(): LibraryStore {
       await ready;
       await run(
         `INSERT INTO metadata (
-           fileId, title, artists, album, sizeBytes, lastModifiedMs, parserVersion
-         ) VALUES (?, ?, ?, ?, ?, ?, ?)
+           fileId, title, artists, album, sizeBytes, lastModifiedMs, parserVersion, contentHash
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(fileId) DO UPDATE SET
            title=excluded.title, artists=excluded.artists, album=excluded.album,
-           sizeBytes=excluded.sizeBytes, lastModifiedMs=excluded.lastModifiedMs, parserVersion=excluded.parserVersion`,
+           sizeBytes=excluded.sizeBytes, lastModifiedMs=excluded.lastModifiedMs, parserVersion=excluded.parserVersion,
+           contentHash=excluded.contentHash`,
         [
           result.fileId,
           result.title,
@@ -377,6 +393,7 @@ export function createLibraryStore(): LibraryStore {
           result.sizeBytes,
           result.lastModifiedMs,
           result.parserVersion,
+          result.contentHash,
         ],
       );
     },

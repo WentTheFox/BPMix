@@ -34,6 +34,7 @@ export * from './analysis/loudness';
 export * from './analysis/silence';
 export * from './metadata/types';
 export * from './metadata/base64';
+export * from './metadata/contentHash';
 export * from './metadata/coverArtResizer';
 export * from './metadata/ensureMetadata';
 export * from './metadata/scanLibraryMetadata';

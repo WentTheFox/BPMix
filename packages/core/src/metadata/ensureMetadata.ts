@@ -1,5 +1,6 @@
 import type { FileAccess, FileRef } from '../file-access/types';
 import type { LibraryStore } from '../library-store/types';
+import { hashBytes } from './contentHash';
 import type { CoverArtResizer } from './coverArtResizer';
 import { readTags, readTagsFromUrl } from './readTags';
 import type { CoverArtBytes, TrackMetadata } from './types';
@@ -85,24 +86,47 @@ async function resolveCoverArt(
  *
  * `resizer`, when given, downscales oversized embedded art before storing
  * it - see resolveCoverArt.
+ *
+ * `forceRefresh`, when true, skips the isMetadataFresh short-circuit and
+ * always re-reads/re-parses/re-hashes - the only way to catch a file whose
+ * content changed but whose size and mtime happen not to (see
+ * TrackMetadata.contentHash's doc for why that can't be detected any
+ * cheaper than this). Not used by the passive background scan
+ * (scanLibraryMetadata) - only a caller with an explicit, user-initiated
+ * reason to suspect this exact file changed should set it, since it means
+ * a real read regardless of what the cheap sizeBytes/lastModifiedMs check
+ * would have said.
  */
 export async function ensureTrackMetadata(
   store: LibraryStore,
   fileAccess: FileAccess,
   ref: FileRef,
   resizer?: CoverArtResizer,
+  options?: { forceRefresh?: boolean },
 ): Promise<TrackMetadata> {
   const existing = await store.getMetadata(ref.id);
-  if (isMetadataFresh(existing, ref)) {
+  if (!options?.forceRefresh && isMetadataFresh(existing, ref)) {
     return existing;
   }
   // Prefer a ranged HTTP read over the file's full bytes when the adapter
   // can give us one - see FileAccess.getStreamUrl's doc. Metadata scanning
   // otherwise means downloading every track's entire audio payload just to
   // read a header, which is both wasted bandwidth and (self-hosted, over a
-  // real network) the dominant cost of an initial library scan.
+  // real network) the dominant cost of an initial library scan. Only the
+  // direct-bytes path can cheaply hash the file too (see contentHash's
+  // field doc) - jsmediatags' own XhrFileReader does the streamUrl path's
+  // ranged fetching internally, so there are no bytes on this side of that
+  // call to hash without a second, purpose-built read.
   const streamUrl = fileAccess.getStreamUrl?.(ref);
-  const tags = streamUrl ? await readTagsFromUrl(streamUrl) : await readTags(await fileAccess.readFileBytes(ref));
+  let contentHash: string | null = null;
+  let tags;
+  if (streamUrl) {
+    tags = await readTagsFromUrl(streamUrl);
+  } else {
+    const bytes = await fileAccess.readFileBytes(ref);
+    contentHash = hashBytes(new Uint8Array(bytes));
+    tags = await readTags(bytes);
+  }
   const result: TrackMetadata = {
     fileId: ref.id,
     title: tags?.title ?? null,
@@ -111,6 +135,7 @@ export async function ensureTrackMetadata(
     sizeBytes: ref.sizeBytes,
     lastModifiedMs: ref.lastModifiedMs,
     parserVersion: METADATA_PARSER_VERSION,
+    contentHash,
   };
   // Cover art first, metadata second - deliberately in this order. Once
   // metadata.parserVersion reads as current, isMetadataCurrent() is the

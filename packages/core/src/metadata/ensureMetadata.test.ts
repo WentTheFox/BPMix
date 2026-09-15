@@ -4,6 +4,7 @@ import type { AnalysisResult, LibraryStore, LyricsScope, PlaybackState, Playlist
 import type { CoverArtBytes, TrackMetadata } from './types';
 import type { CoverArtResizer } from './coverArtResizer';
 import { encodeBase64 } from './base64';
+import { hashBytes } from './contentHash';
 import { COVER_ART_MAX_DIMENSION_PX, ensureTrackMetadata, isMetadataFresh, METADATA_PARSER_VERSION } from './ensureMetadata';
 
 class FakeLibraryStore implements LibraryStore {
@@ -284,7 +285,38 @@ describe('ensureTrackMetadata', () => {
       sizeBytes: 1000,
       lastModifiedMs: 5,
       parserVersion: METADATA_PARSER_VERSION - 1,
+      contentHash: null,
     };
     expect(isMetadataFresh(stale, ref)).toBe(false);
+  });
+
+  it('stores a contentHash of the full file bytes when read directly (not via a streamUrl)', async () => {
+    const store = new FakeLibraryStore();
+    const bytes = buildMp3WithId3v2({ title: 'Song Title' });
+    const fileAccess = new FakeFileAccess(new Map([['a', bytes]]));
+
+    const result = await ensureTrackMetadata(store, fileAccess, ref);
+
+    expect(result.contentHash).toEqual(expect.any(String));
+    expect(result.contentHash).toBe(hashBytes(new Uint8Array(bytes)));
+  });
+
+  it('forceRefresh re-reads and re-hashes even when size/mtime still match, catching a silent content change', async () => {
+    const store = new FakeLibraryStore();
+    const originalBytes = buildMp3WithId3v2({ title: 'Old Title' });
+    await ensureTrackMetadata(store, new FakeFileAccess(new Map([['a', originalBytes]])), ref);
+
+    // Same sizeBytes/lastModifiedMs as `ref` - isMetadataFresh alone would
+    // treat this as unchanged and never look at these new bytes.
+    const swappedBytes = buildMp3WithId3v2({ title: 'Swapped Title' });
+    const swappedFileAccess = new FakeFileAccess(new Map([['a', swappedBytes]]));
+
+    const unforced = await ensureTrackMetadata(store, swappedFileAccess, ref);
+    expect(unforced.title).toBe('Old Title');
+
+    const forced = await ensureTrackMetadata(store, swappedFileAccess, ref, undefined, { forceRefresh: true });
+    expect(forced.title).toBe('Swapped Title');
+    expect(forced.contentHash).toBe(hashBytes(new Uint8Array(swappedBytes)));
+    expect(forced.contentHash).not.toBe(unforced.contentHash);
   });
 });
