@@ -22,4 +22,6 @@ export interface AppNotification {
   createdAt: number;
   /** 'progress' kind only - current/total, and whether this run has finished (kept in the list, not auto-removed, so a completed background pass stays visible until dismissed). */
   progress?: { current: number; total: number; done: boolean };
+  /** Optional secondary action rendered on the row (e.g. "Cancel" for an in-progress library scan the user might want to stop) - not tied to a specific kind, so any notification can carry one. Caller owns dismissing/updating the notification once the action's effect actually lands (e.g. once a cancelled scan's promise actually rejects), this doesn't do that itself. */
+  action?: { label: string; onPress: () => void };
 }

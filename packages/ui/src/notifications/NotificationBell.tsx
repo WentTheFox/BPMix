@@ -61,6 +61,19 @@ function NotificationRow({
               <View style={[styles.progressFill, { backgroundColor: colors.accent, width: `${Math.round(fraction * 100)}%` }]} />
             </View>
           )}
+          {notification.action && (
+            <Pressable
+              onPress={(e) => {
+                // See dismissButton's own stopPropagation comment - same reasoning.
+                e.stopPropagation();
+                notification.action!.onPress();
+              }}
+              style={styles.actionButton}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            >
+              <Text style={[styles.actionText, { color: colors.accent }]}>{notification.action.label}</Text>
+            </Pressable>
+          )}
         </View>
         {notification.detail && <Icon path={expanded ? mdiChevronUp : mdiChevronDown} size={16} color={colors.subtleText} />}
         {/* stopPropagation matters on web (react-native-web Pressables are real DOM elements whose click events bubble) - without it, tapping dismiss also fires the outer row's onPress (expand toggle) it's nested inside. */}
@@ -217,6 +230,13 @@ const styles = StyleSheet.create({
     marginTop: 8,
     width: 320,
     maxHeight: 420,
+    // Without this, maxHeight isn't a real clip boundary on a plain View
+    // (default overflow is 'visible') - an expanded long notification could
+    // grow the panel straight past it, taking the list's own scrollbar/tail
+    // off-screen with it since there's no ancestor scroll region to bring it
+    // back into view. This makes maxHeight the hard limit it looks like,
+    // leaving `list`'s own maxHeight (below) as the actual scrollable area.
+    overflow: 'hidden',
     borderRadius: 12,
     borderWidth: 1,
     padding: 8,
@@ -287,5 +307,13 @@ const styles = StyleSheet.create({
   progressFill: {
     height: 4,
     borderRadius: 2,
+  },
+  actionButton: {
+    marginTop: 6,
+    alignSelf: 'flex-start',
+  },
+  actionText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
 });

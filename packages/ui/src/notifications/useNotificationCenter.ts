@@ -19,7 +19,15 @@ export interface NotificationCenter {
    * auto-removed) until the user dismisses it, so a completed background
    * pass doesn't just silently vanish.
    */
-  upsertProgress: (id: string, title: string, current: number, total: number, done?: boolean, detail?: string) => void;
+  upsertProgress: (
+    id: string,
+    title: string,
+    current: number,
+    total: number,
+    done?: boolean,
+    detail?: string,
+    action?: AppNotification['action'],
+  ) => void;
   dismiss: (id: string) => void;
   clear: () => void;
 }
@@ -46,17 +54,20 @@ export function useNotificationCenter(): NotificationCenter {
     setNotifications((prev) => [{ id: makeId(), kind: 'error', title, detail, createdAt: Date.now() }, ...prev]);
   }, []);
 
-  const upsertProgress = useCallback((id: string, title: string, current: number, total: number, done = false, detail?: string) => {
-    setNotifications((prev) => {
-      const existingIndex = prev.findIndex((n) => n.id === id);
-      const createdAt = existingIndex !== -1 ? prev[existingIndex]!.createdAt : Date.now();
-      const entry: AppNotification = { id, kind: 'progress', title, detail, createdAt, progress: { current, total, done } };
-      if (existingIndex === -1) return [entry, ...prev];
-      const next = [...prev];
-      next[existingIndex] = entry;
-      return next;
-    });
-  }, []);
+  const upsertProgress = useCallback(
+    (id: string, title: string, current: number, total: number, done = false, detail?: string, action?: AppNotification['action']) => {
+      setNotifications((prev) => {
+        const existingIndex = prev.findIndex((n) => n.id === id);
+        const createdAt = existingIndex !== -1 ? prev[existingIndex]!.createdAt : Date.now();
+        const entry: AppNotification = { id, kind: 'progress', title, detail, createdAt, progress: { current, total, done }, action };
+        if (existingIndex === -1) return [entry, ...prev];
+        const next = [...prev];
+        next[existingIndex] = entry;
+        return next;
+      });
+    },
+    [],
+  );
 
   const dismiss = useCallback((id: string) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
