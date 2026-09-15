@@ -320,4 +320,31 @@ describe('ensureTrackMetadata', () => {
     expect(forced.contentHash).toBe(hashBytes(new Uint8Array(swappedBytes)));
     expect(forced.contentHash).not.toBe(unforced.contentHash);
   });
+
+  it('dedupes two concurrent calls for the same not-yet-fresh fileId into a single real read (regression: two independent scanLibraryMetadata passes racing on the same track - see ensureTrackMetadata/inFlightReads doc)', async () => {
+    const store = new FakeLibraryStore();
+    const bytes = buildMp3WithId3v2({ title: 'Song Title' });
+    let readCount = 0;
+    const fileAccess = new FakeFileAccess(new Map([['a', bytes]]));
+    const countingFileAccess: FileAccess = {
+      requestRoot: fileAccess.requestRoot.bind(fileAccess),
+      listGrantedRoots: fileAccess.listGrantedRoots.bind(fileAccess),
+      revokeRoot: fileAccess.revokeRoot.bind(fileAccess),
+      listDirectory: fileAccess.listDirectory.bind(fileAccess),
+      readFileText: fileAccess.readFileText.bind(fileAccess),
+      writeFileText: fileAccess.writeFileText.bind(fileAccess),
+      readFileBytes: (fileRef) => {
+        readCount++;
+        return fileAccess.readFileBytes(fileRef);
+      },
+    };
+
+    const [first, second] = await Promise.all([
+      ensureTrackMetadata(store, countingFileAccess, ref),
+      ensureTrackMetadata(store, countingFileAccess, ref),
+    ]);
+
+    expect(readCount).toBe(1);
+    expect(first).toEqual(second);
+  });
 });

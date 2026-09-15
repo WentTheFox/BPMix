@@ -102,6 +102,23 @@ async function resolveCoverArt(
 }
 
 /**
+ * Two independent scanLibraryMetadata passes over overlapping tracks (e.g.
+ * refresh()'s own background pass and a Rescan's onRescanned-triggered one
+ * - both fire-and-forget, both idle-chunked, both non-forced - see
+ * apps/web/src/App.tsx's refresh() and useLibraryRootActions' rescan()) can
+ * land on the same fileId at roughly the same time, especially right after
+ * a METADATA_PARSER_VERSION bump makes a real library's entire backlog
+ * "not fresh" at once instead of the usual no-op. Without this, both calls
+ * would independently read/parse/hash the same file concurrently - real,
+ * observed on a large self-hosted library (two notification rows advancing
+ * in lockstep over the same tracks). Keyed by fileId only (not by
+ * forceRefresh) - a concurrent forceRefresh call joining an in-flight
+ * non-forced read still gets a genuinely fresh result, since the in-flight
+ * read only exists because a real read was already underway.
+ */
+const inFlightReads = new Map<string, Promise<TrackMetadata>>();
+
+/**
  * Returns the track's cached metadata if still fresh (isMetadataFresh),
  * otherwise reads the file's bytes, parses whatever tags it has (a file
  * with none still gets a stored result - null title/album, empty artists -
@@ -120,8 +137,28 @@ async function resolveCoverArt(
  * reason to suspect this exact file changed should set it, since it means
  * a real read regardless of what the cheap sizeBytes/lastModifiedMs check
  * would have said.
+ *
+ * Deliberately synchronous (not `async`) up to the in-flight check/set - see
+ * inFlightReads' doc. Everything past that point runs inside
+ * ensureTrackMetadataUncached, awaited by whichever caller's `.get()` missed.
  */
-export async function ensureTrackMetadata(
+export function ensureTrackMetadata(
+  store: LibraryStore,
+  fileAccess: FileAccess,
+  ref: FileRef,
+  resizer?: CoverArtResizer,
+  options?: { forceRefresh?: boolean },
+): Promise<TrackMetadata> {
+  const inFlight = inFlightReads.get(ref.id);
+  if (inFlight) return inFlight;
+  const promise = ensureTrackMetadataUncached(store, fileAccess, ref, resizer, options).finally(() => {
+    inFlightReads.delete(ref.id);
+  });
+  inFlightReads.set(ref.id, promise);
+  return promise;
+}
+
+async function ensureTrackMetadataUncached(
   store: LibraryStore,
   fileAccess: FileAccess,
   ref: FileRef,
