@@ -10,6 +10,7 @@ import type {
 } from '../library-store/types';
 import type { TrackMetadata } from '../metadata/types';
 import { scanRoot } from './scan';
+import { ScanCancelledError } from './walk';
 
 /** In-memory FileAccess over a flat { relativePath: content } map, for testing the walker/scanner. */
 class FakeFileAccess implements FileAccess {
@@ -193,5 +194,45 @@ describe('scanRoot', () => {
 
     expect(store.tracks.size).toBe(1);
     expect(store.playlists.size).toBe(1);
+  });
+
+  it('throws ScanCancelledError and writes nothing if the signal is already aborted before the scan starts', async () => {
+    const fileAccess = new FakeFileAccess({
+      'Mix.m3u8': ['Track.mp3'].join('\n'),
+      'Track.mp3': 'fake-audio',
+    });
+    const store = new FakeLibraryStore();
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(scanRoot(fileAccess, store, 'root-1', controller.signal)).rejects.toThrow(ScanCancelledError);
+    expect(store.tracks.size).toBe(0);
+    expect(store.playlists.size).toBe(0);
+  });
+
+  it('stops walking (no further listDirectory calls) and writes nothing once the signal aborts mid-scan', async () => {
+    const controller = new AbortController();
+    // Aborts right after the very first listDirectory call resolves - there's
+    // no way to interrupt a listDirectory call already in flight (see
+    // walkDirectory's doc), only to stop starting new ones once the signal
+    // is checked again.
+    class AbortingAfterFirstCallFileAccess extends FakeFileAccess {
+      async listDirectory(rootId: string, relativePath?: string): Promise<DirectoryEntry[]> {
+        const entries = await super.listDirectory(rootId, relativePath);
+        controller.abort();
+        return entries;
+      }
+    }
+    const fileAccess = new AbortingAfterFirstCallFileAccess({
+      'A/Mix.m3u8': ['Track.mp3'].join('\n'),
+      'A/Track.mp3': 'fake-audio',
+      'B/Other.m3u8': ['Other.mp3'].join('\n'),
+      'B/Other.mp3': 'fake-audio-2',
+    });
+    const store = new FakeLibraryStore();
+
+    await expect(scanRoot(fileAccess, store, 'root-1', controller.signal)).rejects.toThrow(ScanCancelledError);
+    expect(store.tracks.size).toBe(0);
+    expect(store.playlists.size).toBe(0);
   });
 });

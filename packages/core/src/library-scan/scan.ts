@@ -1,7 +1,7 @@
 import type { FileAccess } from '../file-access/types';
 import type { LibraryStore, PlaylistRecord, TrackRecord } from '../library-store/types';
 import { parseM3u8, resolveM3u8EntryPath } from '../playlist/m3u8';
-import { walkDirectory } from './walk';
+import { ScanCancelledError, walkDirectory } from './walk';
 
 export interface ScanResult {
   playlists: PlaylistRecord[];
@@ -49,9 +49,16 @@ export function describeUnresolvedEntries(
  *
  * Used both for the initial add-folder scan and for a rescan; upserts are
  * idempotent so re-scanning an unchanged root is a no-op at the store level.
+ *
+ * `signal`, when given, lets a caller cancel a scan in progress (e.g. a user
+ * backing out of a slow rescan) - checked between the walk, each playlist
+ * file read, and each store upsert, throwing ScanCancelledError as soon as
+ * it fires. Prefer scanRootCoordinated (scanCoordinator.ts) over calling
+ * this directly from UI code - it also de-dupes concurrent scans of the
+ * same root, which this function alone doesn't guard against.
  */
-export async function scanRoot(fileAccess: FileAccess, store: LibraryStore, rootId: string): Promise<ScanResult> {
-  const { files, playlistFiles } = await walkDirectory(fileAccess, rootId);
+export async function scanRoot(fileAccess: FileAccess, store: LibraryStore, rootId: string, signal?: AbortSignal): Promise<ScanResult> {
+  const { files, playlistFiles } = await walkDirectory(fileAccess, rootId, undefined, signal);
 
   const filesByRelativePath = new Map(files.map((f) => [f.relativePath, f]));
   const tracksById = new Map<string, TrackRecord>();
@@ -59,6 +66,7 @@ export async function scanRoot(fileAccess: FileAccess, store: LibraryStore, root
   const unresolvedEntries: ScanResult['unresolvedEntries'] = [];
 
   for (const playlistFile of playlistFiles) {
+    if (signal?.aborted) throw new ScanCancelledError();
     const text = await fileAccess.readFileText(playlistFile);
     const entries = parseM3u8(text);
     const trackFileIds: string[] = [];
@@ -97,6 +105,11 @@ export async function scanRoot(fileAccess: FileAccess, store: LibraryStore, root
       trackFileIds,
     });
   }
+
+  // Checked once more before committing anything - a cancel that lands
+  // right after the last playlist read finishes but before upserts start
+  // shouldn't still write a scan's worth of tracks/playlists to the store.
+  if (signal?.aborted) throw new ScanCancelledError();
 
   for (const track of tracksById.values()) {
     await store.upsertTrack(track);

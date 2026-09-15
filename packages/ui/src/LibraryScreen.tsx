@@ -38,6 +38,18 @@ export interface LibraryScreenProps {
    * HTTP round trip) looked identical to "no folders added yet".
    */
   isLoadingRoots?: boolean;
+  /**
+   * True while rootId is being scanned by ANY caller, not just this
+   * screen's own Rescan click - an automatic background refresh can also
+   * be scanning a root right now (see useLibraryRootActions.isRootScanning's
+   * doc). Shows "Scanning…" in place of the Rescan action and disables it,
+   * so a click can't fire a second concurrent scan of a root that's already
+   * mid-scan for an unrelated reason. Cancelling an in-flight scan is done
+   * from the notification bell (see App.tsx's scanning-notification effect),
+   * not from here - a scan can run long enough to want cancelling from
+   * whichever screen the user's actually looking at, not just this one.
+   */
+  isRootScanning: (rootId: string) => boolean;
   onAddFolder: () => Promise<void>;
   onRescan: (rootId: string) => void;
   /** Revokes the root's grant and drops it from the library screen - if omitted, no Remove action is shown for roots. */
@@ -78,6 +90,7 @@ export function LibraryScreen({
   busyRootId,
   isAddingFolder = false,
   isLoadingRoots = false,
+  isRootScanning,
   onAddFolder,
   onRescan,
   onRemoveRoot,
@@ -128,13 +141,13 @@ export function LibraryScreen({
                 ellipsizeMode="middle"
               />
               <View style={styles.rootActions}>
-                <Pressable onPress={() => onRescan(root.id)} disabled={busyRootId === root.id}>
-                  {busyRootId === root.id ? (
-                    <Text style={{ color: colors.accent }}>Scanning…</Text>
-                  ) : (
+                {isRootScanning(root.id) ? (
+                  <Text style={{ color: colors.accent }}>Scanning…</Text>
+                ) : (
+                  <Pressable onPress={() => onRescan(root.id)}>
                     <IconLabel path={mdiRefresh} text="Rescan" color={colors.accent} iconSize={16} />
-                  )}
-                </Pressable>
+                  </Pressable>
+                )}
                 {onCreatePlaylist && <CreatePlaylistButton colors={colors} onConfirm={() => onCreatePlaylist(root.id)} />}
                 {onRemoveRoot && root.removable !== false && <RemoveButton colors={colors} onConfirm={() => onRemoveRoot(root.id)} />}
               </View>

@@ -10,7 +10,7 @@ import {
   matchLibraryLyrics,
   PlaylistPlayer,
   scanLibraryMetadata,
-  scanRoot,
+  scanRootCoordinated,
   trackDisplayName,
 } from '@bpmix/core';
 import {
@@ -389,7 +389,7 @@ function App() {
               // reasoning for why the server re-lists roots on every request
               // rather than caching them either.
               if ((playlists.length === 0 && tracks.length === 0) || isServerRootId(root.id)) {
-                await scanRoot(backgroundFileAccess, libraryStore, root.id);
+                await scanRootCoordinated(backgroundFileAccess, libraryStore, root.id);
                 [playlists, tracks] = await Promise.all([
                   libraryStore.listPlaylists(root.id),
                   libraryStore.listTracks(root.id),
@@ -682,8 +682,18 @@ function App() {
   // would've left a phantom empty "library" entry for a lyrics-only root.
   // GrantedRoot.kind now lets refresh() skip exactly that, so this can just
   // grant its own root like addFolder does.
-  const { addFolder, rescan, removeRoot, addLyricsFolder, rescanLyricsScope, removeLyricsScope, busyRootId, busyLyricsScopeKey } =
-    useLibraryRootActions({
+  const {
+    addFolder,
+    rescan,
+    removeRoot,
+    addLyricsFolder,
+    rescanLyricsScope,
+    removeLyricsScope,
+    busyRootId,
+    busyLyricsScopeKey,
+    isRootScanning,
+    cancelScan,
+  } = useLibraryRootActions({
       fileAccess,
       libraryStore,
       grantedRoots,
@@ -692,6 +702,39 @@ function App() {
       onUnresolvedEntries: (title, detail) => notificationCenter.addError(title, detail),
       onRescanned: (rootId) => void verifyRootMetadata(rootId),
     });
+
+  // Surfaces a Cancel action on the notification bell for every root
+  // currently being scanned (covers a user's own Rescan click AND a
+  // background refresh() scan the user never explicitly triggered - see
+  // isRootScanning's doc), rather than an inline library-row button - a
+  // scan can run long enough to want cancelling from whichever screen the
+  // user's actually looking at, not just the library one. Deliberately
+  // keyed on scanningRootIdsKey alone (not grantedRoots/notificationCenter
+  // directly) so this only upserts/dismisses on an actual start/stop, not
+  // every render - notificationCenter is a new object every time
+  // notifications changes (see useNotificationCenter's own useMemo), so
+  // depending on the whole object here would re-run this effect every time
+  // it itself calls upsertProgress/dismiss, looping forever. Same reasoning
+  // as verifyRootMetadata's notificationCenter dep just above, just one step
+  // further since the id set (not a single stable method) is what actually
+  // needs to gate this.
+  const scanningRootIds = grantedRoots.filter((root) => isRootScanning(root.id)).map((root) => root.id);
+  const scanningRootIdsKey = scanningRootIds.join(',');
+  const previouslyScanningRootIdsRef = useRef<string[]>([]);
+  useEffect(() => {
+    const stillScanning = new Set(scanningRootIds);
+    for (const rootId of previouslyScanningRootIdsRef.current) {
+      if (!stillScanning.has(rootId)) notificationCenter.dismiss(`scanning-${rootId}`);
+    }
+    for (const rootId of scanningRootIds) {
+      const rootDisplayName = grantedRoots.find((r) => r.id === rootId)?.displayName ?? rootId;
+      notificationCenter.upsertProgress(`scanning-${rootId}`, `Scanning "${rootDisplayName}"…`, 0, 0, false, undefined, {
+        label: 'Cancel',
+        onPress: () => cancelScan(rootId),
+      });
+    }
+    previouslyScanningRootIdsRef.current = scanningRootIds;
+  }, [scanningRootIdsKey]);
 
   const missingTrackRelocation = useMissingTrackRelocation({ fileAccess, rescan, setError });
 
@@ -978,6 +1021,7 @@ function App() {
         busyRootId={busyRootId}
         isLoadingRoots={isLoadingRoots}
         isAddingFolder={busyRootId !== null && !rootsWithLibrary.some(({ root }) => root.id === busyRootId)}
+        isRootScanning={isRootScanning}
         onAddFolder={addFolder}
         onRescan={rescan}
         onRemoveRoot={(rootId) => void removeRoot(rootId)}

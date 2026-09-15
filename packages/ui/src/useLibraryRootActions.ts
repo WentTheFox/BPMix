@@ -1,13 +1,17 @@
 import {
+  cancelRootScan,
   describeUnresolvedEntries,
   errorMessage,
+  getActiveScanRootIds,
   logLibraryAction,
-  scanRoot,
+  ScanCancelledError,
+  scanRootCoordinated,
+  subscribeScanning,
   type FileAccess,
   type GrantedRoot,
   type LibraryStore,
 } from '@bpmix/core';
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useSyncExternalStore } from 'react';
 import { lyricsScopeKey } from './LyricsFolderSection';
 
 export interface LibraryRootActionsInput {
@@ -74,6 +78,21 @@ export interface LibraryRootActions {
   removeLyricsScope: (rootId: string, relativePath: string) => Promise<void>;
   busyRootId: string | null;
   busyLyricsScopeKey: string | null;
+  /**
+   * True while rootId is being scanned by ANY caller - this hook's own
+   * addFolder/rescan, or an unrelated automatic background refresh (e.g.
+   * apps/*'s App.tsx refresh(), which scans a still-empty or self-hosted-
+   * server root with no user gesture behind it at all). Prefer this over
+   * comparing busyRootId directly for disabling a per-root Rescan
+   * action/showing its busy state - busyRootId alone missed a scan that a
+   * background refresh started, which let a user's Rescan click fire a
+   * second concurrent scan of the same root (see scanCoordinator.ts's doc
+   * for why that's wasteful/confusing) because the button never looked busy
+   * for it in the first place.
+   */
+  isRootScanning: (rootId: string) => boolean;
+  /** No-op if rootId isn't currently scanning. Cancels whichever scan is in flight for it, regardless of whether this hook's own addFolder/rescan or a background refresh started it. */
+  cancelScan: (rootId: string) => void;
 }
 
 /**
@@ -100,6 +119,12 @@ export function useLibraryRootActions(input: LibraryRootActionsInput): LibraryRo
   const [busyRootId, setBusyRootId] = useState<string | null>(null);
   const [busyLyricsScopeKey, setBusyLyricsScopeKey] = useState<string | null>(null);
 
+  // See getActiveScanRootIds' doc for why this is a stable array reference,
+  // not a fresh one every call - required for useSyncExternalStore to only
+  // re-render on a real change in which roots are scanning.
+  const activeScanRootIds = useSyncExternalStore(subscribeScanning, getActiveScanRootIds, getActiveScanRootIds);
+  const isRootScanningFn = useCallback((rootId: string) => activeScanRootIds.includes(rootId) || busyRootId === rootId, [activeScanRootIds, busyRootId]);
+
   const addFolder = useCallback(async () => {
     setError(null);
     onAddFolderStart?.();
@@ -107,12 +132,16 @@ export function useLibraryRootActions(input: LibraryRootActionsInput): LibraryRo
       const root = await fileAccess.requestRoot();
       if (!root) return; // user cancelled the picker
       setBusyRootId(root.id);
-      const result = await scanRoot(fileAccess, libraryStore, root.id);
+      const result = await scanRootCoordinated(fileAccess, libraryStore, root.id);
       await refresh();
       const description = describeUnresolvedEntries(result.unresolvedEntries, root.displayName);
       if (description) onUnresolvedEntries?.(description.title, description.detail);
       logLibraryAction('addFolder', { rootId: root.id });
     } catch (err) {
+      if (err instanceof ScanCancelledError) {
+        logLibraryAction('addFolder:cancelled', {});
+        return;
+      }
       setError(errorMessage(err));
       logLibraryAction('addFolder:failed', { error: String(err) });
       onAddFolderError?.(err);
@@ -126,7 +155,7 @@ export function useLibraryRootActions(input: LibraryRootActionsInput): LibraryRo
       setError(null);
       setBusyRootId(rootId);
       try {
-        const result = await scanRoot(fileAccess, libraryStore, rootId);
+        const result = await scanRootCoordinated(fileAccess, libraryStore, rootId);
         await refresh();
         const rootDisplayName = grantedRoots.find((r) => r.id === rootId)?.displayName ?? rootId;
         const description = describeUnresolvedEntries(result.unresolvedEntries, rootDisplayName);
@@ -134,6 +163,10 @@ export function useLibraryRootActions(input: LibraryRootActionsInput): LibraryRo
         logLibraryAction('rescan', { rootId });
         onRescanned?.(rootId);
       } catch (err) {
+        if (err instanceof ScanCancelledError) {
+          logLibraryAction('rescan:cancelled', { rootId });
+          return;
+        }
         setError(errorMessage(err));
         logLibraryAction('rescan:failed', { rootId, error: String(err) });
       } finally {
@@ -142,6 +175,11 @@ export function useLibraryRootActions(input: LibraryRootActionsInput): LibraryRo
     },
     [fileAccess, libraryStore, grantedRoots, refresh, setError, onUnresolvedEntries, onRescanned],
   );
+
+  const cancelScan = useCallback((rootId: string) => {
+    cancelRootScan(rootId);
+    logLibraryAction('cancelScan', { rootId });
+  }, []);
 
   const removeRoot = useCallback(
     async (rootId: string) => {
@@ -223,5 +261,16 @@ export function useLibraryRootActions(input: LibraryRootActionsInput): LibraryRo
     [fileAccess, libraryStore, grantedRoots, refresh, setError],
   );
 
-  return { addFolder, rescan, removeRoot, addLyricsFolder, rescanLyricsScope, removeLyricsScope, busyRootId, busyLyricsScopeKey };
+  return {
+    addFolder,
+    rescan,
+    removeRoot,
+    addLyricsFolder,
+    rescanLyricsScope,
+    removeLyricsScope,
+    busyRootId,
+    busyLyricsScopeKey,
+    isRootScanning: isRootScanningFn,
+    cancelScan,
+  };
 }

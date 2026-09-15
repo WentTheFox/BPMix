@@ -19,6 +19,7 @@ export * from './lyrics/matchLibraryLyrics';
 export * from './library-scan/audioFiles';
 export * from './library-scan/walk';
 export * from './library-scan/scan';
+export * from './library-scan/scanCoordinator';
 export * from './library-scan/loadRootLibrary';
 export * from './library-scan/createPlaylistFromFolder';
 export * from './library-scan/relocateMissingTrack';

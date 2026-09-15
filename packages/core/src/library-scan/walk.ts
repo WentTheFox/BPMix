@@ -8,6 +8,20 @@ export interface WalkResult {
   playlistFiles: FileRef[];
 }
 
+/**
+ * Thrown by walkDirectory/scanRoot when the caller's AbortSignal fires
+ * mid-scan - a distinct class (rather than checking DOMException's name,
+ * which not every platform's AbortController implementation sets the same
+ * way) so callers can tell "the user cancelled this" apart from a real scan
+ * failure without string-matching an error message.
+ */
+export class ScanCancelledError extends Error {
+  constructor() {
+    super('Scan cancelled');
+    this.name = 'ScanCancelledError';
+  }
+}
+
 function isPlaylistFile(name: string): boolean {
   const lower = name.toLowerCase();
   return PLAYLIST_EXTENSIONS.some((ext) => lower.endsWith(ext));
@@ -41,13 +55,26 @@ function isIgnoredDirectory(name: string): boolean {
  * no longer meaningful (it used to be depth-first-in-listing-order), but
  * nothing downstream (scanRoot builds a Map keyed by relativePath) relies
  * on it.
+ *
+ * `signal`, when given, is checked before each listDirectory call (not
+ * mid-call - there's no way to abort a native listDirectory that's already
+ * in flight, only to stop starting new ones) - see ScanCancelledError's doc.
+ * A signal that's already aborted when this is first called throws
+ * immediately, without ever calling listDirectory once.
  */
-export async function walkDirectory(fileAccess: FileAccess, rootId: string, startPath?: string): Promise<WalkResult> {
+export async function walkDirectory(
+  fileAccess: FileAccess,
+  rootId: string,
+  startPath?: string,
+  signal?: AbortSignal,
+): Promise<WalkResult> {
   const files: FileRef[] = [];
   const playlistFiles: FileRef[] = [];
 
   async function recurse(relativePath?: string): Promise<void> {
+    if (signal?.aborted) throw new ScanCancelledError();
     const entries = await fileAccess.listDirectory(rootId, relativePath);
+    if (signal?.aborted) throw new ScanCancelledError();
     const subdirectories: string[] = [];
     for (const entry of entries) {
       if (entry.type === 'file' && entry.file) {
