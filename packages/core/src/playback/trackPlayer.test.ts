@@ -140,6 +140,7 @@ describe('TrackPlayer', () => {
   });
 
   it('play() after pause() fades the resumed source back in, but a fresh (non-resume) play() does not', () => {
+    player.setVolume(1); // isolate from TrackPlayer's own default master volume
     player.play(); // source-0 - a fresh start, no fade-in
     expect(engine.gainRampsBySourceId.get('source-0')).toBeUndefined();
 
@@ -369,6 +370,7 @@ describe('TrackPlayer', () => {
   });
 
   it('setGain() applies to the currently playing source immediately', () => {
+    player.setVolume(1); // isolate from TrackPlayer's own default master volume
     player.play();
     const [sourceId] = engine.gainBySourceId.keys();
 
@@ -378,6 +380,7 @@ describe('TrackPlayer', () => {
   });
 
   it('setGain() carries over to a source created later by seek/resume', () => {
+    player.setVolume(1); // isolate from TrackPlayer's own default master volume
     player.setGain(0.5);
     player.play(); // a fresh start (not a resume-from-pause), so no fade-in
     player.seek(3); // tears down the current source and creates a new one
@@ -388,6 +391,7 @@ describe('TrackPlayer', () => {
   });
 
   it('defaults to gain 1 (no change) when never set', () => {
+    player.setVolume(1); // isolate from TrackPlayer's own default master volume
     player.play(); // a fresh start (not a resume-from-pause), so no fade-in
     const [sourceId] = engine.gainBySourceId.keys();
 
@@ -475,6 +479,7 @@ describe('TrackPlayer', () => {
     });
 
     it('starts the fade essentially immediately (at now()), no ramp/wait phase, and starts a new source for the incoming track at rate 1', () => {
+      player.setVolume(1); // isolate from TrackPlayer's own default master volume
       player.play(); // source-0, started at clock=0, offset=0
       engine.clock = 5;
       engine.scheduleStartCalls = []; // clear the initial play()'s own scheduleStart call - only care about what crossfadeTo schedules
@@ -506,6 +511,7 @@ describe('TrackPlayer', () => {
     });
 
     it("scales the outgoing gain curve by the outgoing track's own current gain, not a bare 1.0 (regression: this used to jump to raw cos(0)=1.0 regardless of the track's actual gain, an audible volume jump right as the fade began)", () => {
+      player.setVolume(1); // isolate from TrackPlayer's own default master volume
       player.play();
       player.setGain(0.57);
       engine.clock = 5;

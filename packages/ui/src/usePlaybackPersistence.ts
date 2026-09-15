@@ -148,7 +148,7 @@ export function usePlaybackPersistence({
     loopMode: 'off',
     shuffleEnabled: false,
     shuffleOrder: null,
-    volume: 1,
+    volume: 0.25,
     nowPlayingOpen: false,
   });
   // Guards persistPlaybackPatch against writing playbackStateRef's still-

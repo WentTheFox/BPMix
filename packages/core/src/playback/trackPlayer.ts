@@ -100,7 +100,7 @@ export class TrackPlayer {
    */
   private currentRate = 1;
   /** User-facing master volume [0,1], independent of currentGain (per-track normalization) - the two multiply together into whatever's actually sent to the engine. Persists across tracks (unlike currentGain, which is per-track), same reasoning as currentRate/currentGain: sources are torn down and recreated on every seek/pause/resume, so this has to be remembered and re-applied each time. */
-  private masterVolume = 1;
+  private masterVolume = 0.25;
   private pendingCrossfade: PendingCrossfade | null = null;
   /**
    * Set by pause() when it's called during status 'loading' - see pause()'s

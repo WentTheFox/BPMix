@@ -460,6 +460,7 @@ describe('PlaylistPlayer normalization gain (Stage 5)', () => {
     const player = new PlaylistPlayer(engine, (fileId) => makeFileRef(fileId), {
       resolveGain: (fileId) => gainsByFileId[fileId] ?? 1,
     });
+    player.setVolume(1); // isolate from PlaylistPlayer's own default master volume
 
     await player.setPlaylist(TRACKS); // starts on 'a'
     await flush();
@@ -480,6 +481,7 @@ describe('PlaylistPlayer normalization gain (Stage 5)', () => {
   it('defaults to gain 1 when no resolveGain is given', async () => {
     const engine = new FakeAudioEngine();
     const player = new PlaylistPlayer(engine, (fileId) => makeFileRef(fileId));
+    player.setVolume(1); // isolate from PlaylistPlayer's own default master volume
 
     await player.setPlaylist(TRACKS);
     await flush();
@@ -494,6 +496,7 @@ describe('PlaylistPlayer normalization gain (Stage 5)', () => {
         throw new Error('lookup failed');
       },
     });
+    player.setVolume(1); // isolate from PlaylistPlayer's own default master volume
 
     await player.setPlaylist(TRACKS);
     await flush();
@@ -630,6 +633,7 @@ describe('PlaylistPlayer volume-only crossfade', () => {
   it('schedules a real transition (equal-power gain curves, a new started source for the incoming one) once the track is near its end and the next one is already preloaded - with no rate change on either side', async () => {
     const engine = new FakeAudioEngine();
     const player = makePlayer(engine);
+    player.setVolume(1); // isolate from PlaylistPlayer's own default master volume
     await player.setPlaylist(TRACKS); // playing 'a' on source-0
     await flush();
     player.checkPreload();
@@ -665,6 +669,7 @@ describe('PlaylistPlayer volume-only crossfade', () => {
       resolveGain: (fileId) => gainedAnalysis[fileId]?.normalizationGain ?? 1,
       crossfadeSeconds: 5,
     });
+    player.setVolume(1); // isolate from PlaylistPlayer's own default master volume
     await player.setPlaylist(TRACKS);
     await flush();
     player.checkPreload();
