@@ -672,12 +672,13 @@ function AppContent() {
   // lyrics-only root, so this can just grant its own root like addFolder
   // does - see GrantedRoot.kind's doc.
   //
-  // Rescan is the one place a user explicitly asks to re-check a folder, so
-  // it's also where forcing past the cheap sizeBytes/lastModifiedMs
-  // freshness gate (see TrackMetadata.contentHash's doc) makes sense - see
-  // apps/web/src/App.tsx's identical verifyRootMetadata for the full
-  // reasoning. Runs as its own idle-chunked pass with its own notification
-  // row, scoped to the rescanned root and always forced.
+  // Rescan is the one place a user explicitly asks to re-check a folder,
+  // but deliberately does NOT force past the cheap sizeBytes/lastModifiedMs
+  // freshness gate - see apps/web/src/App.tsx's identical verifyRootMetadata
+  // for the full reasoning (an earlier always-forced version re-hashed
+  // every track on every Rescan and contended with the folder walk over
+  // the same I/O). Runs as its own idle-chunked pass with its own
+  // notification row, scoped to the rescanned root.
   const verifyRootMetadata = useCallback(
     async (rootId: string) => {
       // Most-recently-modified first - see apps/web/src/App.tsx's identical
@@ -686,7 +687,6 @@ function AppContent() {
       const notificationId = `metadata-verify-${rootId}`;
       await scanLibraryMetadata(fileAccess, libraryStore, tracks, {
         resizer: coverArtResizer,
-        forceRefresh: true,
         onProgress: ({ index, total, skipped }) => {
           const done = index + 1 >= total;
           if (skipped && !done) return;

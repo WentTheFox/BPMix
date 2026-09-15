@@ -634,29 +634,34 @@ function App() {
   // in use" error during a scan) lives in FolderPickerButton (packages/ui)
   // now, not here - this is just the plain pick-and-handle operation it
   // wraps.
-  // Rescan is the one place a user explicitly asks to re-check a folder, so
-  // it's also where forcing past the cheap sizeBytes/lastModifiedMs
-  // freshness gate (see TrackMetadata.contentHash's doc) makes sense - a
-  // file whose content silently changed without its size/mtime doing so
-  // (a sync tool preserving timestamps, e.g.) only ever gets caught here,
-  // not by the passive background scan. Runs as its own idle-chunked pass
-  // (fire-and-forget - onRescanned below doesn't await this) with its own
-  // notification row, same pattern as refresh()'s own background
-  // scanLibraryMetadata call, just scoped to the rescanned root and always
-  // forced rather than freshness-gated.
+  // Rescan is the one place a user explicitly asks to re-check a folder,
+  // but it deliberately does NOT force past the cheap sizeBytes/lastModifiedMs
+  // freshness gate here - only tracks the walk itself just found actually
+  // changed (a real size/mtime diff) get re-read. An unconditional
+  // forceRefresh was tried first (to also catch a same-size/same-mtime
+  // content edit - see TrackMetadata.contentHash's doc) but re-hashed every
+  // track in the root on every Rescan, which on a real library both wastes
+  // bandwidth/CPU for files that provably didn't change and contends with
+  // the folder walk itself over the same I/O - confirmed live, reported by
+  // the user. That same-size/same-mtime edge case is rare enough it isn't
+  // worth that cost as an automatic default; forceRefresh itself is still
+  // there in scanLibraryMetadata's options for a future explicit "verify
+  // everything" action if one turns out to be needed. Runs as its own
+  // idle-chunked pass (fire-and-forget - onRescanned below doesn't await
+  // this) with its own notification row, same pattern as refresh()'s own
+  // background scanLibraryMetadata call, just scoped to the rescanned root.
   const verifyRootMetadata = useCallback(
     async (rootId: string) => {
-      // Most-recently-modified first - a file that changed on disk without
-      // its name changing (what forceRefresh exists to catch - see
-      // TrackMetadata.contentHash's doc) is far more likely to be one that
-      // was touched recently than an old, untouched one, so this is where
-      // a genuinely stale/wrong result is most worth finding first on a
-      // large library this pass won't necessarily finish quickly.
+      // Most-recently-modified first - purely a priority ordering now (the
+      // freshness gate itself already limits this pass to changed tracks
+      // regardless of order), but still worth keeping: on a large library
+      // this pass won't necessarily finish quickly, and a track that just
+      // changed is more likely to be one the user cares about seeing
+      // updated first.
       const tracks = (await libraryStore.listTracks(rootId)).filter((t) => !t.missing).sort((a, b) => b.lastModifiedMs - a.lastModifiedMs);
       const notificationId = `metadata-verify-${rootId}`;
       await scanLibraryMetadata(backgroundFileAccess, libraryStore, tracks, {
         resizer: coverArtResizer,
-        forceRefresh: true,
         onProgress: ({ index, total, skipped }) => {
           const done = index + 1 >= total;
           if (skipped && !done) return;
