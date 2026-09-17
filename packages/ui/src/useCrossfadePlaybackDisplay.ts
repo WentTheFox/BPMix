@@ -228,8 +228,28 @@ export function useCrossfadePlaybackDisplay(input: CrossfadePlaybackDisplayInput
   const settledNextTrack = settledNextKey ? activeTracksById.get(settledNextKey) : undefined;
   const settledNextMetadata = useTrackMetadata(libraryStore, settledNextKey);
 
-  const currentTitle = settledCurrentTrack ? formatTrackTitle(settledCurrentMetadata, settledCurrentTrack) : playerState.currentFileId;
-  const currentName = settledCurrentTrack ? settledCurrentMetadata?.title || trackDisplayName(settledCurrentTrack) : (playerState.currentFileId ?? '');
+  // Falls back to outgoingTrack (the *unsettled* current track record - see
+  // its own doc), then a generic "Loading…" placeholder, rather than ever
+  // falling all the way to the raw playerState.currentFileId - on web
+  // that's an internal composite routing key (scheme + root uuid +
+  // relativePath, see fileAccess.composite.ts), never meant for display,
+  // confirmed on-device as a literal "local::<uuid>:..." string flashing
+  // in the title during the brief window before settledCurrentTrack (or,
+  // on a cold launch, activeTracksById itself) catches up.
+  const currentTitle = settledCurrentTrack
+    ? formatTrackTitle(settledCurrentMetadata, settledCurrentTrack)
+    : outgoingTrack
+      ? formatTrackTitle(null, outgoingTrack)
+      : playerState.currentFileId
+        ? 'Loading…'
+        : null;
+  const currentName = settledCurrentTrack
+    ? settledCurrentMetadata?.title || trackDisplayName(settledCurrentTrack)
+    : outgoingTrack
+      ? trackDisplayName(outgoingTrack)
+      : playerState.currentFileId
+        ? 'Loading…'
+        : '';
   const currentArtist = settledCurrentMetadata?.artists.join(', ') || null;
 
   return {
