@@ -1199,6 +1199,19 @@ const styles = StyleSheet.create({
     height: '100vh' as unknown as DimensionValue,
     alignItems: 'center',
     paddingTop: 48,
+    // This is meant to be a fixed, non-scrolling app shell - every genuinely
+    // scrollable region (TrackList, the library roots list, ...) already
+    // manages its own bounded-height scroll area. Without this, a
+    // decorative absolutely-positioned element that overflows its own
+    // container - confirmed as CrossfadeArt's Tonearm, whose rotor box is
+    // deliberately oversized (see its own doc) and legitimately extends
+    // past the disc's own square in its resting position - leaks all the
+    // way up to inflate the real page's scrollWidth/scrollHeight, showing
+    // up as actual browser scrollbars around the whole app. Clipping here,
+    // at the one true outer boundary, contains that without having to hunt
+    // down (and risk breaking) every individual component that might
+    // someday overflow its own nominal box the same way.
+    overflow: 'hidden',
   },
   // Wraps the library/playlist content so it can flex to fill the space
   // above MiniPlayerBar/NowPlayingScreen instead of the two overlapping -
