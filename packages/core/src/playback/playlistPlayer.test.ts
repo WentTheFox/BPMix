@@ -569,6 +569,48 @@ describe('PlaylistPlayer lookahead preload (Stage 6)', () => {
   });
 });
 
+describe('PlaylistPlayer volume/loop/shuffle before any track is loaded', () => {
+  // Locks in the behavior the "reach volume/repeat/shuffle even with no
+  // playlist or song loaded" UI/UX TODO depends on - a fresh PlaylistPlayer
+  // (no setPlaylist() call yet) must not throw and must actually apply
+  // these, not just silently ignore them, so the UI layer can render
+  // controls for them unconditionally.
+  it('setVolume applies immediately with nothing loaded', () => {
+    const engine = new FakeAudioEngine();
+    const player = new PlaylistPlayer(engine, (fileId) => makeFileRef(fileId));
+
+    expect(() => player.setVolume(0.4)).not.toThrow();
+    expect(player.getVolume()).toBe(0.4);
+  });
+
+  it('setLoopMode applies immediately with nothing loaded', () => {
+    const engine = new FakeAudioEngine();
+    const player = new PlaylistPlayer(engine, (fileId) => makeFileRef(fileId));
+
+    expect(() => player.setLoopMode('all')).not.toThrow();
+    expect(player.getState().loopMode).toBe('all');
+  });
+
+  it('setShuffle applies immediately with nothing loaded, without computing a shuffle order', () => {
+    const engine = new FakeAudioEngine();
+    const player = new PlaylistPlayer(engine, (fileId) => makeFileRef(fileId));
+
+    expect(() => player.setShuffle(true)).not.toThrow();
+    expect(player.getState().shuffleEnabled).toBe(true);
+    expect(player.getShuffleOrder()).toEqual([]);
+  });
+
+  it('play()/next()/previous() no-op instead of throwing with nothing loaded', async () => {
+    const engine = new FakeAudioEngine();
+    const player = new PlaylistPlayer(engine, (fileId) => makeFileRef(fileId));
+
+    expect(() => player.play()).not.toThrow();
+    await expect(player.next()).resolves.toBeUndefined();
+    await expect(player.previous()).resolves.toBeUndefined();
+    expect(player.getState().currentFileId).toBeNull();
+  });
+});
+
 describe('PlaylistPlayer just-in-time analysis hook (Stage 4 revision)', () => {
   it('fires onDecoded for the current track on first play, without blocking playback', async () => {
     const engine = new FakeAudioEngine();

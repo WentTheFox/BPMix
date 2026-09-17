@@ -21,17 +21,27 @@ export interface MiniPlayerBarProps {
   onPlayPause: () => void;
   onNext: () => void;
   onPrevious: () => void;
+  /**
+   * True when nothing is loaded (no playlist/track) - dims and disables
+   * play-pause/next/previous, which are no-ops at the player level anyway
+   * with an empty playlist (see PlaylistPlayer.play/next/previous). Volume
+   * and the info-area tap (still opens NowPlayingScreen, where loop/shuffle
+   * live) stay reachable regardless, per CLAUDE.md's UI/UX TODO on this.
+   */
+  disabled?: boolean;
 }
 
 /**
- * The fixed bottom bar every screen shows once a track is loaded - art +
- * title (tap to open NowPlayingScreen) on the left, volume/play-pause/next/
- * previous on the right, with a thin progress line along the top edge. Loop,
- * shuffle, and seek stayed on NowPlayingScreen per the TODO this replaces,
- * but volume is shown here unconditionally (ignoring
- * settings.showVolumeButtonOnNowPlaying, which only hides the copy on
- * NowPlayingScreen's PlayerControlsRow) since it's the one control users
- * reach for without opening the full screen first.
+ * The fixed bottom bar every screen shows, always - art + title (tap to
+ * open NowPlayingScreen) on the left, volume/play-pause/next/previous on
+ * the right, with a thin progress line along the top edge. Rendered even
+ * with nothing loaded (see `disabled`) so volume stays reachable and
+ * NowPlayingScreen (where loop/shuffle live) stays a tap away regardless
+ * of playlist state. Loop, shuffle, and seek stayed on NowPlayingScreen
+ * per the TODO this replaces, but volume is shown here unconditionally
+ * (ignoring settings.showVolumeButtonOnNowPlaying, which only hides the
+ * copy on NowPlayingScreen's PlayerControlsRow) since it's the one control
+ * users reach for without opening the full screen first.
  */
 export function MiniPlayerBar({
   colors,
@@ -47,6 +57,7 @@ export function MiniPlayerBar({
   onPlayPause,
   onNext,
   onPrevious,
+  disabled = false,
 }: MiniPlayerBarProps) {
   const progress = durationSeconds > 0 ? Math.min(1, Math.max(0, positionSeconds / durationSeconds)) : 0;
 
@@ -75,13 +86,13 @@ export function MiniPlayerBar({
         </Pressable>
         <View style={styles.controls}>
           <VolumeButton colors={colors} volume={volume} onChangeVolume={onChangeVolume} />
-          <Pressable style={styles.controlButton} onPress={onPrevious}>
+          <Pressable style={[styles.controlButton, disabled && styles.controlButtonDisabled]} onPress={onPrevious} disabled={disabled}>
             <Icon path={mdiSkipPrevious} size={22} color={colors.text} />
           </Pressable>
-          <Pressable style={styles.controlButton} onPress={onPlayPause}>
+          <Pressable style={[styles.controlButton, disabled && styles.controlButtonDisabled]} onPress={onPlayPause} disabled={disabled}>
             <Icon path={isPlaying ? mdiPause : mdiPlay} size={26} color={colors.text} />
           </Pressable>
-          <Pressable style={styles.controlButton} onPress={onNext}>
+          <Pressable style={[styles.controlButton, disabled && styles.controlButtonDisabled]} onPress={onNext} disabled={disabled}>
             <Icon path={mdiSkipNext} size={22} color={colors.text} />
           </Pressable>
         </View>
@@ -156,5 +167,8 @@ const styles = StyleSheet.create({
   },
   controlButton: {
     padding: 6,
+  },
+  controlButtonDisabled: {
+    opacity: 0.4,
   },
 });

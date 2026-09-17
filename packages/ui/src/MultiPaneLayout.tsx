@@ -9,7 +9,12 @@ export interface MultiPaneLayoutProps {
   libraryPane: ReactNode;
   /** The open playlist's track list, or null when no playlist is open (screen.kind === 'library' in both App.tsx files). */
   playlistPane: ReactNode | null;
-  /** The docked Now Playing pane, or null when nothing's loaded (playerState.currentFileId is null) - there's nothing to dock in that case. */
+  /**
+   * The docked Now Playing pane - always present now, even with nothing
+   * loaded (playerState.currentFileId null), so volume/loop/shuffle stay
+   * reachable on the medium/wide tiers without ever having played a track.
+   * Still typed as nullable since a caller could reasonably omit it.
+   */
   nowPlayingPane: ReactNode | null;
 }
 
@@ -25,12 +30,12 @@ export interface MultiPaneLayoutProps {
  * the arrangement logic lives here once.
  *
  * - medium: one pane (playlistPane if open, else libraryPane) + a docked
- *   Now Playing pane when present. This matches the narrow tier's single
+ *   Now Playing pane. This matches the narrow tier's single
  *   library-or-playlist screen, just with Now Playing docked alongside it
  *   instead of a full-screen overlay you have to open/close.
  * - wide: libraryPane always shown as its own pane, playlistPane added
- *   alongside it when a playlist is open, and a docked Now Playing pane
- *   added when present - up to three panes at once.
+ *   alongside it when a playlist is open, and a docked Now Playing pane -
+ *   up to three panes at once.
  */
 export function MultiPaneLayout({ tier, libraryPane, playlistPane, nowPlayingPane }: MultiPaneLayoutProps) {
   const panes: ReactNode[] = [];

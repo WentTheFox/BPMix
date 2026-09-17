@@ -21,6 +21,14 @@ export interface PlayerControlsRowProps {
   onTogglePlayPause: () => void;
   onPrevious: () => void;
   onNext: () => void;
+  /**
+   * True when nothing is loaded (no playlist/track) - dims and disables
+   * previous/play-pause/next, which are no-ops at the player level anyway
+   * with an empty playlist. Loop, shuffle, and volume stay fully live
+   * regardless, since they work (and are meant to be reachable) with no
+   * track loaded - see CLAUDE.md's UI/UX TODO on this.
+   */
+  disabled?: boolean;
 }
 
 /**
@@ -46,20 +54,30 @@ export function PlayerControlsRow({
   onTogglePlayPause,
   onPrevious,
   onNext,
+  disabled = false,
 }: PlayerControlsRowProps) {
   return (
     <View style={styles.row}>
       <LoopButton colors={colors} loopMode={loopMode} onPress={onCycleLoop} />
-      <Pressable style={[styles.button, { backgroundColor: colors.accent }]} onPress={onPrevious}>
+      <Pressable
+        style={[styles.button, { backgroundColor: colors.accent }, disabled && styles.buttonDisabled]}
+        onPress={onPrevious}
+        disabled={disabled}
+      >
         <Icon path={mdiSkipPrevious} size={20} color="white" />
       </Pressable>
       <Pressable
-        style={[styles.button, styles.buttonPrimary, { backgroundColor: darken(colors.accent, 0.15) }]}
+        style={[styles.button, styles.buttonPrimary, { backgroundColor: darken(colors.accent, 0.15) }, disabled && styles.buttonDisabled]}
         onPress={onTogglePlayPause}
+        disabled={disabled}
       >
         <Icon path={isPlaying ? mdiPause : mdiPlay} size={30} color="white" />
       </Pressable>
-      <Pressable style={[styles.button, { backgroundColor: colors.accent }]} onPress={onNext}>
+      <Pressable
+        style={[styles.button, { backgroundColor: colors.accent }, disabled && styles.buttonDisabled]}
+        onPress={onNext}
+        disabled={disabled}
+      >
         <Icon path={mdiSkipNext} size={20} color="white" />
       </Pressable>
       <ShuffleButton colors={colors} shuffleEnabled={shuffleEnabled} onPress={onToggleShuffle} />
@@ -88,5 +106,8 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 36,
+  },
+  buttonDisabled: {
+    opacity: 0.4,
   },
 });

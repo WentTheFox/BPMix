@@ -865,10 +865,16 @@ function AppContent() {
     },
   );
 
-  const miniPlayerBar = playerState.currentFileId && (
+  // Rendered even with nothing loaded (currentFileId null) - see
+  // MiniPlayerBar's own doc for why: volume needs to stay reachable, and
+  // this is also the only way to reach NowPlayingScreen (where loop/shuffle
+  // live) before anything's ever played. disabled dims/no-ops the transport
+  // buttons, which are meaningless (and already no-ops at the player level)
+  // with no track loaded.
+  const miniPlayerBar = (
     <MiniPlayerBar
       colors={colors}
-      title={currentName}
+      title={currentName || 'Nothing playing'}
       artist={currentArtist}
       artUri={outgoingCoverArt}
       isPlaying={playerState.track.status === 'playing'}
@@ -883,6 +889,7 @@ function AppContent() {
       onPlayPause={togglePause}
       onNext={handleNextPress}
       onPrevious={handlePreviousPress}
+      disabled={!playerState.currentFileId}
     />
   );
 
@@ -894,8 +901,12 @@ function AppContent() {
   // Bare content, reused two ways below - see apps/web/src/App.tsx's
   // identical nowPlayingContent for why (wrapped in a ScreenLayer overlay
   // on the narrow tier, placed directly as MultiPaneLayout's docked pane
-  // on medium/wide).
-  const nowPlayingContent = playerState.currentFileId && (
+  // on medium/wide). Rendered even with nothing loaded, same reasoning as
+  // miniPlayerBar above - CrossfadeArt/SeekBar/LyricsSection all already
+  // tolerate null art/zero duration/null trackFileId gracefully, so this
+  // just needs a friendly title and disabled transport buttons rather than
+  // any real restructuring.
+  const nowPlayingContent = (
       <NowPlayingScreen
         colors={colors}
         onClose={
@@ -906,7 +917,7 @@ function AppContent() {
               }
             : undefined
         }
-        title={currentTitle ?? ''}
+        title={currentTitle ?? 'Nothing playing'}
         upNextTitle={settledNextTrack ? formatTrackTitle(settledNextMetadata, settledNextTrack) : null}
         lyricsTrackKey={(pendingIncoming ? incomingTrack?.fileId : outgoingTrack?.fileId) ?? null}
         lyricsEnabled={settings.lyricsEnabled}
@@ -942,6 +953,7 @@ function AppContent() {
             onTogglePlayPause={togglePause}
             onPrevious={handlePreviousPress}
             onNext={handleNextPress}
+            disabled={!playerState.currentFileId}
           />
         }
       />
