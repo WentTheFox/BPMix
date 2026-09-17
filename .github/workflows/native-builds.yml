@@ -168,14 +168,24 @@ jobs:
         run: |
           mkdir -p release-assets
           assets_dir="$(pwd)/release-assets"
-          cp artifacts/bpmix-android-release-apk/*.apk release-assets/
+          version="${{ github.ref_name }}"
+          # mv, not cp: the source lives under artifacts/ (a download-artifact
+          # scratch dir nothing else reads), so there's no reason to leave an
+          # old-named copy sitting in release-assets/ alongside the renamed one.
+          mv artifacts/bpmix-android-release-apk/*.apk "release-assets/bpmix-android-${version}.apk"
           windows_dir=$(find artifacts/bpmix-windows-x64 -mindepth 1 -maxdepth 1 -type d | head -1)
-          cp "$windows_dir"/*.msixbundle release-assets/
-          (cd "$(dirname "$windows_dir")" && zip -rq "$assets_dir/bpmix-windows-x64-sideload.zip" "$(basename "$windows_dir")")
+          # cp (not mv) here: $windows_dir's contents, including this
+          # .msixbundle under its original name, still need to exist for the
+          # zip step right below.
+          cp "$windows_dir"/*.msixbundle "release-assets/bpmix-windows-${version}.msixbundle"
+          (cd "$(dirname "$windows_dir")" && zip -rq "$assets_dir/bpmix-windows-${version}-sideload.zip" "$(basename "$windows_dir")")
           # apps/mobile's in-app update flow (useAppUpdateCheck, @bpmix/core's
           # checkForUpdate) verifies the downloaded APK's own computed SHA-256
           # against this file before ever installing it - see
-          # AppUpdateModule.kt's downloadFile.
+          # AppUpdateModule.kt's downloadFile. Generated after the renames
+          # above so the hashes inside are keyed by the actual uploaded
+          # filenames; checksums.txt itself keeps its literal name since
+          # checkForUpdate.ts looks it up by that exact string.
           (cd release-assets && sha256sum * > checksums.txt)
           ls -la release-assets
 
