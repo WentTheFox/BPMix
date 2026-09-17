@@ -1,16 +1,16 @@
 import type { GrantedRoot, PlaylistRecord, TrackRecord } from '@bpmix/core';
-import { mdiFolder, mdiFolderMusic, mdiPlaylistMusic, mdiRefresh } from '@mdi/js';
+import { mdiFolder, mdiFolderMusic, mdiMusicNote, mdiPlay, mdiPlaylistMusic, mdiRefresh } from '@mdi/js';
 import type { ReactNode } from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppTitle } from './AppTitle';
+import { AutomaticPlaylistRow } from './AutomaticPlaylistRow';
 import { CreatePlaylistButton } from './CreatePlaylistButton';
 import { FolderPickerButton } from './FolderPickerButton';
 import { HeaderRow } from './HeaderRow';
 import { IconLabel } from './IconLabel';
 import { RemoveButton } from './RemoveButton';
 import type { Colors } from './theme';
-import { UnplaylistedButton } from './UnplaylistedButton';
 // Same shape usePlaybackPersistence's refresh() already returns - reused
 // rather than redeclared (and re-exported from there, not here, to avoid
 // index.ts exporting the same name from two modules) so the two can't drift
@@ -56,8 +56,14 @@ export interface LibraryScreenProps {
   onRemoveRoot?: (rootId: string) => void;
   /** Opens the create-playlist-from-folder flow (see CreatePlaylistScreen) scoped to this root - if omitted, no "New Playlist" action is shown for roots. */
   onCreatePlaylist?: (rootId: string) => void;
-  /** Walks this root for every audio file no current playlist references and opens the result as an ordinary playlist screen (see findUnplaylistedTracks) - if omitted, no "Unplaylisted" action is shown for roots. */
+  /** Walks this root for every audio file no current playlist references and opens the result as an ordinary playlist screen (see findUnplaylistedTracks) - if omitted, no "Unplaylisted" row is shown for roots. Rendered under a per-root "Automatic" heading, alongside "Now Playing" (below) when that's also present for the same root. */
   onShowUnplaylisted?: (rootId: string) => Promise<void>;
+  /** rootId of whatever's actually playing right now, or null if nothing has played yet this session (see App.tsx's playingContext) - the "Now Playing" automatic-playlist row only appears under that one root's section, since only one root can be playing at a time. */
+  nowPlayingRootId?: string | null;
+  /** Opens the "Now Playing" virtual playlist - mirrors the currently playing real playlist's order, or the live shuffle order instead if shuffle is on (see App.tsx's handleShowNowPlaying). Omitted along with nowPlayingRootId when nothing has played yet. */
+  onShowNowPlaying?: () => void;
+  /** id of the real PlaylistRecord actually playing right now (see App.tsx's playingContext), or null - highlights that one row in the plain playlists list below in the accent color, same idea as TrackRow's own now-playing highlight. A PlaylistRecord's id is its source .m3u8's own FileRef.id (see scan.ts), which already embeds enough (a root uuid on web, a full path on Android) to be globally unique - no need to also match rootId here. */
+  nowPlayingPlaylistId?: string | null;
   onSelectPlaylist: (root: GrantedRoot, playlist: PlaylistRecord, tracksById: Map<string, TrackRecord>) => void;
   error?: string | null;
   /** Rendered right after the error text - e.g. a "Grant Access" button for Android's AllFilesAccessRequiredError, so the user doesn't have to find Settings on their own. */
@@ -97,6 +103,9 @@ export function LibraryScreen({
   onRemoveRoot,
   onCreatePlaylist,
   onShowUnplaylisted,
+  nowPlayingRootId,
+  onShowNowPlaying,
+  nowPlayingPlaylistId,
   onSelectPlaylist,
   error,
   errorAction,
@@ -151,17 +160,36 @@ export function LibraryScreen({
                   </Pressable>
                 )}
                 {onCreatePlaylist && <CreatePlaylistButton colors={colors} onConfirm={() => onCreatePlaylist(root.id)} />}
-                {onShowUnplaylisted && <UnplaylistedButton colors={colors} onPress={() => onShowUnplaylisted(root.id)} />}
                 {onRemoveRoot && root.removable !== false && <RemoveButton colors={colors} onConfirm={() => onRemoveRoot(root.id)} />}
               </View>
             </View>
             {playlists.length === 0 && <Text style={[styles.empty, { color: colors.subtleText }]}>No playlists found yet.</Text>}
-            {playlists.map((playlist) => (
-              <Pressable key={playlist.id} style={styles.playlist} onPress={() => onSelectPlaylist(root, playlist, tracksById)}>
-                <IconLabel path={mdiPlaylistMusic} text={playlist.name} color={colors.text} iconSize={16} textStyle={styles.playlistName} />
-                <Text style={[styles.trackCount, { color: colors.subtleText }]}>{playlist.trackFileIds.length} track(s)</Text>
-              </Pressable>
-            ))}
+            {playlists.map((playlist) => {
+              const isNowPlaying = playlist.id === nowPlayingPlaylistId;
+              return (
+                <Pressable key={playlist.id} style={styles.playlist} onPress={() => onSelectPlaylist(root, playlist, tracksById)}>
+                  <IconLabel
+                    path={mdiPlaylistMusic}
+                    text={playlist.name}
+                    color={isNowPlaying ? colors.accent : colors.text}
+                    iconSize={16}
+                    textStyle={styles.playlistName}
+                  />
+                  <Text style={[styles.trackCount, { color: colors.subtleText }]}>{playlist.trackFileIds.length} track(s)</Text>
+                </Pressable>
+              );
+            })}
+            {(onShowNowPlaying && nowPlayingRootId === root.id) || onShowUnplaylisted ? (
+              <View style={styles.automaticSection}>
+                <Text style={[styles.automaticHeading, { color: colors.subtleText }]}>Automatic</Text>
+                {onShowNowPlaying && nowPlayingRootId === root.id && (
+                  <AutomaticPlaylistRow colors={colors} icon={mdiPlay} label="Now Playing" onPress={onShowNowPlaying} />
+                )}
+                {onShowUnplaylisted && (
+                  <AutomaticPlaylistRow colors={colors} icon={mdiMusicNote} label="Unplaylisted" onPress={() => onShowUnplaylisted(root.id)} />
+                )}
+              </View>
+            ) : null}
           </View>
         )}
       />
@@ -229,6 +257,19 @@ const styles = StyleSheet.create({
   },
   trackCount: {
     fontSize: 12,
+    opacity: 0.6,
+  },
+  // Separated from the real playlists above it (marginTop, not just the
+  // rows' own spacing) so it reads as a distinct group rather than a
+  // continuation of the user's own curated playlist list.
+  automaticSection: {
+    marginTop: 12,
+  },
+  automaticHeading: {
+    fontSize: 11,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
     opacity: 0.6,
   },
 });

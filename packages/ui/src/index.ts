@@ -1,6 +1,7 @@
 export * from './AddFolderButton';
 export * from './FolderPickerButton';
 export * from './AppIconMark';
+export * from './AutomaticPlaylistRow';
 export * from './AppTitle';
 export * from './BackButton';
 export * from './ConfirmDialog';
@@ -46,7 +47,6 @@ export * from './spin/spinConstants';
 export * from './theme';
 export * from './TrackList';
 export * from './TrackRow';
-export * from './UnplaylistedButton';
 export * from './useAssignedLyrics';
 export * from './useVolumeControl';
 export * from './VolumeButton';

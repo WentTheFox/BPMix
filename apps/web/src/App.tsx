@@ -252,6 +252,18 @@ function App() {
   // usePlaybackPersistence's onStepChange updates below.
   const { completedSteps, currentStep, hasLyricsScopes, advanceStep, setHasLyricsScopes } = useRestoringProgress();
   const [screen, setScreen] = useState<Screen>({ kind: 'library' });
+  // Which real playlist is actually playing right now (not necessarily
+  // `screen`, which is whichever screen is currently OPEN - the user may
+  // have navigated back to Library while a track keeps playing). Set
+  // whenever a track starts playing from an open playlist screen (see
+  // handlePressTrack below); null until that's happened at least once this
+  // session - deliberately session-scoped rather than restored from
+  // PlaybackState on relaunch, to keep this addition small. Feeds
+  // LibraryScreen's "Now Playing" automatic-playlist row (see
+  // handleShowNowPlaying).
+  const [playingContext, setPlayingContext] = useState<{ root: GrantedRoot; playlist: PlaylistRecord; tracksById: Map<string, TrackRecord> } | null>(
+    null,
+  );
   // Opened by tapping MiniPlayerBar's art/title area - closes back to
   // whichever screen (library or playlist) was already showing underneath.
   const [nowPlayingScreenOpen, setNowPlayingScreenOpen] = useState(false);
@@ -789,7 +801,10 @@ function App() {
     (t: TrackRecord) => {
       if (screen.kind !== 'playlist') return;
       if (t.missing) missingTrackRelocation.explainMissingTrack(t, screen.playlist.rootId);
-      else void playFromTrack(screen.playlist, screen.tracksById, t);
+      else {
+        setPlayingContext({ root: screen.root, playlist: screen.playlist, tracksById: screen.tracksById });
+        void playFromTrack(screen.playlist, screen.tracksById, t);
+      }
     },
     [screen, missingTrackRelocation, playFromTrack],
   );
@@ -1080,6 +1095,28 @@ function App() {
     persistPlaybackPatch({ openedPlaylistId: playlist.id, openedRootId: root.id });
   };
 
+  // Another virtual, never-persisted PlaylistRecord (same shape as
+  // handleShowUnplaylisted above) - mirrors whatever's actually playing
+  // right now (see playingContext's own doc), in file order, UNLESS
+  // shuffle is on, in which case it reflects the live shuffled order
+  // instead (getShuffleOrder() - null when shuffle is off, since
+  // sequential order needs no separate tracking there). No directory walk
+  // needed - everything here is already in memory.
+  const handleShowNowPlaying = () => {
+    if (!playingContext) return;
+    const { root, playlist: playingPlaylist, tracksById } = playingContext;
+    const trackFileIds = playerState.shuffleEnabled ? (playlistPlayer.getShuffleOrder() ?? playingPlaylist.trackFileIds) : playingPlaylist.trackFileIds;
+    const playlist: PlaylistRecord = {
+      id: `virtual:${root.id}:now-playing`,
+      rootId: root.id,
+      fileId: `virtual:${root.id}:now-playing`,
+      name: 'Now Playing',
+      trackFileIds,
+    };
+    setScreen({ kind: 'playlist', root, playlist, tracksById });
+    persistPlaybackPatch({ openedPlaylistId: playlist.id, openedRootId: root.id });
+  };
+
   // Split into two independent elements (rather than one screenContent
   // picked by screen.kind, as before) - the narrow tier still shows only
   // one of them at a time (see screenContent below), but medium/wide need
@@ -1118,6 +1155,9 @@ function App() {
         onRemoveRoot={(rootId) => void removeRoot(rootId)}
         onCreatePlaylist={(rootId) => setCreatePlaylistRootId(rootId)}
         onShowUnplaylisted={handleShowUnplaylisted}
+        nowPlayingRootId={playingContext?.root.id ?? null}
+        onShowNowPlaying={playingContext ? handleShowNowPlaying : undefined}
+        nowPlayingPlaylistId={playingContext?.playlist.id ?? null}
         onSelectPlaylist={(root, playlist, tracksById) => {
           setScreen({ kind: 'playlist', root, playlist, tracksById });
           persistPlaybackPatch({ openedPlaylistId: playlist.id, openedRootId: root.id });
