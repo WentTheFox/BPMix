@@ -9,6 +9,7 @@ import {
   BUILD_VERSION,
   ensureTrackAnalyzed,
   errorMessage,
+  findUnplaylistedTracks,
   formatTrackTitle,
   logLibraryAction,
   LYRICS_MATCHED_COUNT_SETTING_KEY,
@@ -1121,6 +1122,27 @@ function AppContent() {
     persistPlaybackPatch({ openedPlaylistId: null, openedRootId: null });
   };
 
+  // Builds a virtual, never-persisted PlaylistRecord and opens it through
+  // the exact same screen/persistence path as a real playlist - see
+  // apps/web/src/App.tsx's identical helper for why (the individual
+  // tracks themselves DO get persisted; only the playlist grouping is
+  // recomputed fresh every time).
+  const handleShowUnplaylisted = async (rootId: string) => {
+    const root = grantedRoots.find((r) => r.id === rootId);
+    if (!root) return;
+    const tracks = await findUnplaylistedTracks(fileAccess, libraryStore, rootId);
+    const playlist: PlaylistRecord = {
+      id: `virtual:${rootId}:unplaylisted`,
+      rootId,
+      fileId: `virtual:${rootId}:unplaylisted`,
+      name: 'Songs not in a playlist',
+      trackFileIds: tracks.map((t) => t.fileId),
+    };
+    const tracksById = new Map(tracks.map((t) => [t.fileId, t]));
+    setScreen({ kind: 'playlist', root, playlist, tracksById });
+    persistPlaybackPatch({ openedPlaylistId: playlist.id, openedRootId: root.id });
+  };
+
   // Split into two independent elements rather than one screenContent
   // picked by screen.kind - see apps/web/src/App.tsx's identical split for
   // why (medium/wide tiers need library and playlist as separate
@@ -1157,6 +1179,7 @@ function AppContent() {
         onRescan={rescan}
         onRemoveRoot={(rootId) => void removeRoot(rootId)}
         onCreatePlaylist={(rootId) => setCreatePlaylistRootId(rootId)}
+        onShowUnplaylisted={handleShowUnplaylisted}
         onSelectPlaylist={(root, playlist, tracksById) => {
           setScreen({ kind: 'playlist', root, playlist, tracksById });
           persistPlaybackPatch({ openedPlaylistId: playlist.id, openedRootId: root.id });

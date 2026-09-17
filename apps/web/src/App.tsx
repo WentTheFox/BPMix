@@ -4,6 +4,7 @@ import {
   ensureTrackAnalyzed,
   errorMessage,
   FileAccessPermissionPendingError,
+  findUnplaylistedTracks,
   formatTrackTitle,
   logLibraryAction,
   LYRICS_MATCHED_COUNT_SETTING_KEY,
@@ -1054,6 +1055,31 @@ function App() {
     persistPlaybackPatch({ openedPlaylistId: null, openedRootId: null });
   };
 
+  // Builds a virtual, never-persisted PlaylistRecord (a synthetic id -
+  // see findUnplaylistedTracks' own doc - never written via
+  // libraryStore.upsertPlaylist) and opens it through the exact same
+  // screen/persistence path as a real playlist. The individual tracks
+  // themselves DO get persisted (findUnplaylistedTracks upserts any
+  // newly-discovered one into the store), so metadata/art scanning and
+  // playback all work on them normally - only the *playlist itself* is
+  // recomputed fresh every time rather than stored, since membership can
+  // change the moment any other playlist is edited.
+  const handleShowUnplaylisted = async (rootId: string) => {
+    const root = grantedRoots.find((r) => r.id === rootId);
+    if (!root) return;
+    const tracks = await findUnplaylistedTracks(fileAccess, libraryStore, rootId);
+    const playlist: PlaylistRecord = {
+      id: `virtual:${rootId}:unplaylisted`,
+      rootId,
+      fileId: `virtual:${rootId}:unplaylisted`,
+      name: 'Songs not in a playlist',
+      trackFileIds: tracks.map((t) => t.fileId),
+    };
+    const tracksById = new Map(tracks.map((t) => [t.fileId, t]));
+    setScreen({ kind: 'playlist', root, playlist, tracksById });
+    persistPlaybackPatch({ openedPlaylistId: playlist.id, openedRootId: root.id });
+  };
+
   // Split into two independent elements (rather than one screenContent
   // picked by screen.kind, as before) - the narrow tier still shows only
   // one of them at a time (see screenContent below), but medium/wide need
@@ -1091,6 +1117,7 @@ function App() {
         onRescan={rescan}
         onRemoveRoot={(rootId) => void removeRoot(rootId)}
         onCreatePlaylist={(rootId) => setCreatePlaylistRootId(rootId)}
+        onShowUnplaylisted={handleShowUnplaylisted}
         onSelectPlaylist={(root, playlist, tracksById) => {
           setScreen({ kind: 'playlist', root, playlist, tracksById });
           persistPlaybackPatch({ openedPlaylistId: playlist.id, openedRootId: root.id });

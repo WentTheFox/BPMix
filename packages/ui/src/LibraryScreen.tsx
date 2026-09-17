@@ -10,6 +10,7 @@ import { HeaderRow } from './HeaderRow';
 import { IconLabel } from './IconLabel';
 import { RemoveButton } from './RemoveButton';
 import type { Colors } from './theme';
+import { UnplaylistedButton } from './UnplaylistedButton';
 // Same shape usePlaybackPersistence's refresh() already returns - reused
 // rather than redeclared (and re-exported from there, not here, to avoid
 // index.ts exporting the same name from two modules) so the two can't drift
@@ -55,6 +56,8 @@ export interface LibraryScreenProps {
   onRemoveRoot?: (rootId: string) => void;
   /** Opens the create-playlist-from-folder flow (see CreatePlaylistScreen) scoped to this root - if omitted, no "New Playlist" action is shown for roots. */
   onCreatePlaylist?: (rootId: string) => void;
+  /** Walks this root for every audio file no current playlist references and opens the result as an ordinary playlist screen (see findUnplaylistedTracks) - if omitted, no "Unplaylisted" action is shown for roots. */
+  onShowUnplaylisted?: (rootId: string) => Promise<void>;
   onSelectPlaylist: (root: GrantedRoot, playlist: PlaylistRecord, tracksById: Map<string, TrackRecord>) => void;
   error?: string | null;
   /** Rendered right after the error text - e.g. a "Grant Access" button for Android's AllFilesAccessRequiredError, so the user doesn't have to find Settings on their own. */
@@ -93,6 +96,7 @@ export function LibraryScreen({
   onRescan,
   onRemoveRoot,
   onCreatePlaylist,
+  onShowUnplaylisted,
   onSelectPlaylist,
   error,
   errorAction,
@@ -147,6 +151,7 @@ export function LibraryScreen({
                   </Pressable>
                 )}
                 {onCreatePlaylist && <CreatePlaylistButton colors={colors} onConfirm={() => onCreatePlaylist(root.id)} />}
+                {onShowUnplaylisted && <UnplaylistedButton colors={colors} onPress={() => onShowUnplaylisted(root.id)} />}
                 {onRemoveRoot && root.removable !== false && <RemoveButton colors={colors} onConfirm={() => onRemoveRoot(root.id)} />}
               </View>
             </View>

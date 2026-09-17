@@ -46,6 +46,7 @@ export * from './spin/spinConstants';
 export * from './theme';
 export * from './TrackList';
 export * from './TrackRow';
+export * from './UnplaylistedButton';
 export * from './useAssignedLyrics';
 export * from './useVolumeControl';
 export * from './VolumeButton';

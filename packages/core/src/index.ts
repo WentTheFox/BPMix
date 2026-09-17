@@ -22,6 +22,7 @@ export * from './library-scan/scan';
 export * from './library-scan/scanCoordinator';
 export * from './library-scan/loadRootLibrary';
 export * from './library-scan/createPlaylistFromFolder';
+export * from './library-scan/findUnplaylistedTracks';
 export * from './library-scan/relocateMissingTrack';
 export * from './playback/trackPlayer';
 export * from './playback/shuffle';
