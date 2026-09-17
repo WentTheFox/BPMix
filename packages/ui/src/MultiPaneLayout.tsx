@@ -75,10 +75,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     width: '100%',
   },
+  // alignItems: 'center' matters once a pane is wider than its content's own
+  // maxWidth:480 cap (TrackList, LibraryScreen's list, ...) - without it the
+  // capped content sits flush against the pane's left edge instead of
+  // centered, leaving dead space on the right and a scrollbar that looks
+  // stranded partway across the pane instead of at its true edge.
   pane: {
     flex: 1,
     minWidth: 0,
     height: '100%',
+    alignItems: 'center',
   },
   paneDivider: {
     borderLeftWidth: StyleSheet.hairlineWidth,
