@@ -219,11 +219,26 @@ function App() {
   const [installOnboardingDismissed, setInstallOnboardingDismissed] = useState(true);
   const [showInstallOnboarding, setShowInstallOnboarding] = useState(false);
   const installPromptAvailable = usePwaInstallAvailable();
+  // Drives the directory-picker banner below: once true, the user is already
+  // on a Docker self-host, so there's nothing left to suggest they set up -
+  // just note that new folders need a bind mount, without the warning color.
+  const [serverBackendAvailable, setServerBackendAvailable] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     void libraryStore.getSetting(INSTALL_ONBOARDING_DISMISSED_SETTING_KEY).then((dismissed) => {
       if (!cancelled) setInstallOnboardingDismissed(dismissed === '1');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (SUPPORTS_DIRECTORY_PICKER) return;
+    let cancelled = false;
+    void isServerBackendAvailable().then((serverAvailable) => {
+      if (!cancelled) setServerBackendAvailable(serverAvailable);
     });
     return () => {
       cancelled = true;
@@ -1170,10 +1185,19 @@ function App() {
         }
         bannerContent={
           <>
-            {!SUPPORTS_DIRECTORY_PICKER && (
+            {!SUPPORTS_DIRECTORY_PICKER && !serverBackendAvailable && (
               <Text style={styles.warning}>
                 This browser can’t pick local folders. Use the self-hosted Docker server instead to browse a mounted music
                 library -{' '}
+                <a href={SELF_HOSTING_DOCS_URL} target="_blank" rel="noopener noreferrer" style={webLinkStyle}>
+                  see the setup guide
+                </a>
+                .
+              </Text>
+            )}
+            {!SUPPORTS_DIRECTORY_PICKER && serverBackendAvailable && (
+              <Text style={[styles.hint, { color: colors.text }]}>
+                To add a new folder here, bind-mount it into the Docker server instead of picking it from the browser -{' '}
                 <a href={SELF_HOSTING_DOCS_URL} target="_blank" rel="noopener noreferrer" style={webLinkStyle}>
                   see the setup guide
                 </a>
@@ -1298,6 +1322,12 @@ const styles = StyleSheet.create({
   },
   warning: {
     color: '#b45309',
+    marginTop: 12,
+    maxWidth: 480,
+    textAlign: 'center',
+  },
+  hint: {
+    opacity: 0.6,
     marginTop: 12,
     maxWidth: 480,
     textAlign: 'center',

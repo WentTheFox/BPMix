@@ -46,7 +46,6 @@ Notes for tasks that still have to be done/investigated are left here, grouped b
 
 * Store 5-15s of audio data alongside file metadata records using the most space efficient encoding method to make audio playback on song press more responsive, swap out to the real track seamlessly once it's loaded
 * Settings toggle to display a single disk visualization at a time only, handle track switching and prelading gracefully still
-* Remove the "use Dockerized server" from the web UI when the user is already using the dockerized servers - replace with non-red bind mount suggestion text
 
 ## new features
 
