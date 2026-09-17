@@ -98,7 +98,19 @@ const fileAccess = createFileAccess();
 const libraryStore = createLibraryStore();
 const audioEngine = createAudioEngine(fileAccess);
 const coverArtResizer = createCoverArtResizer();
-const appUpdateBridge = createAppUpdateBridge();
+// Never offers an update in a debug build (__DEV__) - checkForUpdate
+// already treats a dev build's non-clean-semver git-describe version
+// ("v1.2.3-N-gHASH") as unparseable and never reports an update for it
+// (see its own doc), but that only holds as long as the build wasn't made
+// exactly at a tagged commit - git describe then reports a perfectly
+// clean "vX.Y.Z", indistinguishable from a real release build at that
+// same commit, so a debug build checked out right at a release tag could
+// still be offered (and could download/install) that real release APK.
+// Disabling the whole bridge here is a stronger guarantee than relying on
+// that version string alone, and reuses the same "no bridge -> Settings
+// omits the whole row" escape hatch appUpdate.windows.ts already uses for
+// platforms with no install flow at all.
+const appUpdateBridge = __DEV__ ? null : createAppUpdateBridge();
 
 function trackToFileRef(track: TrackRecord): FileRef {
   return {
