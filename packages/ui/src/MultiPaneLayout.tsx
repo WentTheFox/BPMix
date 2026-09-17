@@ -1,13 +1,24 @@
 import type { ReactNode } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import type { Colors } from './theme';
 import type { ViewportTier } from './useViewportTier';
 
 export interface MultiPaneLayoutProps {
   /** Never called with 'narrow' - that tier keeps today's single-screen-plus-overlay behavior in each App.tsx instead of using this component at all. */
   tier: Exclude<ViewportTier, 'narrow'>;
+  /** Only used for the 'wide'-tier placeholder text shown in the playlist pane's reserved space when no playlist is open - see playlistPane's own doc. */
+  colors: Colors;
   /** Always present - the library list. Only actually shown as its own pane on the 'wide' tier (see below); folded into the single left pane on 'medium'. */
   libraryPane: ReactNode;
-  /** The open playlist's track list, or null when no playlist is open (screen.kind === 'library' in both App.tsx files). */
+  /**
+   * The open playlist's track list, or null when no playlist is open
+   * (screen.kind === 'library' in both App.tsx files). On the 'wide' tier
+   * this pane's space is reserved either way (see below) - only its
+   * *content* switches between this and a placeholder, so opening/closing
+   * a playlist there never resizes the library/Now Playing panes next to
+   * it. On 'medium' this still folds away entirely when null, same as
+   * before, since there's only one non-Now-Playing pane to begin with.
+   */
   playlistPane: ReactNode | null;
   /**
    * The docked Now Playing pane - always present now, even with nothing
@@ -33,11 +44,19 @@ export interface MultiPaneLayoutProps {
  *   Now Playing pane. This matches the narrow tier's single
  *   library-or-playlist screen, just with Now Playing docked alongside it
  *   instead of a full-screen overlay you have to open/close.
- * - wide: libraryPane always shown as its own pane, playlistPane added
- *   alongside it when a playlist is open, and a docked Now Playing pane -
- *   up to three panes at once.
+ * - wide: libraryPane always shown as its own pane, and a playlist pane
+ *   always reserves the same space alongside it - showing playlistPane's
+ *   content when a playlist is open, else a placeholder - plus a docked
+ *   Now Playing pane, three panes at once. Reserving the space (rather
+ *   than omitting the pane when playlistPane is null, as a straight port
+ *   of the narrow/medium "just don't render it" approach would) keeps
+ *   opening/closing a playlist from resizing the library and Now Playing
+ *   panes out from under the user, which read as the layout twitching
+ *   every time - there was nowhere to "go back" to that wasn't already
+ *   sitting right there, so the resize was the only visible effect closing
+ *   the playlist actually had.
  */
-export function MultiPaneLayout({ tier, libraryPane, playlistPane, nowPlayingPane }: MultiPaneLayoutProps) {
+export function MultiPaneLayout({ tier, colors, libraryPane, playlistPane, nowPlayingPane }: MultiPaneLayoutProps) {
   const panes: ReactNode[] = [];
   if (tier === 'wide') {
     panes.push(
@@ -45,13 +64,11 @@ export function MultiPaneLayout({ tier, libraryPane, playlistPane, nowPlayingPan
         {libraryPane}
       </View>,
     );
-    if (playlistPane) {
-      panes.push(
-        <View key="playlist" style={[styles.pane, styles.paneDivider]}>
-          {playlistPane}
-        </View>,
-      );
-    }
+    panes.push(
+      <View key="playlist" style={[styles.pane, styles.paneDivider]}>
+        {playlistPane ?? <Text style={[styles.placeholder, { color: colors.subtleText }]}>Select a playlist to view its tracks.</Text>}
+      </View>,
+    );
   } else {
     panes.push(
       <View key="primary" style={styles.pane}>
@@ -89,5 +106,11 @@ const styles = StyleSheet.create({
   paneDivider: {
     borderLeftWidth: StyleSheet.hairlineWidth,
     borderLeftColor: 'rgba(128,128,128,0.3)',
+  },
+  placeholder: {
+    marginTop: 24,
+    maxWidth: 320,
+    textAlign: 'center',
+    opacity: 0.6,
   },
 });

@@ -1279,7 +1279,7 @@ function AppContent() {
           </>
         ) : (
           <View style={styles.screenArea}>
-            <MultiPaneLayout tier={tier} libraryPane={libraryPaneContent} playlistPane={playlistPaneContent} nowPlayingPane={nowPlayingContent} />
+            <MultiPaneLayout tier={tier} colors={colors} libraryPane={libraryPaneContent} playlistPane={playlistPaneContent} nowPlayingPane={nowPlayingContent} />
           </View>
         )}
         {miniPlayerBar}
