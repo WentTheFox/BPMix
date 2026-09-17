@@ -1,5 +1,6 @@
 import type { FileRef, GrantedRoot, LyricsScope, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '@bpmix/core';
 import {
+  addTracksToPlaylist,
   createBackgroundFileAccess,
   ensureTrackAnalyzed,
   errorMessage,
@@ -15,6 +16,7 @@ import {
   trackDisplayName,
 } from '@bpmix/core';
 import {
+  AddToPlaylistDialog,
   BackButton,
   ConfirmDialog,
   CreatePlaylistScreen,
@@ -195,6 +197,8 @@ function App() {
   // preview/create the playlist itself once one's picked.
   const [createPlaylistRootId, setCreatePlaylistRootId] = useState<string | null>(null);
   const [createPlaylistTarget, setCreatePlaylistTarget] = useState<{ rootId: string; folderRelativePath: string; folderDisplayName: string } | null>(null);
+  /** The track a "add to playlist" tap on an Unplaylisted row is currently offering to add - see addToPlaylistDialog below (declared up here, ahead of this component's early returns, since hooks can't be called conditionally). */
+  const [addToPlaylistTrack, setAddToPlaylistTrack] = useState<TrackRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Everything that used to be a one-shot setError(errorMessage(err)) string
   // (playback/decode failures specifically) now goes here instead - see
@@ -1132,6 +1136,39 @@ function App() {
     persistPlaybackPatch({ openedPlaylistId: playlist.id, openedRootId: root.id });
   };
 
+  // Only the Unplaylisted virtual playlist offers "add to playlist" per
+  // row (see TrackRow.onAddToPlaylist's doc) - Now Playing's virtual
+  // playlist has no such use case, and every real playlist's tracks are
+  // by definition already in a playlist.
+  const isUnplaylistedScreen = screen.kind === 'playlist' && screen.playlist.id === `virtual:${screen.root.id}:unplaylisted`;
+
+  const addToPlaylistDialog =
+    addToPlaylistTrack && screen.kind === 'playlist' ? (
+      <AddToPlaylistDialog
+        colors={colors}
+        playlists={rootsWithLibrary.find((r) => r.root.id === screen.root.id)?.playlists ?? []}
+        trackLabel={trackDisplayName(addToPlaylistTrack)}
+        onCancel={() => setAddToPlaylistTrack(null)}
+        onSelect={async (playlist, position) => {
+          const track = addToPlaylistTrack;
+          try {
+            await addTracksToPlaylist(fileAccess, screen.root.id, playlist, [track], position);
+            // Drops the just-added track from the currently-open Unplaylisted
+            // view immediately, rather than waiting on the rescan below to
+            // catch up - findUnplaylistedTracks won't offer it again once
+            // the rescanned playlist references it, but that rescan can take
+            // a moment on a big root and the track would otherwise still
+            // look "unplaylisted" on screen in the meantime.
+            setScreen((prev) => (prev.kind === 'playlist' ? { ...prev, playlist: { ...prev.playlist, trackFileIds: prev.playlist.trackFileIds.filter((id) => id !== track.fileId) } } : prev));
+            setAddToPlaylistTrack(null);
+            void rescan(screen.root.id);
+          } catch (err) {
+            notificationCenter.addError(`Couldn't add "${trackDisplayName(track)}" to "${playlist.name}"`, errorMessage(err));
+          }
+        }}
+      />
+    ) : null;
+
   // Split into two independent elements (rather than one screenContent
   // picked by screen.kind, as before) - the narrow tier still shows only
   // one of them at a time (see screenContent below), but medium/wide need
@@ -1154,6 +1191,7 @@ function App() {
           libraryStore={libraryStore}
           initialNumToRender={30}
           missingFileIds={missingFileIds}
+          onAddToPlaylist={isUnplaylistedScreen ? setAddToPlaylistTrack : undefined}
         />
       </>
     ) : null;
@@ -1262,6 +1300,7 @@ function App() {
         {nowPlayingScreen}
         {settingsScreen}
         {missingFileDialog}
+        {addToPlaylistDialog}
       </View>
     );
   }
@@ -1274,6 +1313,7 @@ function App() {
       {miniPlayerBar}
       {settingsScreen}
       {missingFileDialog}
+      {addToPlaylistDialog}
     </View>
   );
 }

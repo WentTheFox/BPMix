@@ -1,5 +1,5 @@
 import { formatDuration, isMetadataCurrent, trackDisplayName, type LibraryStore, type TrackRecord } from '@bpmix/core';
-import { mdiAlertCircleOutline, mdiPause, mdiPlay, mdiSubtitles } from '@mdi/js';
+import { mdiAlertCircleOutline, mdiPause, mdiPlay, mdiPlaylistPlus, mdiSubtitles } from '@mdi/js';
 import { memo, useEffect, useRef } from 'react';
 import { ActivityIndicator, Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Icon } from './Icon';
@@ -39,6 +39,8 @@ export interface TrackRowProps {
   libraryStore: LibraryStore;
   /** True once this track's most recent playback attempt failed to decode (missing/unreadable file - see PlaylistPlayer's onError fileId doc) - fades the row and shows a warning icon on the right, rather than looking identical to a perfectly playable track until tapped. */
   isMissing?: boolean;
+  /** Shows a per-row "add to playlist" button when given (see AddToPlaylistDialog) - only passed by the Unplaylisted automatic view today, since a track already sitting in a real playlist has nowhere new to be added to from here. Omitted (not just falsy) elsewhere, so an ordinary playlist screen's rows look exactly as they did before this existed. */
+  onAddToPlaylist?: (track: TrackRecord) => void;
 }
 
 /**
@@ -51,7 +53,7 @@ export interface TrackRowProps {
  * the text. Shared between mobile and web (identical on both, so it lives
  * here rather than being duplicated per-app).
  */
-export const TrackRow = memo(function TrackRow({ track, isCurrent, isPlaying, isLoading, textColor, colors, onPress, libraryStore, isMissing }: TrackRowProps) {
+export const TrackRow = memo(function TrackRow({ track, isCurrent, isPlaying, isLoading, textColor, colors, onPress, libraryStore, isMissing, onAddToPlaylist }: TrackRowProps) {
   const metadata = useTrackMetadata(libraryStore, track.fileId);
   // Not just metadata !== null - useTrackMetadata can display a still-stale
   // (older parserVersion) result immediately while it keeps retrying, and
@@ -120,6 +122,18 @@ export const TrackRow = memo(function TrackRow({ track, isCurrent, isPlaying, is
             <Icon path={mdiAlertCircleOutline} size={18} color="#dc2626" />
           </View>
         )}
+        {onAddToPlaylist && (
+          <Pressable
+            onPress={(e) => {
+              e.stopPropagation();
+              onAddToPlaylist(track);
+            }}
+            style={styles.addButton}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Icon path={mdiPlaylistPlus} size={18} color={colors.accent} />
+          </Pressable>
+        )}
       </View>
     </Pressable>
   );
@@ -139,6 +153,9 @@ const styles = StyleSheet.create({
     opacity: 0.45,
   },
   missingIcon: {
+    marginLeft: 'auto',
+  },
+  addButton: {
     marginLeft: 'auto',
   },
   trackDuration: {

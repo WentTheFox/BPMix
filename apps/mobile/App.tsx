@@ -6,6 +6,7 @@
 
 import type { FileRef, GrantedRoot, LyricsScope, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '@bpmix/core';
 import {
+  addTracksToPlaylist,
   BUILD_VERSION,
   ensureTrackAnalyzed,
   errorMessage,
@@ -20,6 +21,7 @@ import {
   trackDisplayName,
 } from '@bpmix/core';
 import {
+  AddToPlaylistDialog,
   BackButton,
   ConfirmDialog,
   CreatePlaylistScreen,
@@ -246,6 +248,8 @@ function AppContent() {
   // itself once one's picked.
   const [createPlaylistRootId, setCreatePlaylistRootId] = useState<string | null>(null);
   const [createPlaylistTarget, setCreatePlaylistTarget] = useState<{ rootId: string; folderRelativePath: string; folderDisplayName: string } | null>(null);
+  /** See apps/web/src/App.tsx's identical field for why this is declared up here, ahead of this component's early returns. */
+  const [addToPlaylistTrack, setAddToPlaylistTrack] = useState<TrackRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Everything that used to be a one-shot setError(errorMessage(err)) string
   // (playback/decode failures specifically) now goes here instead - see
@@ -1184,6 +1188,31 @@ function AppContent() {
     persistPlaybackPatch({ openedPlaylistId: playlist.id, openedRootId: root.id });
   };
 
+  // See apps/web/src/App.tsx's identical block for why this is scoped to
+  // just the Unplaylisted virtual playlist.
+  const isUnplaylistedScreen = screen.kind === 'playlist' && screen.playlist.id === `virtual:${screen.root.id}:unplaylisted`;
+
+  const addToPlaylistDialog =
+    addToPlaylistTrack && screen.kind === 'playlist' ? (
+      <AddToPlaylistDialog
+        colors={colors}
+        playlists={rootsWithLibrary.find((r) => r.root.id === screen.root.id)?.playlists ?? []}
+        trackLabel={trackDisplayName(addToPlaylistTrack)}
+        onCancel={() => setAddToPlaylistTrack(null)}
+        onSelect={async (playlist, position) => {
+          const track = addToPlaylistTrack;
+          try {
+            await addTracksToPlaylist(fileAccess, screen.root.id, playlist, [track], position);
+            setScreen((prev) => (prev.kind === 'playlist' ? { ...prev, playlist: { ...prev.playlist, trackFileIds: prev.playlist.trackFileIds.filter((id) => id !== track.fileId) } } : prev));
+            setAddToPlaylistTrack(null);
+            void rescan(screen.root.id);
+          } catch (err) {
+            notificationCenter.addError(`Couldn't add "${trackDisplayName(track)}" to "${playlist.name}"`, errorMessage(err));
+          }
+        }}
+      />
+    ) : null;
+
   // Split into two independent elements rather than one screenContent
   // picked by screen.kind - see apps/web/src/App.tsx's identical split for
   // why (medium/wide tiers need library and playlist as separate
@@ -1205,6 +1234,7 @@ function AppContent() {
           libraryStore={libraryStore}
           initialNumToRender={20}
           missingFileIds={missingFileIds}
+          onAddToPlaylist={isUnplaylistedScreen ? setAddToPlaylistTrack : undefined}
         />
       </>
     ) : null;
@@ -1285,6 +1315,7 @@ function AppContent() {
         {miniPlayerBar}
         {settingsScreen}
         {missingFileDialog}
+        {addToPlaylistDialog}
       </View>
     </>
   );

@@ -1,4 +1,5 @@
 export * from './AddFolderButton';
+export * from './AddToPlaylistDialog';
 export * from './FolderPickerButton';
 export * from './AppIconMark';
 export * from './AutomaticPlaylistRow';

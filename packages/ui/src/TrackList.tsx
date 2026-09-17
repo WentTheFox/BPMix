@@ -20,6 +20,8 @@ export interface TrackListProps {
   initialNumToRender?: number;
   /** fileIds whose most recent playback attempt failed to decode - see TrackRow.isMissing's doc. Omitted entirely (not just empty) by a caller that doesn't track this. */
   missingFileIds?: Set<string>;
+  /** See TrackRow.onAddToPlaylist's doc - passed straight through, omitted entirely by every caller except the Unplaylisted automatic view. */
+  onAddToPlaylist?: (track: TrackRecord) => void;
 }
 
 /**
@@ -52,6 +54,7 @@ export function TrackList({
   libraryStore,
   initialNumToRender = 20,
   missingFileIds,
+  onAddToPlaylist,
 }: TrackListProps): React.JSX.Element {
   const [query, setQuery] = useState('');
 
@@ -84,10 +87,11 @@ export function TrackList({
           onPress={onPressTrack}
           libraryStore={libraryStore}
           isMissing={track.missing || missingFileIds?.has(fileId)}
+          onAddToPlaylist={onAddToPlaylist}
         />
       );
     },
-    [tracksById, currentFileId, isPlaying, isLoading, textColor, colors, onPressTrack, libraryStore, missingFileIds],
+    [tracksById, currentFileId, isPlaying, isLoading, textColor, colors, onPressTrack, libraryStore, missingFileIds, onAddToPlaylist],
   );
 
   return (
