@@ -144,6 +144,15 @@ android {
     buildTypes {
         debug {
             signingConfig = signingConfigs.debug
+            // Separate applicationId from the release build (tf.went.bpmix)
+            // so a Metro-connected debug build can be installed side by side
+            // with the real, CI-signed release app instead of replacing it -
+            // the two have different signing keys (see signingConfigs.release's
+            // own comment) so Android refuses an in-place install over one
+            // with the other anyway; this makes that intentional instead of
+            // a per-session uninstall/reinstall dance.
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-debug"
         }
         release {
             signingConfig = signingConfigs.release

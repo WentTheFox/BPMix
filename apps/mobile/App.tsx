@@ -960,7 +960,7 @@ function AppContent() {
   // Only rendered on the narrow tier - medium/wide instead place
   // nowPlayingContent directly as MultiPaneLayout's docked pane.
   const nowPlayingScreen = tier === 'narrow' && nowPlayingScreenOpen && nowPlayingContent && (
-    <ScreenLayer zIndex={10} colors={colors} paddingTop={insets.top} paddingBottom={insets.bottom}>
+    <ScreenLayer zIndex={10} colors={colors} paddingTop={insets.top} paddingBottom={insets.bottom} paddingLeft={insets.left} paddingRight={insets.right}>
       {nowPlayingContent}
     </ScreenLayer>
   );
@@ -970,7 +970,7 @@ function AppContent() {
   // able to sit on top of that overlay too, not just the library/playlist
   // screen underneath both.
   const settingsScreen = settingsOpen && (
-    <ScreenLayer zIndex={20} colors={colors} paddingTop={insets.top} paddingBottom={insets.bottom}>
+    <ScreenLayer zIndex={20} colors={colors} paddingTop={insets.top} paddingBottom={insets.bottom} paddingLeft={insets.left} paddingRight={insets.right}>
       <SettingsScreen
         colors={colors}
         settings={settings}
@@ -1014,7 +1014,7 @@ function AppContent() {
     return (
       <>
         <AppStatusBar barStyle={statusBarStyle} />
-        <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom, backgroundColor: colors.background }]}>
+        <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom, paddingLeft: insets.left, paddingRight: insets.right, backgroundColor: colors.background }]}>
           <FolderBrowser
             colors={colors}
             fileAccess={fileAccess}
@@ -1039,7 +1039,7 @@ function AppContent() {
     return (
       <>
         <AppStatusBar barStyle={statusBarStyle} />
-        <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom, backgroundColor: colors.background }]}>
+        <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom, paddingLeft: insets.left, paddingRight: insets.right, backgroundColor: colors.background }]}>
           <LocateMissingFileScreen
             colors={colors}
             missingTrackName={trackDisplayName(missingTrackRelocation.locateTarget.track)}
@@ -1058,7 +1058,7 @@ function AppContent() {
     return (
       <>
         <AppStatusBar barStyle={statusBarStyle} />
-        <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom, backgroundColor: colors.background }]}>
+        <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom, paddingLeft: insets.left, paddingRight: insets.right, backgroundColor: colors.background }]}>
           <FolderBrowser
             colors={colors}
             fileAccess={fileAccess}
@@ -1083,7 +1083,7 @@ function AppContent() {
     return (
       <>
         <AppStatusBar barStyle={statusBarStyle} />
-        <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom, backgroundColor: colors.background }]}>
+        <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom, paddingLeft: insets.left, paddingRight: insets.right, backgroundColor: colors.background }]}>
           <CreatePlaylistScreen
             colors={colors}
             fileAccess={fileAccess}
@@ -1191,7 +1191,7 @@ function AppContent() {
   return (
     <>
       <AppStatusBar barStyle={statusBarStyle} />
-      <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom, backgroundColor: colors.background }]}>
+      <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom, paddingLeft: insets.left, paddingRight: insets.right, backgroundColor: colors.background }]}>
         {__DEV__ && SHOW_MEMORY_OVERLAY && <MemoryOverlay />}
         {tier === 'narrow' ? (
           <>
