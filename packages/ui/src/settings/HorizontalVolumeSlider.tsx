@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
-import type { GestureResponderEvent, LayoutChangeEvent } from 'react-native';
-import { PanResponder, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import type { Colors } from '../theme';
 import { withAlpha } from '../theme';
+import { useDraggableSliderValue } from '../useDraggableSliderValue';
 
 export interface HorizontalVolumeSliderProps {
   colors: Colors;
@@ -11,86 +10,35 @@ export interface HorizontalVolumeSliderProps {
 }
 
 const KNOB_SIZE = 20;
-/** Matches VolumeSlider's own step (the Now Playing screen's vertical popover fader) so dragging either one lands on the same set of values. */
-const VOLUME_STEP = 0.02;
 
 /**
  * Horizontal counterpart to VolumeSlider (that one's vertical, sized for
  * VolumeButton's small popover) - the Settings screen's own volume row sits
  * in a vertical list of full-width controls alongside CrossfadeSlider, so it
  * needs that same horizontal shape rather than the popover's narrow fader.
- * Tap-or-drag PanResponder logic is copied from CrossfadeSlider's (locationX
- * where available, falling back to pageX minus the track's measured offset
- * for react-native-web) rather than shared, since crossfade steps in whole
- * seconds across a fixed range while this steps in VOLUME_STEP across [0,1] -
- * different enough value math that factoring out just the touch-tracking
- * would leave two callers passing in almost as much logic as it removed.
+ * Drag gesture (including the gesture-damping that lets a slowed-down drag
+ * land on one exact percentage) comes from useDraggableSliderValue, shared
+ * with VolumeSlider so the two can't drift into feeling different from each
+ * other - CrossfadeSlider's own drag logic stays separate since it steps in
+ * whole seconds across a fixed range, different enough value math that
+ * sharing just the touch-tracking would leave it passing in almost as much
+ * logic as it removed.
  */
 export function HorizontalVolumeSlider({ colors, volume, onChangeVolume }: HorizontalVolumeSliderProps) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const trackRef = useRef<any>(null);
-  const widthRef = useRef(0);
-  const pageXRef = useRef(0);
-  const onChangeRef = useRef(onChangeVolume);
-  useEffect(() => {
-    onChangeRef.current = onChangeVolume;
-  }, [onChangeVolume]);
-
-  // Live drag position, shown immediately instead of waiting for `volume` to
-  // round-trip back down through props - same idea as CrossfadeSlider's
-  // dragValue/SeekBar's previewFraction.
-  const [dragValue, setDragValue] = useState<number | null>(null);
-  const displayValue = dragValue ?? volume;
-
-  const handleLayout = (event: LayoutChangeEvent) => {
-    widthRef.current = event.nativeEvent.layout.width;
-    measurePageX();
-  };
-
-  const measurePageX = () => {
-    trackRef.current?.measure((_x: number, _y: number, _width: number, _height: number, pageX: number) => {
-      pageXRef.current = pageX;
-    });
-  };
-
-  const valueFromEvent = (event: GestureResponderEvent): number | null => {
-    if (widthRef.current <= 0) return null;
-    const relativeX = Number.isFinite(event.nativeEvent.locationX) ? event.nativeEvent.locationX : event.nativeEvent.pageX - pageXRef.current;
-    if (!Number.isFinite(relativeX)) return null;
-    const fraction = Math.max(0, Math.min(1, relativeX / widthRef.current));
-    return Math.round(fraction / VOLUME_STEP) * VOLUME_STEP;
-  };
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (event) => {
-        measurePageX();
-        const value = valueFromEvent(event);
-        if (value == null) return;
-        setDragValue(value);
-        onChangeRef.current(value);
-      },
-      onPanResponderMove: (event) => {
-        const value = valueFromEvent(event);
-        if (value == null) return;
-        setDragValue(value);
-        onChangeRef.current(value);
-      },
-      onPanResponderRelease: () => setDragValue(null),
-      onPanResponderTerminate: () => setDragValue(null),
-    }),
-  ).current;
+  const { trackRef, displayValue, onLayout, panHandlers } = useDraggableSliderValue({
+    axis: 'horizontal',
+    value: volume,
+    onChangeValue: onChangeVolume,
+  });
 
   return (
     <View style={styles.container}>
       <View
         ref={trackRef}
         style={[styles.track, { backgroundColor: withAlpha(colors.accent, 0.25) }]}
-        onLayout={handleLayout}
+        onLayout={onLayout}
         hitSlop={{ top: 14, bottom: 14, left: 4, right: 4 }}
-        {...panResponder.panHandlers}
+        {...panHandlers}
       >
         <View style={[styles.fill, { width: `${displayValue * 100}%`, backgroundColor: colors.accent }]} />
         <View style={[styles.knob, { left: `${displayValue * 100}%`, backgroundColor: colors.accent }]} />
