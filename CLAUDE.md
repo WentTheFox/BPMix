@@ -46,6 +46,8 @@ Notes for tasks that still have to be done/investigated are left here, grouped b
 
 * Store 5-15s of audio data alongside file metadata records using the most space efficient encoding method to make audio playback on song press more responsive, swap out to the real track seamlessly once it's loaded
 * Settings toggle to display a single disk visualization at a time only, handle track switching and prelading gracefully still
+* Pressing next when loop is set to single song should bypass that and go to te next song
+* When pressing "shuffle" the active playlist should change to now playing to show the actual expected playback order
 
 ## new features
 
