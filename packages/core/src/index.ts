@@ -47,6 +47,9 @@ export * from './metadata/formatTrackTitle';
 export * from './crossfade/computeTransitionPlan';
 export * from './crossfade/computeCrossfadeVisualization';
 export * from './crossfade/equalPowerGain';
+export * from './scrobble/lastfm';
+export * from './scrobble/scrobbleTracker';
+export * from './scrobble/scrobbleQueue';
 
 /** Runtime marker used by the Stage 0 empty-shell screens to prove the workspace wiring resolves. */
 export const CORE_PACKAGE_NAME = '@bpmix/core';

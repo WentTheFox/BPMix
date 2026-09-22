@@ -1,0 +1,9 @@
+<resources>
+    <!-- Overrides src/main's app_name for the debug build type only (see
+         build.gradle's applicationIdSuffix ".debug") - so the Metro-connected
+         debug build reads as "BPMix Debug" in the launcher/app list instead
+         of an identical second "BPMix", which was easy to tap by accident.
+         Paired with a red corner-badge override of the launcher icon in
+         this same src/debug/res tree (mipmap-*/ic_launcher*.png). -->
+    <string name="app_name">BPMix Debug</string>
+</resources>

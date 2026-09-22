@@ -36,8 +36,11 @@ import {
   ScreenLayer,
   SettingsScreen,
   TrackList,
+  ExternalConnectionsScreen,
   useAppSettings,
   useCrossfadePlaybackDisplay,
+  useLastFmConnection,
+  useLastFmScrobbling,
   useLibraryRootActions,
   useMemoryUsageLogging,
   useMissingTrackRelocation,
@@ -174,6 +177,7 @@ function App() {
   // overlay behavior below; 'medium'/'wide' switch to MultiPaneLayout.
   const tier = useViewportTier();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [externalConnectionsOpen, setExternalConnectionsOpen] = useState(false);
   const [rootsWithLibrary, setRootsWithLibrary] = useState<RootWithLibrary[]>([]);
   // True until refresh()'s first pass resolves rootsWithLibrary at least
   // once - refresh() itself is fire-and-forget from usePlaybackPersistence
@@ -309,8 +313,9 @@ function App() {
   // that's permanently visible, so it's simply excluded from this
   // priority stack in that case.
   useBackNavigation(
-    { settingsOpen, nowPlayingOpen: tier === 'narrow' && nowPlayingScreenOpen, screenKind: screen.kind },
+    { externalConnectionsOpen, settingsOpen, nowPlayingOpen: tier === 'narrow' && nowPlayingScreenOpen, screenKind: screen.kind },
     {
+      closeExternalConnections: () => setExternalConnectionsOpen(false),
       closeSettings: () => setSettingsOpen(false),
       closeNowPlaying: () => {
         setNowPlayingScreenOpen(false);
@@ -879,6 +884,23 @@ function App() {
     },
   );
 
+  const lastFm = useLastFmConnection(settings, updateSettings);
+  useLastFmScrobbling(
+    libraryStore,
+    settings,
+    playerState.currentFileId && hasStartedPlayback
+      ? {
+          fileId: playerState.currentFileId,
+          title: currentName,
+          artist: currentArtist ?? 'Unknown artist',
+          album: settledCurrentMetadata?.album ?? null,
+          durationSeconds: displayDurationSeconds,
+        }
+      : null,
+    playerState.track.status === 'playing',
+    displayPositionSeconds,
+  );
+
   // Rendered even with nothing loaded (currentFileId null) - see
   // MiniPlayerBar's own doc for why: volume needs to stay reachable, and
   // this is also the only way to reach NowPlayingScreen (where loop/shuffle
@@ -1009,7 +1031,18 @@ function App() {
         onClose={() => setSettingsOpen(false)}
         volume={volume}
         onChangeVolume={handleVolumeChange}
+        lastFm={lastFm}
+        onOpenExternalConnections={() => setExternalConnectionsOpen(true)}
       />
+    </ScreenLayer>
+  );
+
+  // Higher zIndex than settingsScreen's (20, above) - a sub-screen reached
+  // from within Settings (see ExternalConnectionsScreen's own doc), so it
+  // has to sit on top of it, not beside it.
+  const externalConnectionsScreen = externalConnectionsOpen && (
+    <ScreenLayer zIndex={21} colors={colors}>
+      <ExternalConnectionsScreen colors={colors} settings={settings} onUpdateSettings={updateSettings} lastFm={lastFm} onClose={() => setExternalConnectionsOpen(false)} />
     </ScreenLayer>
   );
 
@@ -1299,6 +1332,7 @@ function App() {
         {miniPlayerBar}
         {nowPlayingScreen}
         {settingsScreen}
+        {externalConnectionsScreen}
         {missingFileDialog}
         {addToPlaylistDialog}
       </View>
@@ -1312,6 +1346,7 @@ function App() {
       </View>
       {miniPlayerBar}
       {settingsScreen}
+      {externalConnectionsScreen}
       {missingFileDialog}
       {addToPlaylistDialog}
     </View>

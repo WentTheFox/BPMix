@@ -7,6 +7,7 @@ import { CrossfadeSlider } from './CrossfadeSlider';
 import { HorizontalVolumeSlider } from './HorizontalVolumeSlider';
 import { BackButton } from '../BackButton';
 import { HeaderRow } from '../HeaderRow';
+import type { UseLastFmConnectionResult } from '../scrobble/useLastFmConnection';
 import type { Colors } from '../theme';
 import { withAlpha } from '../theme';
 import type { ThemeMode } from '../theme';
@@ -30,6 +31,16 @@ export interface SettingsScreenProps {
    * (web, Windows) rather than showing a button that can't do anything.
    */
   appUpdate?: AppUpdateState;
+  /**
+   * useLastFmConnection's return value - used here only to show a one-line
+   * status ("Connected as X" / "Not connected") on the "External
+   * connections" nav row. The actual key/secret fields and connect/
+   * disconnect controls live in ExternalConnectionsScreen, a separate
+   * sub-screen (onOpenExternalConnections below), not inline here - see its
+   * own doc for why (explicit Save button, not autosave-per-keystroke).
+   */
+  lastFm?: UseLastFmConnectionResult;
+  onOpenExternalConnections: () => void;
 }
 
 export interface AppUpdateState {
@@ -49,7 +60,7 @@ const THEME_MODE_OPTIONS: { mode: ThemeMode; label: string }[] = [
   { mode: 'amoled', label: 'AMOLED' },
 ];
 
-function Section({ title, colors, children }: { title: string; colors: Colors; children: ReactNode }) {
+export function Section({ title, colors, children }: { title: string; colors: Colors; children: ReactNode }) {
   return (
     <View style={styles.section}>
       <Text style={[styles.sectionTitle, { color: colors.subtleText }]}>{title}</Text>
@@ -72,6 +83,21 @@ function LinkRow({ label, value, url, colors }: { label: string; value: string; 
   );
 }
 
+/** A LinkRow-alike for navigating to a sub-screen (ExternalConnectionsScreen) rather than opening a URL - a chevron instead of an underlined value, so it doesn't read as an external link. */
+function NavRow({ label, value, onPress, colors }: { label: string; value: string; onPress: () => void; colors: Colors }) {
+  return (
+    <Pressable style={styles.row} onPress={onPress}>
+      <Text style={[styles.rowLabel, { color: colors.text }]}>{label}</Text>
+      <View style={styles.navRowValue}>
+        <Text style={[styles.rowValue, { color: colors.subtleText }]} numberOfLines={1}>
+          {value}
+        </Text>
+        <Text style={[styles.rowValue, { color: colors.subtleText }]}>{'›'}</Text>
+      </View>
+    </Pressable>
+  );
+}
+
 /**
  * Settings page (see CLAUDE.md's TODO): theme, accent color, volume
  * normalization, crossfade duration, a volume slider (always shown here,
@@ -82,7 +108,18 @@ function LinkRow({ label, value, url, colors }: { label: string; value: string; 
  * repository/issue links). Reachable from the gear button next to
  * NotificationBell on every screen - see HeaderActions.
  */
-export function SettingsScreen({ colors, settings, onUpdateSettings, onResetSettings, onClose, volume, onChangeVolume, appUpdate }: SettingsScreenProps) {
+export function SettingsScreen({
+  colors,
+  settings,
+  onUpdateSettings,
+  onResetSettings,
+  onClose,
+  volume,
+  onChangeVolume,
+  appUpdate,
+  lastFm,
+  onOpenExternalConnections,
+}: SettingsScreenProps) {
   const [confirmResetOpen, setConfirmResetOpen] = useState(false);
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -180,6 +217,15 @@ export function SettingsScreen({ colors, settings, onUpdateSettings, onResetSett
               accentColor={colors.accent}
             />
           </View>
+        </Section>
+
+        <Section title="Connections" colors={colors}>
+          <NavRow
+            label="External connections"
+            value={lastFm?.status === 'connected' ? `Last.fm: ${lastFm.username}` : 'Last.fm: not connected'}
+            onPress={onOpenExternalConnections}
+            colors={colors}
+          />
         </Section>
 
         <Section title="About" colors={colors}>
@@ -323,6 +369,12 @@ const styles = StyleSheet.create({
   linkValue: {
     fontSize: 14,
     fontWeight: '600',
+  },
+  navRowValue: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 1,
   },
   updateError: {
     fontSize: 12,

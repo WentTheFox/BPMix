@@ -11,6 +11,20 @@ export interface AppSettings {
   lyricsEnabled: boolean;
   /** Hides PlayerControlsRow's volume button on the Now Playing screen - the volume slider on the Settings screen itself (see SettingsScreen's "Volume" section) is always shown regardless of this, so volume stays reachable even with it off. */
   showVolumeButtonOnNowPlaying: boolean;
+  /**
+   * A Last.fm API app's key/secret (see last.fm/api/account/create) -
+   * bring-your-own, same "own API key" self-hosting pattern as the DeepL
+   * key noted in CLAUDE.md's TODO, not a key baked into the app itself.
+   * Only these two are directly user-edited; lastFmSessionKey/
+   * lastFmUsername below are written by useLastFmConnection's auth flow,
+   * never typed in directly.
+   */
+  lastFmApiKey: string;
+  lastFmApiSecret: string;
+  /** Null until useLastFmConnection's auth flow completes. Clearing this (disconnect) is what actually turns scrobbling off - the api key/secret alone don't scrobble anything without a session. */
+  lastFmSessionKey: string | null;
+  /** Display-only - the Last.fm username lastFmSessionKey authenticates as, so Settings can show "Connected as X" without a extra API round trip. */
+  lastFmUsername: string | null;
 }
 
 export interface AccentColorOption {

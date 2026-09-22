@@ -44,6 +44,9 @@ import {
   useAppSettings,
   useAppUpdateCheck,
   useCrossfadePlaybackDisplay,
+  ExternalConnectionsScreen,
+  useLastFmConnection,
+  useLastFmScrobbling,
   useLibraryRootActions,
   useMemoryUsageLogging,
   useMissingTrackRelocation,
@@ -219,6 +222,7 @@ function AppContent() {
   // system would otherwise get dark-on-dark, unreadable status bar text.
   const statusBarStyle = settings.themeMode === 'dark' || settings.themeMode === 'amoled' ? 'light-content' : 'dark-content';
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [externalConnectionsOpen, setExternalConnectionsOpen] = useState(false);
   const [rootsWithLibrary, setRootsWithLibrary] = useState<RootWithLibrary[]>([]);
   // See apps/web/src/App.tsx's identical isLoadingRoots doc - kept in sync
   // with it rather than letting the two App.tsx files drift (CLAUDE.md's
@@ -299,8 +303,9 @@ function AppContent() {
   // extraHandler runs first: it closes BPMix's Android-only folder-picker
   // overlays, which the web app has no equivalent of at all.
   useBackNavigation(
-    { settingsOpen, nowPlayingOpen: tier === 'narrow' && nowPlayingScreenOpen, screenKind: screen.kind },
+    { externalConnectionsOpen, settingsOpen, nowPlayingOpen: tier === 'narrow' && nowPlayingScreenOpen, screenKind: screen.kind },
     {
+      closeExternalConnections: () => setExternalConnectionsOpen(false),
       closeSettings: () => setSettingsOpen(false),
       closeNowPlaying: () => {
         setNowPlayingScreenOpen(false);
@@ -893,6 +898,23 @@ function AppContent() {
     },
   );
 
+  const lastFm = useLastFmConnection(settings, updateSettings);
+  useLastFmScrobbling(
+    libraryStore,
+    settings,
+    playerState.currentFileId && hasStartedPlayback
+      ? {
+          fileId: playerState.currentFileId,
+          title: currentName,
+          artist: currentArtist ?? 'Unknown artist',
+          album: settledCurrentMetadata?.album ?? null,
+          durationSeconds: displayDurationSeconds,
+        }
+      : null,
+    playerState.track.status === 'playing',
+    displayPositionSeconds,
+  );
+
   // Rendered even with nothing loaded (currentFileId null) - see
   // MiniPlayerBar's own doc for why: volume needs to stay reachable, and
   // this is also the only way to reach NowPlayingScreen (where loop/shuffle
@@ -1020,6 +1042,23 @@ function AppContent() {
         volume={volume}
         onChangeVolume={handleVolumeChange}
         appUpdate={appUpdateBridge ? appUpdate : undefined}
+        lastFm={lastFm}
+        onOpenExternalConnections={() => setExternalConnectionsOpen(true)}
+      />
+    </ScreenLayer>
+  );
+
+  // Higher zIndex than settingsScreen's (20, above) - a sub-screen reached
+  // from within Settings (see ExternalConnectionsScreen's own doc), so it
+  // has to sit on top of it, not beside it.
+  const externalConnectionsScreen = externalConnectionsOpen && (
+    <ScreenLayer zIndex={21} colors={colors} paddingTop={insets.top} paddingBottom={insets.bottom} paddingLeft={insets.left} paddingRight={insets.right}>
+      <ExternalConnectionsScreen
+        colors={colors}
+        settings={settings}
+        onUpdateSettings={updateSettings}
+        lastFm={lastFm}
+        onClose={() => setExternalConnectionsOpen(false)}
       />
     </ScreenLayer>
   );
@@ -1314,6 +1353,7 @@ function AppContent() {
         )}
         {miniPlayerBar}
         {settingsScreen}
+        {externalConnectionsScreen}
         {missingFileDialog}
         {addToPlaylistDialog}
       </View>

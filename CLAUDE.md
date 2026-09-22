@@ -35,7 +35,6 @@ Notes for tasks that still have to be done/investigated are left here, grouped b
 ## Playback state & playlist persistence
 
 * report playback status to system native media APIs and allow external control. Done and verified live for Android and web. Still needed: Windows SMTC (`apps/mobile/src/adapters/mediaSessionNotification.windows.ts` is currently a no-op placeholder), likely its own native module.
-* Last.fm scrobbling
 * Discord rich presence
 
 ## Track metadata

@@ -1,4 +1,5 @@
 import type { LibraryStore } from '@bpmix/core';
+import { DEFAULT_LASTFM_API_KEY, DEFAULT_LASTFM_API_SECRET } from '@bpmix/core';
 import { useCallback, useEffect, useState } from 'react';
 import { useColorScheme } from 'react-native';
 import type { ThemeMode } from '../theme';
@@ -11,6 +12,10 @@ export const VOLUME_NORMALIZATION_SETTING_KEY = 'settings.volumeNormalizationEna
 export const CROSSFADE_SECONDS_SETTING_KEY = 'settings.crossfadeSeconds';
 export const LYRICS_ENABLED_SETTING_KEY = 'settings.lyricsEnabled';
 export const SHOW_VOLUME_BUTTON_ON_NOW_PLAYING_SETTING_KEY = 'settings.showVolumeButtonOnNowPlaying';
+export const LASTFM_API_KEY_SETTING_KEY = 'settings.lastFmApiKey';
+export const LASTFM_API_SECRET_SETTING_KEY = 'settings.lastFmApiSecret';
+export const LASTFM_SESSION_KEY_SETTING_KEY = 'settings.lastFmSessionKey';
+export const LASTFM_USERNAME_SETTING_KEY = 'settings.lastFmUsername';
 
 const DEFAULT_VOLUME_NORMALIZATION_ENABLED = true;
 const DEFAULT_CROSSFADE_SECONDS = 8;
@@ -54,19 +59,38 @@ export function useAppSettings(libraryStore: LibraryStore): UseAppSettingsResult
     crossfadeSeconds: DEFAULT_CROSSFADE_SECONDS,
     lyricsEnabled: DEFAULT_LYRICS_ENABLED,
     showVolumeButtonOnNowPlaying: DEFAULT_SHOW_VOLUME_BUTTON_ON_NOW_PLAYING,
+    lastFmApiKey: DEFAULT_LASTFM_API_KEY,
+    lastFmApiSecret: DEFAULT_LASTFM_API_SECRET,
+    lastFmSessionKey: null,
+    lastFmUsername: null,
   }));
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const [themeMode, accentColor, volumeNormalization, crossfadeSeconds, lyricsEnabled, showVolumeButtonOnNowPlaying] = await Promise.all([
+      const [
+        themeMode,
+        accentColor,
+        volumeNormalization,
+        crossfadeSeconds,
+        lyricsEnabled,
+        showVolumeButtonOnNowPlaying,
+        lastFmApiKey,
+        lastFmApiSecret,
+        lastFmSessionKey,
+        lastFmUsername,
+      ] = await Promise.all([
         libraryStore.getSetting(THEME_MODE_SETTING_KEY),
         libraryStore.getSetting(ACCENT_COLOR_SETTING_KEY),
         libraryStore.getSetting(VOLUME_NORMALIZATION_SETTING_KEY),
         libraryStore.getSetting(CROSSFADE_SECONDS_SETTING_KEY),
         libraryStore.getSetting(LYRICS_ENABLED_SETTING_KEY),
         libraryStore.getSetting(SHOW_VOLUME_BUTTON_ON_NOW_PLAYING_SETTING_KEY),
+        libraryStore.getSetting(LASTFM_API_KEY_SETTING_KEY),
+        libraryStore.getSetting(LASTFM_API_SECRET_SETTING_KEY),
+        libraryStore.getSetting(LASTFM_SESSION_KEY_SETTING_KEY),
+        libraryStore.getSetting(LASTFM_USERNAME_SETTING_KEY),
       ]);
       if (cancelled) return;
       setSettings((prev) => ({
@@ -76,6 +100,10 @@ export function useAppSettings(libraryStore: LibraryStore): UseAppSettingsResult
         crossfadeSeconds: crossfadeSeconds ? Number(crossfadeSeconds) : prev.crossfadeSeconds,
         lyricsEnabled: lyricsEnabled === null ? prev.lyricsEnabled : lyricsEnabled === '1',
         showVolumeButtonOnNowPlaying: showVolumeButtonOnNowPlaying === null ? prev.showVolumeButtonOnNowPlaying : showVolumeButtonOnNowPlaying === '1',
+        lastFmApiKey: lastFmApiKey ?? prev.lastFmApiKey,
+        lastFmApiSecret: lastFmApiSecret ?? prev.lastFmApiSecret,
+        lastFmSessionKey: lastFmSessionKey ?? prev.lastFmSessionKey,
+        lastFmUsername: lastFmUsername ?? prev.lastFmUsername,
       }));
       setLoaded(true);
     })();
@@ -100,10 +128,20 @@ export function useAppSettings(libraryStore: LibraryStore): UseAppSettingsResult
       if (patch.showVolumeButtonOnNowPlaying !== undefined) {
         void libraryStore.putSetting(SHOW_VOLUME_BUTTON_ON_NOW_PLAYING_SETTING_KEY, patch.showVolumeButtonOnNowPlaying ? '1' : '0');
       }
+      if (patch.lastFmApiKey !== undefined) void libraryStore.putSetting(LASTFM_API_KEY_SETTING_KEY, patch.lastFmApiKey);
+      if (patch.lastFmApiSecret !== undefined) void libraryStore.putSetting(LASTFM_API_SECRET_SETTING_KEY, patch.lastFmApiSecret);
+      if (patch.lastFmSessionKey !== undefined) void libraryStore.putSetting(LASTFM_SESSION_KEY_SETTING_KEY, patch.lastFmSessionKey ?? '');
+      if (patch.lastFmUsername !== undefined) void libraryStore.putSetting(LASTFM_USERNAME_SETTING_KEY, patch.lastFmUsername ?? '');
     },
     [libraryStore],
   );
 
+  // Deliberately leaves lastFmApiKey/lastFmApiSecret/lastFmSessionKey/
+  // lastFmUsername untouched - Last.fm's connection is a separate
+  // integration credential, not an appearance/playback preference, and
+  // ConfirmResetOpen's own dialog text (SettingsScreen) only promises to
+  // reset the fields listed below. Disconnecting Last.fm has its own
+  // explicit "Disconnect" action instead.
   const resetSettings = useCallback(() => {
     updateSettings({
       themeMode: systemScheme === 'dark' ? 'dark' : 'light',

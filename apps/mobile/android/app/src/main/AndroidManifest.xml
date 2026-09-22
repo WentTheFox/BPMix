@@ -70,6 +70,24 @@
             <category android:name="android.intent.category.BROWSABLE" />
             <data android:scheme="bpmix" />
         </intent-filter>
+        <!-- Android App Link for the Last.fm auth callback
+             (useLastFmConnection.ts) - verified via
+             /.well-known/assetlinks.json served from bpmix.went.tf
+             (apps/web/public/.well-known/assetlinks.json), so Last.fm's
+             redirect after approval opens straight back into BPMix instead
+             of the browser, with no "which app?" prompt (autoVerify proves
+             ownership). Scoped to exactly /lastfm-callback.html, not the
+             bare host - unlike the bpmix:// scheme above (which only this
+             app ever claims), matching the whole bpmix.went.tf host here
+             would hijack ordinary links to the live web app itself into
+             opening this native app instead of a browser, which is never
+             what's wanted for a normal link to the site. -->
+        <intent-filter android:autoVerify="true">
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" android:host="bpmix.went.tf" android:path="/lastfm-callback.html" />
+        </intent-filter>
         <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
       </activity>
       <!-- The library starts/stops this itself (ForegroundServiceManager,

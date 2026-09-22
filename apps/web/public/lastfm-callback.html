@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>BPMix — Last.fm</title>
+<meta name="robots" content="noindex" />
+</head>
+<body style="background:#111;color:#ddd;font:15px system-ui, sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center;padding:24px;box-sizing:border-box;">
+<p id="message">Finishing up…</p>
+<script>
+  // Two very different callers land here:
+  //
+  // 1. Web: useLastFmConnection.connect() (packages/ui) opens this as a
+  //    popup, with Last.fm's own auth page appending ?token=... once the
+  //    user approves - see buildWebAuthUrl's doc for why this callback URL
+  //    doesn't need to be pre-registered with Last.fm. window.opener is set
+  //    here, so posting the token back to it (rather than e.g. writing to
+  //    localStorage) keeps this stateless and avoids a second tab/window
+  //    racing to read the same value twice.
+  //
+  // 2. Android, as a FALLBACK ONLY: this exact URL is also registered as an
+  //    Android App Link (AndroidManifest.xml + /.well-known/assetlinks.json)
+  //    so the real path never renders this page at all - the OS hands the
+  //    link straight to the app instead. This page only actually loads in a
+  //    real mobile browser if that verification hasn't gone through yet
+  //    (DNS/CDN propagation, or Google's asset-link checker just hasn't
+  //    re-crawled it recently) - window.opener is null here (opened via a
+  //    plain navigation, not window.open), so there's nothing to postMessage
+  //    to and no way to hand the token to the app automatically.
+  var token = new URLSearchParams(window.location.search).get('token');
+  var messageEl = document.getElementById('message');
+  if (window.opener && token) {
+    window.opener.postMessage({ source: 'bpmix-lastfm', token: token }, window.location.origin);
+    messageEl.textContent = 'Connected - you can close this window.';
+    window.close();
+  } else if (token) {
+    messageEl.textContent = "You've approved BPMix, but this device couldn't hand the token back automatically. Reopen BPMix and try Connect again.";
+  } else {
+    messageEl.textContent = 'Something went wrong - no token received. You can close this window and try again.';
+    window.close();
+  }
+</script>
+</body>
+</html>
