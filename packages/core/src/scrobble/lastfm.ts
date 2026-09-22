@@ -17,13 +17,9 @@ const API_ROOT = 'https://ws.audioscrobbler.com/2.0/';
  * A self-hoster/fork who'd rather use their own app identity can still
  * override both via Settings' "Use your own Last.fm API app" fields
  * (ExternalConnectionsScreen).
- *
- * TODO(WentTheFox): fill in with the real key/secret from
- * last.fm/api/account/create once registered - these placeholders will
- * fail every request with LastFmError's "Invalid API key" until replaced.
  */
-export const DEFAULT_LASTFM_API_KEY = '';
-export const DEFAULT_LASTFM_API_SECRET = '';
+export const DEFAULT_LASTFM_API_KEY = 'f56d82f8fe857197c4c2d1bd4d3fba49';
+export const DEFAULT_LASTFM_API_SECRET = 'cc0e42388b8a8232cab10e13e828c982';
 
 /** Last.fm scrobbling rule: a track under this length is never eligible, regardless of how much of it played. */
 export const MIN_SCROBBLE_TRACK_SECONDS = 30;
