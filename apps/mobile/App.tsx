@@ -8,6 +8,7 @@ import type { FileRef, GrantedRoot, LyricsScope, PlaylistPlayerState, PlaylistRe
 import {
   addTracksToPlaylist,
   BUILD_VERSION,
+  DEFAULT_DISCORD_APPLICATION_ID,
   ensureTrackAnalyzed,
   errorMessage,
   findUnplaylistedTracks,
@@ -45,6 +46,7 @@ import {
   useAppUpdateCheck,
   useCrossfadePlaybackDisplay,
   ExternalConnectionsScreen,
+  useDiscordPresence,
   useLastFmConnection,
   useLastFmScrobbling,
   useLibraryRootActions,
@@ -69,6 +71,7 @@ import {
 } from 'react-native-safe-area-context';
 import { createAppUpdateBridge } from './src/adapters/appUpdate';
 import { createAudioEngine } from './src/adapters/audioEngine';
+import { createDiscordPresenceBridge } from './src/adapters/discordRpc';
 import { createCoverArtResizer } from './src/adapters/coverArtResizer';
 import {
   AllFilesAccessRequiredError,
@@ -116,6 +119,7 @@ const coverArtResizer = createCoverArtResizer();
 // omits the whole row" escape hatch appUpdate.windows.ts already uses for
 // platforms with no install flow at all.
 const appUpdateBridge = __DEV__ ? null : createAppUpdateBridge();
+const discordPresenceBridge = createDiscordPresenceBridge();
 
 function trackToFileRef(track: TrackRecord): FileRef {
   return {
@@ -913,6 +917,15 @@ function AppContent() {
       : null,
     playerState.track.status === 'playing',
     displayPositionSeconds,
+  );
+
+  useDiscordPresence(
+    discordPresenceBridge,
+    DEFAULT_DISCORD_APPLICATION_ID,
+    settings.discordRichPresenceEnabled,
+    playerState.currentFileId && hasStartedPlayback && playerState.track.status === 'playing'
+      ? { fileId: playerState.currentFileId, title: currentName, artist: currentArtist ?? 'Unknown artist', albumArtUrl: outgoingCoverArt }
+      : null,
   );
 
   // Rendered even with nothing loaded (currentFileId null) - see

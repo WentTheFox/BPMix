@@ -35,7 +35,8 @@ Notes for tasks that still have to be done/investigated are left here, grouped b
 ## Playback state & playlist persistence
 
 * report playback status to system native media APIs and allow external control. Done and verified live for Android and web. Still needed: Windows SMTC (`apps/mobile/src/adapters/mediaSessionNotification.windows.ts` is currently a no-op placeholder), likely its own native module.
-* Discord rich presence
+* Discord rich presence. Done and verified live for Android (`apps/mobile/android/app/src/main/java/tf/went/bpmix/discordrpc/DiscordRpcModule.kt` - binds to the real Discord app's own IDiscordRpcService over Android's binder, using hand-rolled AIDL interfaces rather than the official ~60MB Social SDK AAR). Still needed: Windows (`apps/mobile/src/adapters/discordRpc.windows.ts` is currently a no-op placeholder) - needs a native module opening `\\?\pipe\discord-ipc-0` and speaking the same SET_ACTIVITY frame protocol (see `packages/core/src/discord/richPresence.ts`).
+* Bug (Android): Discord rich presence and Last.fm scrobbling both go stale once BPMix is backgrounded for a while - confirmed live: backgrounded BPMix through a natural multi-track auto-advance (Papaoutai -> ... -> Die Young, playback itself kept advancing correctly the whole time), and Discord's Rich Presence stayed frozen on "Papaoutai" the entire time, only catching up once BPMix itself was foregrounded again. Root cause not yet isolated - open question is whether `playerState` itself (and everything downstream of it, e.g. the lock-screen media notification's title, not just these two hooks) goes stale while backgrounded and only re-syncs on resume, or whether it's narrower to `useDiscordPresence`/`useLastFmScrobbling` specifically. Needs investigation before a fix can be designed - see `apps/mobile/App.tsx`'s ~200ms `setInterval` poll and the `notifyAdvance` callback path as the two candidate mechanisms to check.
 
 ## Track metadata
 

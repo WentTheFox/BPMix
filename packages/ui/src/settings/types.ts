@@ -25,6 +25,15 @@ export interface AppSettings {
   lastFmSessionKey: string | null;
   /** Display-only - the Last.fm username lastFmSessionKey authenticates as, so Settings can show "Connected as X" without a extra API round trip. */
   lastFmUsername: string | null;
+  /**
+   * Show the current track as a Discord Rich Presence status - unlike
+   * Last.fm, there's no credential to enter (a Discord application id
+   * isn't confidential - see DEFAULT_DISCORD_APPLICATION_ID's doc), just
+   * this on/off toggle. Only takes effect where a DiscordPresenceBridge
+   * actually exists (Android; Windows/web have none yet - see
+   * useDiscordPresence's doc), so leaving it on elsewhere is harmless.
+   */
+  discordRichPresenceEnabled: boolean;
 }
 
 export interface AccentColorOption {

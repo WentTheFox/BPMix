@@ -35,6 +35,7 @@ export * from './PlayerControlsRow';
 export * from './RemoveButton';
 export * from './RestoringScreen';
 export * from './ScreenLayer';
+export * from './discord/useDiscordPresence';
 export * from './restoringSteps';
 export * from './scrobble/useLastFmConnection';
 export * from './scrobble/useLastFmScrobbling';

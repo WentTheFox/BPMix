@@ -16,11 +16,13 @@ export const LASTFM_API_KEY_SETTING_KEY = 'settings.lastFmApiKey';
 export const LASTFM_API_SECRET_SETTING_KEY = 'settings.lastFmApiSecret';
 export const LASTFM_SESSION_KEY_SETTING_KEY = 'settings.lastFmSessionKey';
 export const LASTFM_USERNAME_SETTING_KEY = 'settings.lastFmUsername';
+export const DISCORD_RICH_PRESENCE_ENABLED_SETTING_KEY = 'settings.discordRichPresenceEnabled';
 
 const DEFAULT_VOLUME_NORMALIZATION_ENABLED = true;
 const DEFAULT_CROSSFADE_SECONDS = 8;
 const DEFAULT_LYRICS_ENABLED = true;
 const DEFAULT_SHOW_VOLUME_BUTTON_ON_NOW_PLAYING = true;
+const DEFAULT_DISCORD_RICH_PRESENCE_ENABLED = true;
 
 function isThemeMode(value: string): value is ThemeMode {
   return value === 'light' || value === 'flux' || value === 'dark' || value === 'amoled';
@@ -63,6 +65,7 @@ export function useAppSettings(libraryStore: LibraryStore): UseAppSettingsResult
     lastFmApiSecret: DEFAULT_LASTFM_API_SECRET,
     lastFmSessionKey: null,
     lastFmUsername: null,
+    discordRichPresenceEnabled: DEFAULT_DISCORD_RICH_PRESENCE_ENABLED,
   }));
   const [loaded, setLoaded] = useState(false);
 
@@ -80,6 +83,7 @@ export function useAppSettings(libraryStore: LibraryStore): UseAppSettingsResult
         lastFmApiSecret,
         lastFmSessionKey,
         lastFmUsername,
+        discordRichPresenceEnabled,
       ] = await Promise.all([
         libraryStore.getSetting(THEME_MODE_SETTING_KEY),
         libraryStore.getSetting(ACCENT_COLOR_SETTING_KEY),
@@ -91,6 +95,7 @@ export function useAppSettings(libraryStore: LibraryStore): UseAppSettingsResult
         libraryStore.getSetting(LASTFM_API_SECRET_SETTING_KEY),
         libraryStore.getSetting(LASTFM_SESSION_KEY_SETTING_KEY),
         libraryStore.getSetting(LASTFM_USERNAME_SETTING_KEY),
+        libraryStore.getSetting(DISCORD_RICH_PRESENCE_ENABLED_SETTING_KEY),
       ]);
       if (cancelled) return;
       setSettings((prev) => ({
@@ -104,6 +109,7 @@ export function useAppSettings(libraryStore: LibraryStore): UseAppSettingsResult
         lastFmApiSecret: lastFmApiSecret ?? prev.lastFmApiSecret,
         lastFmSessionKey: lastFmSessionKey ?? prev.lastFmSessionKey,
         lastFmUsername: lastFmUsername ?? prev.lastFmUsername,
+        discordRichPresenceEnabled: discordRichPresenceEnabled === null ? prev.discordRichPresenceEnabled : discordRichPresenceEnabled === '1',
       }));
       setLoaded(true);
     })();
@@ -132,6 +138,9 @@ export function useAppSettings(libraryStore: LibraryStore): UseAppSettingsResult
       if (patch.lastFmApiSecret !== undefined) void libraryStore.putSetting(LASTFM_API_SECRET_SETTING_KEY, patch.lastFmApiSecret);
       if (patch.lastFmSessionKey !== undefined) void libraryStore.putSetting(LASTFM_SESSION_KEY_SETTING_KEY, patch.lastFmSessionKey ?? '');
       if (patch.lastFmUsername !== undefined) void libraryStore.putSetting(LASTFM_USERNAME_SETTING_KEY, patch.lastFmUsername ?? '');
+      if (patch.discordRichPresenceEnabled !== undefined) {
+        void libraryStore.putSetting(DISCORD_RICH_PRESENCE_ENABLED_SETTING_KEY, patch.discordRichPresenceEnabled ? '1' : '0');
+      }
     },
     [libraryStore],
   );
@@ -150,6 +159,7 @@ export function useAppSettings(libraryStore: LibraryStore): UseAppSettingsResult
       crossfadeSeconds: DEFAULT_CROSSFADE_SECONDS,
       lyricsEnabled: DEFAULT_LYRICS_ENABLED,
       showVolumeButtonOnNowPlaying: DEFAULT_SHOW_VOLUME_BUTTON_ON_NOW_PLAYING,
+      discordRichPresenceEnabled: DEFAULT_DISCORD_RICH_PRESENCE_ENABLED,
     });
   }, [systemScheme, updateSettings]);
 

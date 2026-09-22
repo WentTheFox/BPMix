@@ -226,6 +226,14 @@ export function SettingsScreen({
             onPress={onOpenExternalConnections}
             colors={colors}
           />
+          <View style={styles.row}>
+            <Text style={[styles.rowLabel, { color: colors.text }]}>Discord Rich Presence</Text>
+            <AppSwitch
+              value={settings.discordRichPresenceEnabled}
+              onValueChange={(value) => onUpdateSettings({ discordRichPresenceEnabled: value })}
+              accentColor={colors.accent}
+            />
+          </View>
         </Section>
 
         <Section title="About" colors={colors}>
@@ -279,8 +287,8 @@ export function SettingsScreen({
           <View style={[styles.confirmCard, { backgroundColor: colors.background, borderColor: withAlpha(colors.text, 0.15) }]}>
             <Text style={[styles.confirmTitle, { color: colors.text }]}>Reset to defaults?</Text>
             <Text style={[styles.confirmMessage, { color: colors.subtleText }]}>
-              Theme, accent color, volume normalization, crossfade duration, the lyrics toggle, and the Now Playing volume button toggle all go back
-              to their default values.
+              Theme, accent color, volume normalization, crossfade duration, the lyrics toggle, the Now Playing volume button toggle, and the Discord
+              Rich Presence toggle all go back to their default values.
             </Text>
             <View style={styles.confirmActions}>
               <Pressable onPress={() => setConfirmResetOpen(false)} style={styles.confirmButton}>

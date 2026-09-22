@@ -107,6 +107,14 @@ android {
     compileSdk rootProject.ext.compileSdkVersion
 
     namespace = "tf.went.bpmix"
+    // AGP 8+ requires this explicit opt-in - without it, src/main/aidl/...
+    // (the hand-rolled IDiscordRpc*.aidl interfaces - see DiscordRpcModule.kt's
+    // doc for why they're hand-rolled instead of the official SDK) never gets
+    // compiled into a Binder stub at all, and DiscordRpcModule's imports of
+    // the generated Java classes just fail to resolve.
+    buildFeatures {
+        aidl true
+    }
     defaultConfig {
         applicationId "tf.went.bpmix"
         minSdkVersion rootProject.ext.minSdkVersion
