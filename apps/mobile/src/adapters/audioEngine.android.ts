@@ -95,6 +95,18 @@ export function createAudioEngine(fileAccess: FileAccess): AudioEngine {
       // up a permanently-retained node pair - the real cause of the Hermes
       // "external memory" OOM crash under rapid seeking this fixes.
       const disconnectNodes = () => {
+        // Clearing onEnded is what actually lets the native node be
+        // destructed, not disconnect() alone - confirmed by a
+        // react-native-audio-api maintainer (github.com/software-mansion/
+        // react-native-audio-api/issues/1285#issuecomment-5792071728): the
+        // registered event handler holds its own native reference to the
+        // node, independent of the Web-Audio-style graph connection, so a
+        // disconnected-but-still-subscribed node stays permanently pinned.
+        // This is the real root cause behind this file's own "external
+        // memory OOM crash under rapid seeking" comment above, previously
+        // only mitigated (not fixed) by App.tsx's transportActionAllowed
+        // throttle - see the android-audio-native-crash-risk memory.
+        bufferSource.onEnded = null;
         try {
           bufferSource.disconnect();
         } catch {
