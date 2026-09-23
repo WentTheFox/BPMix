@@ -811,6 +811,7 @@ function App() {
     setPlayerState,
     setError,
     setActiveTracksById,
+    isTrackMissing: (fileId) => activeTracksById.get(fileId)?.missing === true || missingFileIds.has(fileId),
   });
 
   // Stable across renders where the open playlist itself hasn't changed
@@ -825,12 +826,23 @@ function App() {
     (t: TrackRecord) => {
       if (screen.kind !== 'playlist') return;
       if (t.missing) missingTrackRelocation.explainMissingTrack(t, screen.playlist.rootId);
-      else {
+      else if (missingFileIds.has(t.fileId)) {
+        // Already failed to open once this session (see usePlaylistTransport's
+        // isTrackMissing doc) - not the scan-confirmed "unresolved playlist
+        // entry" explainMissingTrack's relocation flow is for, just a file
+        // that failed live, possibly transiently (e.g. still syncing).
+        // Retrying would repeat the exact same doomed decode attempt, so
+        // this reports the same error again immediately instead of trying.
+        notificationCenter.addError(`Couldn't play "${trackDisplayName(t)}"`, 'This file failed to open earlier this session - it may still be syncing.');
+      } else {
         setPlayingContext({ root: screen.root, playlist: screen.playlist, tracksById: screen.tracksById });
         void playFromTrack(screen.playlist, screen.tracksById, t);
       }
     },
-    [screen, missingTrackRelocation, playFromTrack],
+    // notificationCenter.addError specifically - see refresh()'s identical
+    // note on why the whole notificationCenter object isn't a safe dep here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [screen, missingTrackRelocation, playFromTrack, missingFileIds, notificationCenter.addError],
   );
 
   const { volume, handleVolumeChange } = useVolumeControl({ playlistPlayer, libraryStore, persistPlaybackPatch });

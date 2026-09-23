@@ -1,8 +1,17 @@
 import type { LoopMode, PlaybackState, PlaylistPlayer, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '@bpmix/core';
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { useDoublePressHandler } from './useDoublePressHandler';
 
 const LOOP_MODE_CYCLE: LoopMode[] = ['off', 'all', 'one'];
+
+/**
+ * Upper bound on how many consecutive already-known-missing tracks goNext/
+ * goPrevious will silently skip past in one call - a real (if pathological)
+ * playlist could be entirely unavailable (e.g. its whole root just dropped
+ * out via a network mount), and this stops that from becoming an unbounded
+ * synchronous chain of playlistPlayer.next()/previous() calls.
+ */
+const MAX_CONSECUTIVE_MISSING_SKIPS = 50;
 
 export interface PlaylistTransportInput {
   playlistPlayer: PlaylistPlayer;
@@ -14,6 +23,20 @@ export interface PlaylistTransportInput {
   setError: (err: string | null) => void;
   /** Updates the module-level activeTracksById each App.tsx keeps for synchronous lookup (see e.g. its use in useCoverArt callers) - playFromTrack is the one transport action that swaps in a whole new tracksById map. */
   setActiveTracksById: (tracksById: Map<string, TrackRecord>) => void;
+  /**
+   * True for a track already known this session to be unreachable - a
+   * persisted TrackRecord.missing (an unresolved playlist entry, known since
+   * the last scan) or one that failed a live decode attempt just now (see
+   * App.tsx's missingFileIds/reportError). goNext/goPrevious use this to
+   * keep advancing straight past such a track instead of running (and
+   * failing) a real decode attempt on it - without this, rapidly skipping
+   * through a stretch of already-known-bad tracks (e.g. a sync-in-progress
+   * folder) ran a full doomed decode attempt per track, each one flashing
+   * the loading spinner before failing the same way it already had.
+   * Re-checked fresh on every call (via a ref, not a dep array) since the
+   * set of known-missing fileIds changes over the session.
+   */
+  isTrackMissing: (fileId: string) => boolean;
 }
 
 export interface PlaylistTransport {
@@ -38,7 +61,15 @@ export interface PlaylistTransport {
  * shared code even though this hook consumes its result.
  */
 export function usePlaylistTransport(input: PlaylistTransportInput): PlaylistTransport {
-  const { playlistPlayer, playerState, persistPlaybackPatch, transportActionAllowed, setPlayerState, setError, setActiveTracksById } = input;
+  const { playlistPlayer, playerState, persistPlaybackPatch, transportActionAllowed, setPlayerState, setError, setActiveTracksById, isTrackMissing } = input;
+  // A ref, not a dep on goNext/goPrevious's useCallback, since isTrackMissing
+  // closes over App.tsx's missingFileIds state (changes over the session)
+  // while those callbacks intentionally keep a narrow dep array (see their
+  // own comments) - reading through a ref keeps this check always current
+  // without recreating (and so losing referential stability of) the callback
+  // itself every time missingFileIds changes.
+  const isTrackMissingRef = useRef(isTrackMissing);
+  isTrackMissingRef.current = isTrackMissing;
 
   const playFromTrack = useCallback(
     async (playlist: PlaylistRecord, tracksById: Map<string, TrackRecord>, track: TrackRecord) => {
@@ -123,11 +154,19 @@ export function usePlaylistTransport(input: PlaylistTransportInput): PlaylistTra
       // calling it, rather than only once the whole decode resolves, is what
       // makes the tap register instantly (title/art/loading-bar all update
       // right away) instead of the UI sitting frozen for the whole decode.
-      const nextPromise = playlistPlayer.next(options);
-      setPlayerState(playlistPlayer.getState());
-      await nextPromise;
-      const state = playlistPlayer.getState();
-      setPlayerState(state);
+      //
+      // The loop below is one logical user action (a single tap or double-
+      // tap), not repeated ones - transportActionAllowed()/
+      // notifyUserTookOver() only run once, above, not per skip iteration.
+      let state = playlistPlayer.getState();
+      for (let skipped = 0; skipped <= MAX_CONSECUTIVE_MISSING_SKIPS; skipped++) {
+        const nextPromise = playlistPlayer.next(options);
+        setPlayerState(playlistPlayer.getState());
+        await nextPromise;
+        state = playlistPlayer.getState();
+        setPlayerState(state);
+        if (!state.currentFileId || !isTrackMissingRef.current(state.currentFileId)) break;
+      }
       if (state.currentFileId) {
         persistPlaybackPatch({ currentTrackFileId: state.currentFileId, positionSeconds: state.track.positionSeconds });
       }
@@ -142,11 +181,15 @@ export function usePlaylistTransport(input: PlaylistTransportInput): PlaylistTra
     async (options?: { force?: boolean }) => {
       if (!transportActionAllowed()) return;
       // See goNext's identical comment above.
-      const previousPromise = playlistPlayer.previous(options);
-      setPlayerState(playlistPlayer.getState());
-      await previousPromise;
-      const state = playlistPlayer.getState();
-      setPlayerState(state);
+      let state = playlistPlayer.getState();
+      for (let skipped = 0; skipped <= MAX_CONSECUTIVE_MISSING_SKIPS; skipped++) {
+        const previousPromise = playlistPlayer.previous(options);
+        setPlayerState(playlistPlayer.getState());
+        await previousPromise;
+        state = playlistPlayer.getState();
+        setPlayerState(state);
+        if (!state.currentFileId || !isTrackMissingRef.current(state.currentFileId)) break;
+      }
       if (state.currentFileId) {
         persistPlaybackPatch({ currentTrackFileId: state.currentFileId, positionSeconds: state.track.positionSeconds });
       }
