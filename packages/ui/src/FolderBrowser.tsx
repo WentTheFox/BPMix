@@ -1,7 +1,7 @@
 import type { DirectoryEntry, FileAccess } from '@bpmix/core';
 import { mdiArrowLeft, mdiFolder, mdiRefresh } from '@mdi/js';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Icon } from './Icon';
 import { IconLabel } from './IconLabel';
 import type { Colors } from './theme';
@@ -116,7 +116,12 @@ export function FolderBrowser({ colors, fileAccess, rootId, rootDisplayName, ini
             <Icon path={mdiArrowLeft} size={20} color={colors.text} />
           </Pressable>
         )}
-        <View style={styles.breadcrumbRow}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.breadcrumbRow}
+          contentContainerStyle={styles.breadcrumbContent}
+        >
           {crumbs.map((crumb, index) => (
             <View key={crumb.path} style={styles.breadcrumbItem}>
               {index > 0 && <Text style={[styles.breadcrumbSeparator, { color: colors.subtleText }]}>/</Text>}
@@ -130,7 +135,7 @@ export function FolderBrowser({ colors, fileAccess, rootId, rootDisplayName, ini
               </Pressable>
             </View>
           ))}
-        </View>
+        </ScrollView>
         <Pressable style={styles.refreshButton} onPress={() => load(path)}>
           <Icon path={mdiRefresh} size={20} color={colors.text} />
         </Pressable>
@@ -227,10 +232,17 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     padding: 4,
   },
+  // A deep path (e.g. an app-scoped Android/media/<package>/... folder) used
+  // to wrap onto several lines here (flexWrap on a plain row), which read as
+  // messy/broken rather than just long - a single scrollable line keeps the
+  // header a fixed height regardless of path depth, same as how a long
+  // filename elsewhere in this app truncates/scrolls instead of reflowing
+  // the layout around it.
   breadcrumbRow: {
     flex: 1,
+  },
+  breadcrumbContent: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     alignItems: 'center',
   },
   breadcrumbItem: {
