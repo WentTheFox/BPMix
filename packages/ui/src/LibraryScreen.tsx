@@ -45,7 +45,7 @@ export interface LibraryScreenProps {
    * doc). Shows "Scanning…" in place of the Rescan action and disables it,
    * so a click can't fire a second concurrent scan of a root that's already
    * mid-scan for an unrelated reason. Cancelling an in-flight scan is done
-   * from the notification bell (see App.tsx's scanning-notification effect),
+   * from the notification bell (see useTaskNotifications),
    * not from here - a scan can run long enough to want cancelling from
    * whichever screen the user's actually looking at, not just this one.
    */

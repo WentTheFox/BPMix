@@ -57,6 +57,7 @@ function NotificationRow({
             {notification.title}
           </Text>
           <Text style={[styles.rowTime, { color: colors.subtleText }]}>
+            {notification.status === 'queued' ? 'Queued - ' : notification.status === 'paused' ? 'Paused - ' : ''}
             {isProgress && progress && hasTotal ? `${progress.current}/${progress.total} - ` : ''}
             {isProgress && progress?.done ? 'done - ' : ''}
             {relativeTime(notification.createdAt)}

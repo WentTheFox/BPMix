@@ -30,7 +30,7 @@ export * from './navigation/useBackNavigation';
 export * from './notifications/NotificationBell';
 export * from './notifications/types';
 export * from './notifications/useNotificationCenter';
-export * from './notifications/useScanNotifications';
+export * from './notifications/useTaskNotifications';
 export * from './NowPlayingScreen';
 export * from './PlayerControlsRow';
 export * from './RemoveButton';

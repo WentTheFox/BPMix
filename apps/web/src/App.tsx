@@ -5,13 +5,13 @@ import {
   ensureTrackAnalyzed,
   errorMessage,
   FileAccessPermissionPendingError,
-  findUnplaylistedTracks,
+  findUnplaylistedTracksQueued,
   formatTrackTitle,
   logLibraryAction,
   LYRICS_MATCHED_COUNT_SETTING_KEY,
-  matchLibraryLyrics,
+  matchLibraryLyricsQueued,
   PlaylistPlayer,
-  scanLibraryMetadata,
+  scanLibraryMetadataQueued,
   scanRootCoordinated,
   trackDisplayName,
 } from '@bpmix/core';
@@ -45,7 +45,7 @@ import {
   useMemoryUsageLogging,
   useMissingTrackRelocation,
   useNotificationCenter,
-  useScanNotifications,
+  useTaskNotifications,
   useBackNavigation,
   usePlaybackPersistence,
   usePlaylistTransport,
@@ -68,10 +68,6 @@ import { useMediaSessionNotification } from './adapters/mediaSessionNotification
 import { isRunningInstalled, promptInstall, usePwaInstallAvailable } from './adapters/pwaInstall';
 
 const TRANSPORT_THROTTLE_MS = 300;
-// How long the metadata-scan notification's "done" state stays visible
-// before it dismisses itself - long enough to actually read, not so long it
-// lingers as clutter once there's nothing left to do about it.
-const METADATA_SCAN_AUTO_DISMISS_MS = 4000;
 // Only used to construct playlistPlayer below, before any component (and
 // its settings) exists - useAppSettings' own default and this must agree,
 // since App's crossfadeSeconds effect only re-syncs playlistPlayer once
@@ -511,7 +507,7 @@ function App() {
       // restoring track's own assignment is already resolved separately
       // (see usePlaybackPersistence/ensureLyricsAssignment), so nothing here
       // needs to be awaited before refresh() returns.
-      void matchLibraryLyrics(backgroundFileAccess, libraryStore, scopes, allTracks, {
+      void matchLibraryLyricsQueued(backgroundFileAccess, libraryStore, scopes, allTracks, {
         onProgress: (matchedCount) => {
           // Only drives the display for a first-ever run (no baseline to
           // start optimistic from yet) - once there's a baseline, onAnomaly/
@@ -553,8 +549,10 @@ function App() {
     // the user to this screen. No InteractionManager.runAfterInteractions
     // wrapper needed here anymore - that API is deprecated on this RN
     // version, and requestIdle already defers past the current interaction
-    // on its own.
-    void scanLibraryMetadata(backgroundFileAccess, libraryStore, withLibrary.flatMap(({ tracksById }) => [...tracksById.values()].filter((t) => !t.missing)), {
+    // on its own. Queued as a background task (see @bpmix/core's
+    // taskQueue.ts): it pauses while a folder scan/Unplaylisted walk runs,
+    // and its progress shows in the notification bell via useTaskNotifications.
+    void scanLibraryMetadataQueued({ id: 'metadata-scan', label: 'Scanning track metadata' }, backgroundFileAccess, libraryStore, withLibrary.flatMap(({ tracksById }) => [...tracksById.values()].filter((t) => !t.missing)), {
       resizer: coverArtResizer,
       // Bumps whatever's actually on screen (now playing + up next) ahead
       // of the rest of the library, evaluated fresh on every step - so a
@@ -564,24 +562,6 @@ function App() {
         const state = playlistPlayer.getState();
         const nextFileId = playlistPlayer.getNextFileId();
         return [state.currentFileId, nextFileId].filter((id): id is string => id != null);
-      },
-      // The one real "ongoing background operation" worth its own
-      // persistent notification row - this can run for a while on a large
-      // stale-parser-version rescan, and previously had no visible status
-      // anywhere at all.
-      onProgress: ({ index, total, skipped }) => {
-        const done = index + 1 >= total;
-        // Skipped tracks don't otherwise update the notification (they're
-        // already up to date - no point re-rendering the row for each one),
-        // but the very last track always has to, skipped or not - otherwise
-        // a scan whose tail happens to be already-fresh tracks never fires
-        // the update that would mark this notification done, and it's left
-        // permanently showing its last real progress count.
-        if (skipped && !done) return;
-        notificationCenter.upsertProgress('metadata-scan', 'Scanning track metadata', index + 1, total, done);
-        // A finished background scan doesn't need a manual dismiss - leave
-        // the "done" state on screen just long enough to actually read it.
-        if (done) setTimeout(() => notificationCenter.dismiss('metadata-scan'), METADATA_SCAN_AUTO_DISMISS_MS);
       },
     });
 
@@ -709,20 +689,13 @@ function App() {
       // changed is more likely to be one the user cares about seeing
       // updated first.
       const tracks = (await libraryStore.listTracks(rootId)).filter((t) => !t.missing).sort((a, b) => b.lastModifiedMs - a.lastModifiedMs);
-      const notificationId = `metadata-verify-${rootId}`;
-      await scanLibraryMetadata(backgroundFileAccess, libraryStore, tracks, {
+      await scanLibraryMetadataQueued({ id: `metadata-verify-${rootId}`, label: 'Verifying track metadata' }, backgroundFileAccess, libraryStore, tracks, {
         resizer: coverArtResizer,
-        onProgress: ({ index, total, skipped }) => {
-          const done = index + 1 >= total;
-          if (skipped && !done) return;
-          notificationCenter.upsertProgress(notificationId, 'Verifying track metadata', index + 1, total, done);
-          if (done) setTimeout(() => notificationCenter.dismiss(notificationId), METADATA_SCAN_AUTO_DISMISS_MS);
-        },
       });
       // Picks up any title/artist/art that actually changed.
       await refresh();
     },
-    [notificationCenter, refresh],
+    [refresh],
   );
 
   // A real, independent OS directory picker (requestRoot('lyrics')) rather
@@ -742,7 +715,6 @@ function App() {
     busyRootId,
     busyLyricsScopeKey,
     isRootScanning,
-    cancelScan,
   } = useLibraryRootActions({
       fileAccess,
       libraryStore,
@@ -753,7 +725,7 @@ function App() {
       onRescanned: (rootId) => void verifyRootMetadata(rootId),
     });
 
-  useScanNotifications(notificationCenter, grantedRoots, cancelScan);
+  useTaskNotifications(notificationCenter);
 
   const missingTrackRelocation = useMissingTrackRelocation({ fileAccess, rescan, setError });
 
@@ -1110,7 +1082,7 @@ function App() {
   const handleShowUnplaylisted = async (rootId: string) => {
     const root = grantedRoots.find((r) => r.id === rootId);
     if (!root) return;
-    const tracks = await findUnplaylistedTracks(fileAccess, libraryStore, rootId);
+    const tracks = await findUnplaylistedTracksQueued(fileAccess, libraryStore, rootId, root.displayName);
     const playlist: PlaylistRecord = {
       id: `virtual:${rootId}:unplaylisted`,
       rootId,

@@ -1,23 +1,12 @@
 import type { FileAccess } from '../file-access/types';
 import type { LibraryStore } from '../library-store/types';
+import { runTask, type TaskProgress } from '../tasks/taskQueue';
 import { scanRoot, type ScanProgress, type ScanResult } from './scan';
 
 interface ActiveScan {
   promise: Promise<ScanResult>;
   abort: () => void;
-  /** See scanRootCoordinated's displayName param. */
-  displayName?: string;
-  getProgress: () => ScanProgress | undefined;
 }
-
-/**
- * scanRoot reports progress after every listing/read/write - thousands of
- * calls for a big library. Listeners (a notification re-render each) get at
- * most one update per this interval per root, plus one immediately on every
- * phase change so a switch from "listing" to "reading playlists" never
- * lags behind.
- */
-const PROGRESS_THROTTLE_MS = 250;
 
 /**
  * Module-level (not per-hook-instance) state, deliberately - a root can be
@@ -32,7 +21,6 @@ const PROGRESS_THROTTLE_MS = 250;
  */
 const activeScans = new Map<string, ActiveScan>();
 const listeners = new Set<() => void>();
-const progressListeners = new Set<(rootId: string, progress: ScanProgress) => void>();
 let activeRootIdsSnapshot: string[] = [];
 
 function refreshSnapshot(): void {
@@ -62,22 +50,6 @@ export function subscribeScanning(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
-/** The latest (unthrottled) progress of rootId's in-flight scan, or undefined if it isn't scanning or hasn't reported anything yet. */
-export function getScanProgress(rootId: string): ScanProgress | undefined {
-  return activeScans.get(rootId)?.getProgress();
-}
-
-/** The display name whoever started rootId's in-flight scan passed in, if any - see scanRootCoordinated's displayName param. */
-export function getScanDisplayName(rootId: string): string | undefined {
-  return activeScans.get(rootId)?.displayName;
-}
-
-/** Subscribes to throttled progress updates (see PROGRESS_THROTTLE_MS) for every in-flight scan. Start/finish still come through subscribeScanning, not this. Returns an unsubscribe function. */
-export function subscribeScanProgress(listener: (rootId: string, progress: ScanProgress) => void): () => void {
-  progressListeners.add(listener);
-  return () => progressListeners.delete(listener);
-}
-
 /** No-op if rootId isn't currently scanning (already finished, or never started) - callers don't need to check isRootScanning first. */
 export function cancelRootScan(rootId: string): void {
   activeScans.get(rootId)?.abort();
@@ -90,42 +62,46 @@ export function cancelRootScan(rootId: string): void {
  * its ScanCancelledError, if whoever's driving it - possibly a different
  * caller - cancels it) rather than its own independent run.
  *
- * `displayName` is for progress UI: a freshly added folder's very first
- * scan runs before the root shows up anywhere else the UI could look its
- * name up from (apps/*'s grantedRoots only refreshes once the scan is done).
+ * The scan itself runs as a 'foreground' task on the shared task queue
+ * (see taskQueue.ts), so it waits its turn behind other folder scans and
+ * pauses background passes (metadata, lyrics) instead of racing them; the
+ * queue is also what shows its progress/Cancel in the notification bell.
+ * `displayName` labels it there - a freshly added folder's first scan
+ * runs before the root shows up anywhere else its name could be looked up.
  */
 export function scanRootCoordinated(fileAccess: FileAccess, store: LibraryStore, rootId: string, displayName?: string): Promise<ScanResult> {
   const existing = activeScans.get(rootId);
   if (existing) return existing.promise;
 
   const controller = new AbortController();
-  // What getScanProgress returns - listeners only see it on the throttled
-  // emit schedule below.
-  let latest: ScanProgress | undefined;
-  let lastEmitAt = 0;
-  let pendingEmit: ReturnType<typeof setTimeout> | undefined;
-  const emit = () => {
-    pendingEmit = undefined;
-    lastEmitAt = Date.now();
-    if (latest) for (const listener of progressListeners) listener(rootId, latest);
-  };
-  const onProgress = (progress: ScanProgress) => {
-    const phaseChanged = latest?.phase !== progress.phase;
-    latest = progress;
-    if (phaseChanged || Date.now() - lastEmitAt >= PROGRESS_THROTTLE_MS) {
-      clearTimeout(pendingEmit);
-      emit();
-    } else if (pendingEmit === undefined) {
-      pendingEmit = setTimeout(emit, PROGRESS_THROTTLE_MS - (Date.now() - lastEmitAt));
-    }
-  };
-
-  const promise = scanRoot(fileAccess, store, rootId, controller.signal, onProgress).finally(() => {
-    clearTimeout(pendingEmit);
+  const promise = runTask(
+    {
+      id: `scanning-${rootId}`,
+      label: `Scanning "${displayName ?? rootId}"`,
+      priority: 'foreground',
+      cancel: () => controller.abort(),
+      signal: controller.signal,
+    },
+    ({ reportProgress }) => scanRoot(fileAccess, store, rootId, controller.signal, (p) => reportProgress(describeScanProgress(p))),
+  ).finally(() => {
     activeScans.delete(rootId);
     refreshSnapshot();
   });
-  activeScans.set(rootId, { promise, abort: () => controller.abort(), displayName, getProgress: () => latest });
+  activeScans.set(rootId, { promise, abort: () => controller.abort() });
   refreshSnapshot();
   return promise;
+}
+
+/** Turns a scan's raw progress into the task queue's display shape. */
+export function describeScanProgress(progress: ScanProgress): TaskProgress {
+  switch (progress.phase) {
+    case 'listing': {
+      const folders = `${progress.foldersListed} folder${progress.foldersListed === 1 ? '' : 's'}`;
+      return { detail: `${progress.filesFound} files in ${folders}`, current: 0, total: 0 };
+    }
+    case 'playlists':
+      return { detail: 'reading playlists', current: progress.current, total: progress.total };
+    case 'saving':
+      return { detail: 'saving library', current: progress.current, total: progress.total };
+  }
 }

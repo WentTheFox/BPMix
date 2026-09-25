@@ -1,6 +1,7 @@
 import type { FileAccess } from '../file-access/types';
 import type { LibraryStore, TrackRecord } from '../library-store/types';
 import { isAudioFileName } from './audioFiles';
+import { runTask, type TaskProgress } from '../tasks/taskQueue';
 import { walkDirectory } from './walk';
 
 /**
@@ -32,11 +33,18 @@ import { walkDirectory } from './walk';
  * user-initiated action only (e.g. a "Songs not in a playlist" button),
  * never on every app launch/focus refresh.
  */
-export async function findUnplaylistedTracks(fileAccess: FileAccess, libraryStore: LibraryStore, rootId: string): Promise<TrackRecord[]> {
+export async function findUnplaylistedTracks(
+  fileAccess: FileAccess,
+  libraryStore: LibraryStore,
+  rootId: string,
+  onProgress?: (progress: TaskProgress) => void,
+): Promise<TrackRecord[]> {
   const [playlists, existingTracks] = await Promise.all([libraryStore.listPlaylists(rootId), libraryStore.listTracks(rootId)]);
   const byFileId = new Map(existingTracks.map((track) => [track.fileId, track]));
 
-  const { files } = await walkDirectory(fileAccess, rootId);
+  const { files } = await walkDirectory(fileAccess, rootId, undefined, undefined, ({ foldersListed, filesFound }) =>
+    onProgress?.({ detail: `${filesFound} files in ${foldersListed} folder${foldersListed === 1 ? '' : 's'}`, current: 0, total: 0 }),
+  );
   const newlyDiscovered: TrackRecord[] = [];
   for (const file of files) {
     if (!isAudioFileName(file.name) || byFileId.has(file.id)) continue;
@@ -50,8 +58,31 @@ export async function findUnplaylistedTracks(fileAccess: FileAccess, libraryStor
     byFileId.set(track.fileId, track);
     newlyDiscovered.push(track);
   }
-  await Promise.all(newlyDiscovered.map((track) => libraryStore.upsertTrack(track)));
+  let saved = 0;
+  await Promise.all(
+    newlyDiscovered.map(async (track) => {
+      await libraryStore.upsertTrack(track);
+      onProgress?.({ detail: 'saving new tracks', current: ++saved, total: newlyDiscovered.length });
+    }),
+  );
 
   const referenced = new Set(playlists.flatMap((playlist) => playlist.trackFileIds));
   return [...byFileId.values()].filter((track) => !referenced.has(track.fileId) && !track.missing);
+}
+
+/**
+ * findUnplaylistedTracks as a 'foreground' task on the shared queue (see
+ * taskQueue.ts) - waits for any folder scan in progress, pauses background
+ * metadata/lyrics passes while it walks, and shows its progress in the
+ * notification bell.
+ */
+export function findUnplaylistedTracksQueued(
+  fileAccess: FileAccess,
+  libraryStore: LibraryStore,
+  rootId: string,
+  rootDisplayName: string,
+): Promise<TrackRecord[]> {
+  return runTask({ id: `unplaylisted-${rootId}`, label: `Finding songs not in a playlist in "${rootDisplayName}"`, priority: 'foreground' }, ({ reportProgress }) =>
+    findUnplaylistedTracks(fileAccess, libraryStore, rootId, reportProgress),
+  );
 }

@@ -3,6 +3,7 @@ import type { LibraryStore, LyricsScope, TrackRecord } from '../library-store/ty
 import { requestIdle } from '../metadata/idleCallback';
 import { scanAllLyricsScopes } from './loadAssignedLyrics';
 import { findAutoLyricsMatch } from './matchLyrics';
+import { runLatestTask } from '../tasks/taskQueue';
 
 /** Same reasoning as scanLibraryMetadata's - bounds how long a chunk can go without real idle time before it's given a slice anyway. */
 const IDLE_CALLBACK_TIMEOUT_MS = 2000;
@@ -29,6 +30,8 @@ export interface MatchLibraryLyricsOptions {
   getPriorityFileIds?: () => string[];
   /** Tracks to skip entirely (already resolved elsewhere, e.g. the restoring track via ensureLyricsAssignment on the critical path) - avoids redoing that work here. */
   skipFileIds?: string[];
+  /** Same as scanLibraryMetadata's - awaited before each track so the pass can pause for foreground work (see taskQueue.ts). */
+  checkpoint?: () => Promise<void>;
 }
 
 /**
@@ -112,6 +115,7 @@ export function matchLibraryLyrics(
       const runChunk = (deadline: { didTimeout: boolean; timeRemaining(): number }) => {
         void (async () => {
           do {
+            await options.checkpoint?.();
             await processOne();
           } while (remaining.length > 0 && (deadline.didTimeout || deadline.timeRemaining() > 0));
 
@@ -126,4 +130,31 @@ export function matchLibraryLyrics(
       requestIdle(runChunk, IDLE_CALLBACK_TIMEOUT_MS);
     })();
   });
+}
+
+/**
+ * matchLibraryLyrics as a 'background' task on the shared queue - same
+ * idea as scanLibraryMetadataQueued: takes its turn, pauses for foreground
+ * work between tracks, and reports progress to the notification bell.
+ */
+export function matchLibraryLyricsQueued(
+  fileAccess: FileAccess,
+  store: LibraryStore,
+  scopes: LyricsScope[],
+  tracks: TrackRecord[],
+  options: Omit<MatchLibraryLyricsOptions, 'checkpoint'> = {},
+): Promise<void> {
+  const skip = new Set(options.skipFileIds ?? []);
+  const total = tracks.filter((t) => !skip.has(t.fileId)).length;
+  let processed = 0;
+  return runLatestTask({ id: 'lyrics-match', label: 'Matching lyrics', priority: 'background' }, ({ checkpoint, reportProgress }) =>
+    matchLibraryLyrics(fileAccess, store, scopes, tracks, {
+      ...options,
+      checkpoint,
+      onProgress: (matchedCount) => {
+        reportProgress({ detail: `${matchedCount} matched`, current: ++processed, total });
+        options.onProgress?.(matchedCount);
+      },
+    }),
+  );
 }

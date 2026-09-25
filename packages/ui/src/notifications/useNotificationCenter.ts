@@ -28,6 +28,8 @@ export interface NotificationCenter {
     detail?: string,
     action?: AppNotification['action'],
   ) => void;
+  /** Creates or replaces a 'progress' entry by id from a full description (keeps its original createdAt) - upsertProgress's positional form, plus `status`. */
+  upsert: (entry: Omit<AppNotification, 'kind' | 'createdAt'>) => void;
   dismiss: (id: string) => void;
   clear: () => void;
 }
@@ -54,19 +56,22 @@ export function useNotificationCenter(): NotificationCenter {
     setNotifications((prev) => [{ id: makeId(), kind: 'error', title, detail, createdAt: Date.now() }, ...prev]);
   }, []);
 
+  const upsert = useCallback((fields: Omit<AppNotification, 'kind' | 'createdAt'>) => {
+    setNotifications((prev) => {
+      const existingIndex = prev.findIndex((n) => n.id === fields.id);
+      const createdAt = existingIndex !== -1 ? prev[existingIndex]!.createdAt : Date.now();
+      const entry: AppNotification = { ...fields, kind: 'progress', createdAt };
+      if (existingIndex === -1) return [entry, ...prev];
+      const next = [...prev];
+      next[existingIndex] = entry;
+      return next;
+    });
+  }, []);
+
   const upsertProgress = useCallback(
-    (id: string, title: string, current: number, total: number, done = false, detail?: string, action?: AppNotification['action']) => {
-      setNotifications((prev) => {
-        const existingIndex = prev.findIndex((n) => n.id === id);
-        const createdAt = existingIndex !== -1 ? prev[existingIndex]!.createdAt : Date.now();
-        const entry: AppNotification = { id, kind: 'progress', title, detail, createdAt, progress: { current, total, done }, action };
-        if (existingIndex === -1) return [entry, ...prev];
-        const next = [...prev];
-        next[existingIndex] = entry;
-        return next;
-      });
-    },
-    [],
+    (id: string, title: string, current: number, total: number, done = false, detail?: string, action?: AppNotification['action']) =>
+      upsert({ id, title, detail, progress: { current, total, done }, action }),
+    [upsert],
   );
 
   const dismiss = useCallback((id: string) => {
@@ -75,5 +80,8 @@ export function useNotificationCenter(): NotificationCenter {
 
   const clear = useCallback(() => setNotifications([]), []);
 
-  return useMemo(() => ({ notifications, addError, upsertProgress, dismiss, clear }), [notifications, addError, upsertProgress, dismiss, clear]);
+  return useMemo(
+    () => ({ notifications, addError, upsertProgress, upsert, dismiss, clear }),
+    [notifications, addError, upsertProgress, upsert, dismiss, clear],
+  );
 }

@@ -3,6 +3,7 @@ import type { LibraryStore, TrackRecord } from '../library-store/types';
 import type { CoverArtResizer } from './coverArtResizer';
 import { ensureTrackMetadata, isMetadataFresh } from './ensureMetadata';
 import { requestIdle } from './idleCallback';
+import { runLatestTask } from '../tasks/taskQueue';
 
 /**
  * Upper bound on how long a single scanLibraryMetadata() run is allowed to
@@ -48,6 +49,8 @@ export interface ScanLibraryMetadataOptions {
    * see useLibraryRootActions), where the extra read cost is expected.
    */
   forceRefresh?: boolean;
+  /** Awaited before each track - a background task's TaskContext.checkpoint (see taskQueue.ts), so the pass pauses while a folder scan/Unplaylisted walk runs instead of competing with it. */
+  checkpoint?: () => Promise<void>;
 }
 
 function trackToFileRef(track: TrackRecord): FileRef {
@@ -131,6 +134,7 @@ export function scanLibraryMetadata(
         // left) - otherwise a deadline that reports 0 remaining right away
         // would reschedule forever without ever making progress.
         do {
+          await options.checkpoint?.();
           await processOne();
         } while (index < total && (deadline.didTimeout || deadline.timeRemaining() > 0));
 
@@ -143,4 +147,29 @@ export function scanLibraryMetadata(
     };
     requestIdle(runChunk, IDLE_CALLBACK_TIMEOUT_MS);
   });
+}
+
+/**
+ * scanLibraryMetadata as a 'background' task on the shared queue (see
+ * taskQueue.ts): waits for other queued work, pauses between tracks while a
+ * folder scan or Unplaylisted walk runs, and reports its progress there
+ * (the notification bell shows it) - `task` names it for display.
+ */
+export function scanLibraryMetadataQueued(
+  task: { id: string; label: string },
+  fileAccess: FileAccess,
+  store: LibraryStore,
+  tracks: TrackRecord[],
+  options: Omit<ScanLibraryMetadataOptions, 'checkpoint'> = {},
+): Promise<void> {
+  return runLatestTask({ ...task, priority: 'background' }, ({ checkpoint, reportProgress }) =>
+    scanLibraryMetadata(fileAccess, store, tracks, {
+      ...options,
+      checkpoint,
+      onProgress: (info) => {
+        reportProgress({ detail: '', current: info.index + 1, total: info.total });
+        options.onProgress?.(info);
+      },
+    }),
+  );
 }

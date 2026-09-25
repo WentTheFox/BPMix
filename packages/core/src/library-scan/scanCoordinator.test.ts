@@ -12,13 +12,11 @@ import type { TrackMetadata } from '../metadata/types';
 import {
   cancelRootScan,
   getActiveScanRootIds,
-  getScanDisplayName,
-  getScanProgress,
   isRootScanning,
   scanRootCoordinated,
   subscribeScanning,
-  subscribeScanProgress,
 } from './scanCoordinator';
+import { getTasks } from '../tasks/taskQueue';
 import { ScanCancelledError } from './walk';
 
 /** A FileAccess whose listDirectory never resolves until released() is called - lets a test hold a scan open to exercise de-dup/cancel behavior deterministically instead of racing real timers. */
@@ -114,7 +112,8 @@ describe('scanRootCoordinated', () => {
     const first = scanRootCoordinated(fileAccess, store, 'root-1');
     const second = scanRootCoordinated(fileAccess, store, 'root-1');
 
-    expect(fileAccess.callCount).toBe(1); // only one real walk started, not two
+    // The scan starts once the task queue grants it its turn - a tick later.
+    await vi.waitFor(() => expect(fileAccess.callCount).toBe(1)); // only one real walk started, not two
     expect(isRootScanning('root-1')).toBe(true);
 
     fileAccess.release();
@@ -123,17 +122,39 @@ describe('scanRootCoordinated', () => {
     expect(isRootScanning('root-1')).toBe(false);
   });
 
-  it('lets a different root scan concurrently without joining an unrelated one', async () => {
+  it('queues a different root scan behind the running one instead of joining it or racing it', async () => {
     const fileAccess = new HangingFileAccess();
     const store = new FakeLibraryStore();
 
-    void scanRootCoordinated(fileAccess, store, 'root-1');
-    void scanRootCoordinated(fileAccess, store, 'root-2');
+    const first = scanRootCoordinated(fileAccess, store, 'root-1');
+    const second = scanRootCoordinated(fileAccess, store, 'root-2');
 
-    expect(fileAccess.callCount).toBe(2);
+    await vi.waitFor(() => expect(fileAccess.callCount).toBe(1));
+    // Both count as scanning (the second is queued), but only one walks.
     expect(getActiveScanRootIds().sort()).toEqual(['root-1', 'root-2']);
+    expect(fileAccess.callCount).toBe(1);
 
     fileAccess.release();
+    await first;
+    await vi.waitFor(() => expect(fileAccess.callCount).toBe(2));
+    fileAccess.release();
+    await second;
+  });
+
+  it('cancelling a still-queued scan settles it right away, without waiting for the scan ahead of it', async () => {
+    const fileAccess = new HangingFileAccess();
+    const store = new FakeLibraryStore();
+
+    const first = scanRootCoordinated(fileAccess, store, 'root-1');
+    const queued = scanRootCoordinated(fileAccess, store, 'root-2');
+    await vi.waitFor(() => expect(fileAccess.callCount).toBe(1));
+
+    cancelRootScan('root-2');
+    await expect(queued).rejects.toThrow(ScanCancelledError);
+    expect(fileAccess.callCount).toBe(1); // root-2 never walked
+
+    fileAccess.release();
+    await first;
   });
 
   it('cancelRootScan aborts the in-flight scan and rejects every joined caller with ScanCancelledError', async () => {
@@ -164,6 +185,7 @@ describe('scanRootCoordinated', () => {
     const promise = scanRootCoordinated(fileAccess, store, 'root-1');
     expect(listener).toHaveBeenCalledTimes(1);
 
+    await vi.waitFor(() => expect(fileAccess.callCount).toBe(1));
     fileAccess.release();
     await promise;
     expect(listener).toHaveBeenCalledTimes(2);
@@ -171,24 +193,19 @@ describe('scanRootCoordinated', () => {
     unsubscribe();
   });
 
-  it('exposes the display name and live progress of an in-flight scan, and forgets both once it finishes', async () => {
+  it('runs as a labelled, cancellable foreground task on the shared queue, gone from it once finished', async () => {
     const fileAccess = new HangingFileAccess();
     const store = new FakeLibraryStore();
-    const progressListener = vi.fn();
-    const unsubscribe = subscribeScanProgress(progressListener);
 
     const promise = scanRootCoordinated(fileAccess, store, 'root-1', 'My Music');
-    expect(getScanDisplayName('root-1')).toBe('My Music');
-    expect(getScanProgress('root-1')).toBeUndefined();
+    const task = getTasks().find((t) => t.id === 'scanning-root-1');
+    expect(task).toMatchObject({ label: 'Scanning "My Music"', priority: 'foreground' });
+    expect(task?.cancel).toBeTypeOf('function');
 
+    // Let the queued task start and reach its first (hanging) listing.
+    await vi.waitFor(() => expect(fileAccess.callCount).toBe(1));
     fileAccess.release();
     await promise;
-    // The root listing's 'listing' tick, then the (empty) save phase's
-    // nothing - a phase change is always delivered immediately, unthrottled.
-    expect(progressListener).toHaveBeenCalledWith('root-1', expect.objectContaining({ phase: 'listing', foldersListed: 1, filesFound: 0 }));
-    expect(getScanDisplayName('root-1')).toBeUndefined();
-    expect(getScanProgress('root-1')).toBeUndefined();
-
-    unsubscribe();
+    expect(getTasks().some((t) => t.id === 'scanning-root-1')).toBe(false);
   });
 });

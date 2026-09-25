@@ -20,6 +20,7 @@ export * from './library-scan/audioFiles';
 export * from './library-scan/walk';
 export * from './library-scan/scan';
 export * from './library-scan/scanCoordinator';
+export * from './tasks/taskQueue';
 export * from './library-scan/loadRootLibrary';
 export * from './library-scan/addTracksToPlaylist';
 export * from './library-scan/createPlaylistFromFolder';
