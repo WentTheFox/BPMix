@@ -41,14 +41,18 @@ foreach ($t in 16,20,24,30,32,36,40,48,60,64,72,80,96,256) {
   Save (Render $t $t 1.0) "Square44x44Logo.targetsize-${t}_altform-unplated.png"
   Save (Render $t $t 1.0) "Square44x44Logo.targetsize-${t}_altform-lightunplated.png"
 }
+# MSBuild (APPX1619) requires each scale-* asset to be exactly base size x scale,
+# rounded UP (e.g. StoreLogo.scale-125 = ceil(62.5) = 63) - [int] would round 62.5 down to 62.
+function Px([int]$base, [double]$f) { [int][Math]::Ceiling($base * $f) }
+
 # Tiles / store / lock screen / splash (logo padded inside the plate).
 foreach ($sc in @{100=1;125=1.25;150=1.5;200=2;400=4}.GetEnumerator()) {
   $f = $sc.Value
-  Save (Render ([int](150*$f)) ([int](150*$f)) 0.66) "Square150x150Logo.scale-$($sc.Key).png"
-  Save (Render ([int](310*$f)) ([int](150*$f)) 0.66) "Wide310x150Logo.scale-$($sc.Key).png"
-  Save (Render ([int](50*$f))  ([int](50*$f))  1.0)  "StoreLogo.scale-$($sc.Key).png"
-  Save (Render ([int](24*$f))  ([int](24*$f))  1.0)  "LockScreenLogo.scale-$($sc.Key).png"
-  Save (Render ([int](620*$f)) ([int](300*$f)) 0.5)  "SplashScreen.scale-$($sc.Key).png"
+  Save (Render ((Px 150 $f)) ((Px 150 $f)) 0.66) "Square150x150Logo.scale-$($sc.Key).png"
+  Save (Render ((Px 310 $f)) ((Px 150 $f)) 0.66) "Wide310x150Logo.scale-$($sc.Key).png"
+  Save (Render ((Px 50 $f))  ((Px 50 $f))  1.0)  "StoreLogo.scale-$($sc.Key).png"
+  Save (Render ((Px 24 $f))  ((Px 24 $f))  1.0)  "LockScreenLogo.scale-$($sc.Key).png"
+  Save (Render ((Px 620 $f)) ((Px 300 $f)) 0.5)  "SplashScreen.scale-$($sc.Key).png"
 }
 
 # Multi-size .ico with PNG-compressed entries (valid since Vista), written by hand since System.Drawing can't.
