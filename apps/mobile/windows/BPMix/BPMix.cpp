@@ -85,6 +85,12 @@ _Use_decl_annotations_ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE, PSTR 
   auto appWindow{reactNativeWin32App.AppWindow()};
   appWindow.Title(L"BPMix");
   appWindow.Resize({1000, 1000});
+  // An AppWindow doesn't inherit the exe's resource icon - without this the
+  // title bar/Alt-Tab show a blank one. The taskbar icon is separate (the
+  // package's Square44x44Logo assets, see scripts/windows/Generate-Icons.ps1).
+  if (auto icon = static_cast<HICON>(LoadImageW(instance, MAKEINTRESOURCEW(IDI_ICON1), IMAGE_ICON, 0, 0, LR_DEFAULTSIZE | LR_SHARED))) {
+    appWindow.SetIcon(winrt::Microsoft::UI::GetIconIdFromIcon(icon));
+  }
   BPMix_MainWindowHwnd = winrt::Microsoft::UI::GetWindowFromWindowId(appWindow.Id());
 
   // Get the ReactViewOptions so we can set the initial RN component to load
