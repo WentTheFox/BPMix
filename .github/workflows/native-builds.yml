@@ -60,6 +60,17 @@ jobs:
             apps/mobile/android/gradle/wrapper/gradle-wrapper.properties
             pnpm-lock.yaml
 
+      # The runner image ships other NDK/CMake versions, so Gradle downloaded
+      # and installed these two every run (~80 s together). Key on the
+      # versions: build.gradle's ndkVersion, and the CMake version AGP
+      # defaults to.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            /usr/local/lib/android/sdk/ndk/27.1.12297006
+            /usr/local/lib/android/sdk/cmake/3.22.1
+          key: android-sdk-ndk-27.1.12297006-cmake-3.22.1
+
       # The C++ half of the build (React Native itself plus native modules
       # like react-native-audio-api, per ABI) is most of the ~13 min.
       # CMake >= 3.17 picks up CMAKE_<LANG>_COMPILER_LAUNCHER from the
@@ -99,6 +110,10 @@ jobs:
           # absolute paths differ between runs.
           CCACHE_BASEDIR: ${{ github.workspace }}
           CCACHE_NOHASHDIR: 'true'
+          # Identify the compiler by its contents, not its mtime (ccache's
+          # default) - a freshly installed NDK has a new mtime every run,
+          # which made every entry from the previous run a miss.
+          CCACHE_COMPILERCHECK: content
         # ARM only: x86/x86_64 (gradle.properties' other two
         # reactNativeArchitectures) only matter for emulators and a handful
         # of Intel Android devices, and each ABI is a full extra compile of
