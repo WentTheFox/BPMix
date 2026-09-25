@@ -43,10 +43,45 @@ function isIgnoredDirectory(name: string): boolean {
 }
 
 /**
+ * Upper bound on listDirectory calls in flight at once during a walk.
+ * Walking siblings concurrently used to be unbounded, which on Windows
+ * fired one WinRT storage-broker listing (each with its own batch of
+ * GetBasicPropertiesAsync calls, see FileAccessModule.h's ListDirectory)
+ * per artist folder all at once - a large library ballooned the app to
+ * ~850 threads and the scan hung forever with zero I/O, stuck on
+ * "Scanning folder...". A small cap keeps most of the concurrency win for
+ * the self-hosted server adapter's HTTP round-trips without flooding any
+ * platform's native directory API.
+ */
+const MAX_CONCURRENT_LISTINGS = 8;
+
+function createLimiter(max: number) {
+  let active = 0;
+  const waiting: (() => void)[] = [];
+  return async function limit<T>(task: () => Promise<T>): Promise<T> {
+    if (active >= max) {
+      await new Promise<void>((resolve) => waiting.push(resolve));
+    } else {
+      active++;
+    }
+    try {
+      return await task();
+    } finally {
+      // Hand the slot straight to the next waiter (active stays the same)
+      // rather than releasing it and letting a new caller race for it.
+      const next = waiting.shift();
+      if (next) next();
+      else active--;
+    }
+  };
+}
+
+/**
  * Recursively walks a granted root via repeated single-level listDirectory
  * calls, since that's the operation every platform's FileAccess adapter can
  * implement directly against its native directory APIs. Sibling
- * subdirectories are recursed into concurrently rather than one at a time -
+ * subdirectories are recursed into concurrently (up to
+ * MAX_CONCURRENT_LISTINGS listings at once) rather than one at a time -
  * each listDirectory call is a full HTTP round-trip for the self-hosted
  * server adapter (fileAccess.server.ts), so a library with hundreds of
  * artist folders was previously hundreds of round-trips back to back; the
@@ -70,10 +105,19 @@ export async function walkDirectory(
 ): Promise<WalkResult> {
   const files: FileRef[] = [];
   const playlistFiles: FileRef[] = [];
+  // Only held around the listDirectory call itself, never across the
+  // recursion below - holding it while awaiting children would deadlock
+  // once the tree is deeper than MAX_CONCURRENT_LISTINGS.
+  const limit = createLimiter(MAX_CONCURRENT_LISTINGS);
 
   async function recurse(relativePath?: string): Promise<void> {
     if (signal?.aborted) throw new ScanCancelledError();
-    const entries = await fileAccess.listDirectory(rootId, relativePath);
+    const entries = await limit(() => {
+      // Re-checked here: a queued listing may only get its slot well after
+      // the user cancelled.
+      if (signal?.aborted) throw new ScanCancelledError();
+      return fileAccess.listDirectory(rootId, relativePath);
+    });
     if (signal?.aborted) throw new ScanCancelledError();
     const subdirectories: string[] = [];
     for (const entry of entries) {
