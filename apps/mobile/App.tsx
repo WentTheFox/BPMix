@@ -912,6 +912,12 @@ function AppContent() {
   // playlist screen's HeaderRow right slot, and the library screen's
   // headerRight) - hoisted once rather than reconstructed per site.
   const headerActionsEl = <HeaderActions colors={colors} center={notificationCenter} onOpenSettings={() => setSettingsOpen(true)} />;
+  // Side-by-side tiers show several panes at once, each with its own header
+  // - only the docked Now Playing pane (rightmost, so the window's top-right
+  // corner) carries the settings/notification buttons there, instead of one
+  // copy per pane. The narrow tier shows one screen at a time, so each keeps
+  // its own.
+  const paneHeaderActionsEl = tier === 'narrow' ? headerActionsEl : undefined;
 
   // Bare content, reused two ways below - see apps/web/src/App.tsx's
   // identical nowPlayingContent for why (wrapped in a ScreenLayer overlay
@@ -1224,7 +1230,7 @@ function AppContent() {
   const playlistPaneContent =
     screen.kind === 'playlist' ? (
       <>
-        <HeaderRow style={styles.backRow} left={<BackButton text={`Playlist: ${screen.playlist.name}`} color={colors.text} onPress={closePlaylistScreen} />} right={headerActionsEl} />
+        <HeaderRow style={styles.backRow} left={<BackButton text={`Playlist: ${screen.playlist.name}`} color={colors.text} onPress={closePlaylistScreen} />} right={paneHeaderActionsEl} />
         {error && <Text style={styles.error}>{error}</Text>}
         <TrackList
           trackFileIds={screen.playlist.trackFileIds}
@@ -1270,7 +1276,7 @@ function AppContent() {
             </Pressable>
           )
         }
-        headerRight={headerActionsEl}
+        headerRight={paneHeaderActionsEl}
         secondaryAddButton={
           <FolderPickerButton colors={colors} icon={mdiSubtitles} text="Add Lyrics Folder" onPress={addLyricsFolder} />
         }
