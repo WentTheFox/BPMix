@@ -61,7 +61,7 @@ jobs:
             pnpm-lock.yaml
 
       # The C++ half of the build (React Native itself plus native modules
-      # like react-native-audio-api, for four ABIs) is most of the ~13 min.
+      # like react-native-audio-api, per ABI) is most of the ~13 min.
       # CMake >= 3.17 picks up CMAKE_<LANG>_COMPILER_LAUNCHER from the
       # environment (see the build step), so every NDK compile goes through
       # ccache, and this action persists its cache between runs.
@@ -99,7 +99,13 @@ jobs:
           # absolute paths differ between runs.
           CCACHE_BASEDIR: ${{ github.workspace }}
           CCACHE_NOHASHDIR: 'true'
-        run: ./gradlew assembleRelease --no-daemon
+        # ARM only: x86/x86_64 (gradle.properties' other two
+        # reactNativeArchitectures) only matter for emulators and a handful
+        # of Intel Android devices, and each ABI is a full extra compile of
+        # every native library plus its share of the APK size. Overridden
+        # here rather than in gradle.properties so local emulator builds
+        # keep working.
+        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=armeabi-v7a,arm64-v8a
 
       - name: ccache stats
         if: always()
