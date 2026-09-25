@@ -137,7 +137,8 @@ jobs:
 
       # SideloadOnly, signed with the certificate above. The timestamp keeps
       # already-released packages installable after the certificate itself
-      # expires.
+      # expires; current signtool refuses a timestamp URL without an explicit
+      # digest algorithm (/td), hence the second property.
       #
       # PlatformToolset=v143 overrides apps/mobile/windows/BPMix/BPMix.vcxproj's
       # own <PlatformToolset>v145</PlatformToolset> (confirmed live: MSB8020,
@@ -161,6 +162,7 @@ jobs:
           "/p:PackageCertificateKeyFile=${{ runner.temp }}\bpmix-signing.pfx"
           "/p:PackageCertificatePassword=${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}"
           /p:AppxPackageSigningTimestampServerUrl=http://timestamp.digicert.com
+          /p:AppxPackageSigningTimestampDigestAlgorithm=SHA256
           /m
 
       # The folder that becomes the release's sideload zip: the bundle, the
