@@ -6,15 +6,20 @@
  * writes made the whole system sluggish (see FileAccessModule.h and
  * libraryStore.windows.ts).
  *
- * Exactly one task holds the queue at a time. Two priorities:
+ * Exactly one task holds the queue at a time. Three priorities, highest
+ * first - the highest-priority waiting task always goes next, and tasks of
+ * the same priority run in request order:
  *  - 'foreground': something the user is actively waiting on (Add Folder,
- *    Rescan, opening Unplaylisted). Runs to completion once started;
- *    queued foreground tasks run in request order.
- *  - 'background': long, resumable passes (metadata scan, lyrics
- *    matching). They call `checkpoint()` between items; if a foreground
- *    task is waiting at that moment, the background task pauses there -
- *    handing the queue over - and resumes where it left off once no
- *    foreground work is left. Background tasks run one at a time too.
+ *    Rescan, opening Unplaylisted). Runs to completion once started.
+ *  - 'visible': resumable work for what's on screen right now (e.g. tag
+ *    reads for the tracks an Unplaylisted view just surfaced) - shouldn't
+ *    wait behind a whole-library pass.
+ *  - 'background': long, resumable whole-library passes (metadata scan,
+ *    lyrics matching).
+ * Resumable tasks call `checkpoint()` between items: if something of
+ * higher priority is waiting at that moment, the task pauses there -
+ * handing the queue over - and resumes where it left off once that work
+ * is done. They never run at the same time as anything else.
  *
  * Not for the startup restore path (see CLAUDE.md) - resolving the
  * last-played playlist and its current track must never wait on this.
@@ -23,7 +28,9 @@
  * start until the outer one finishes, so that would deadlock.
  */
 
-export type TaskPriority = 'foreground' | 'background';
+export type TaskPriority = 'foreground' | 'visible' | 'background';
+
+const RANK: Record<TaskPriority, number> = { foreground: 2, visible: 1, background: 0 };
 export type TaskState = 'queued' | 'running' | 'paused';
 
 export interface TaskProgress {
@@ -46,9 +53,9 @@ export interface TaskInfo {
 
 export interface TaskContext {
   /**
-   * Background tasks: await between units of work - resolves immediately
-   * unless foreground work is waiting, in which case it pauses until that's
-   * all done. A no-op for foreground tasks.
+   * Resumable ('visible'/'background') tasks: await between units of work
+   * - resolves immediately unless higher-priority work is waiting, in which
+   * case it pauses until that's done. A no-op for foreground tasks.
    */
   checkpoint: () => Promise<void>;
   /** Updates this task's displayed progress. Cheap to call per item - listeners are throttled (see PROGRESS_THROTTLE_MS). */
@@ -93,7 +100,9 @@ function publishProgressThrottled(): void {
 
 function pump(): void {
   if (!holder) {
-    const next = waiting.find((e) => e.priority === 'foreground') ?? waiting[0];
+    // Highest priority first; the earliest entry wins within a priority.
+    let next: Entry | undefined;
+    for (const entry of waiting) if (!next || RANK[entry.priority] > RANK[next.priority]) next = entry;
     if (next) {
       waiting = waiting.filter((e) => e !== next);
       holder = next;
@@ -140,15 +149,16 @@ export function runTask<T>(
   const turn = () => new Promise<void>((resolve) => (start = resolve));
 
   const checkpoint = async (): Promise<void> => {
-    if (entry.priority !== 'background' || holder !== entry) return;
-    if (!waiting.some((e) => e.priority === 'foreground')) return;
-    // Yield: go back to the front of the background line (ahead of any
-    // background task that hasn't started yet), let the foreground work
-    // run, and continue once pump() hands the queue back.
+    if (entry.priority === 'foreground' || holder !== entry) return;
+    const own = RANK[entry.priority];
+    if (!waiting.some((e) => RANK[e.priority] > own)) return;
+    // Yield: go back to the front of this priority's line (ahead of any
+    // same-priority task that hasn't started yet), let the higher-priority
+    // work run, and continue once pump() hands the queue back.
     holder = null;
     entry.state = 'paused';
-    const firstBackground = waiting.findIndex((e) => e.priority === 'background');
-    waiting.splice(firstBackground === -1 ? waiting.length : firstBackground, 0, entry);
+    const firstSamePriority = waiting.findIndex((e) => e.priority === entry.priority);
+    waiting.splice(firstSamePriority === -1 ? waiting.length : firstSamePriority, 0, entry);
     const resumed = turn();
     pump();
     await resumed;

@@ -141,4 +141,37 @@ describe('taskQueue', () => {
     await Promise.all([newer, newest]);
     expect(ran).toEqual(['newer', 'newest']);
   });
+
+  it('ranks foreground > visible > background: each pauses at a checkpoint for anything above it', async () => {
+    const order: string[] = [];
+    const bgStarted = gate();
+    const bgContinue = gate();
+    const background = runTask({ id: 'library-meta', label: 'Library', priority: 'background' }, async (ctx) => {
+      order.push('bg:1');
+      bgStarted.open();
+      await bgContinue.promise;
+      await ctx.checkpoint();
+      order.push('bg:2');
+    });
+    await bgStarted.promise;
+
+    const visStarted = gate();
+    const visContinue = gate();
+    const visible = runTask({ id: 'on-screen-meta', label: 'On screen', priority: 'visible' }, async (ctx) => {
+      order.push('vis:1');
+      visStarted.open();
+      await visContinue.promise;
+      await ctx.checkpoint();
+      order.push('vis:2');
+    });
+    bgContinue.open(); // background reaches its checkpoint and yields to 'visible'
+    await visStarted.promise;
+    expect(stateOf('library-meta')).toBe('paused');
+
+    const foreground = runTask({ id: 'scan', label: 'Scan', priority: 'foreground' }, async () => void order.push('fg'));
+    visContinue.open(); // visible yields to foreground, then resumes before background does
+
+    await Promise.all([background, visible, foreground]);
+    expect(order).toEqual(['bg:1', 'vis:1', 'fg', 'vis:2', 'bg:2']);
+  });
 });

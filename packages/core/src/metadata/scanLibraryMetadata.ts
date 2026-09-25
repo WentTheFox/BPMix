@@ -150,19 +150,21 @@ export function scanLibraryMetadata(
 }
 
 /**
- * scanLibraryMetadata as a 'background' task on the shared queue (see
- * taskQueue.ts): waits for other queued work, pauses between tracks while a
- * folder scan or Unplaylisted walk runs, and reports its progress there
- * (the notification bell shows it) - `task` names it for display.
+ * scanLibraryMetadata as a task on the shared queue (see taskQueue.ts):
+ * waits for other queued work, pauses between tracks while higher-priority
+ * work (a folder scan, the Unplaylisted walk) is waiting, and reports its
+ * progress there (the notification bell shows it). `task` names it for
+ * display; its priority defaults to 'background' (a whole-library pass) -
+ * use 'visible' for a small pass over tracks that are on screen right now.
  */
 export function scanLibraryMetadataQueued(
-  task: { id: string; label: string },
+  task: { id: string; label: string; priority?: 'visible' | 'background' },
   fileAccess: FileAccess,
   store: LibraryStore,
   tracks: TrackRecord[],
   options: Omit<ScanLibraryMetadataOptions, 'checkpoint'> = {},
 ): Promise<void> {
-  return runLatestTask({ ...task, priority: 'background' }, ({ checkpoint, reportProgress }) =>
+  return runLatestTask({ ...task, priority: task.priority ?? 'background' }, ({ checkpoint, reportProgress }) =>
     scanLibraryMetadata(fileAccess, store, tracks, {
       ...options,
       checkpoint,

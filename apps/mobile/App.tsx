@@ -1161,7 +1161,7 @@ function AppContent() {
   const handleShowUnplaylisted = async (rootId: string) => {
     const root = grantedRoots.find((r) => r.id === rootId);
     if (!root) return;
-    const tracks = await findUnplaylistedTracksQueued(fileAccess, libraryStore, rootId, root.displayName);
+    const tracks = await findUnplaylistedTracksQueued(fileAccess, libraryStore, rootId, root.displayName, { resizer: coverArtResizer });
     const playlist: PlaylistRecord = {
       id: `virtual:${rootId}:unplaylisted`,
       rootId,

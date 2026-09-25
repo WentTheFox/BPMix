@@ -1,6 +1,7 @@
 import type { FileAccess } from '../file-access/types';
 import type { LibraryStore, TrackRecord } from '../library-store/types';
 import { isAudioFileName } from './audioFiles';
+import { scanLibraryMetadataQueued, type ScanLibraryMetadataOptions } from '../metadata/scanLibraryMetadata';
 import { runTask, type TaskProgress } from '../tasks/taskQueue';
 import { walkDirectory } from './walk';
 
@@ -75,14 +76,34 @@ export async function findUnplaylistedTracks(
  * taskQueue.ts) - waits for any folder scan in progress, pauses background
  * metadata/lyrics passes while it walks, and shows its progress in the
  * notification bell.
+ *
+ * Then queues (not awaited) a 'visible' metadata pass over the returned
+ * tracks: tracks found here for the first time have never had their tags
+ * read, and the library-wide metadata pass only covers tracks that existed
+ * when it started. As 'visible' work it takes turns with that pass instead
+ * of racing it for the same files, but goes ahead of it - it pauses at its
+ * next track - so what's on screen fills in first. Already-fresh tracks are
+ * skipped without a read.
  */
-export function findUnplaylistedTracksQueued(
+export async function findUnplaylistedTracksQueued(
   fileAccess: FileAccess,
   libraryStore: LibraryStore,
   rootId: string,
   rootDisplayName: string,
+  /** Options for the queued metadata pass - `fileAccess` overrides the one used for it (e.g. web's non-prompting createBackgroundFileAccess wrapper, since nothing user-initiated is behind that pass). */
+  metadataOptions: Omit<ScanLibraryMetadataOptions, 'checkpoint'> & { fileAccess?: FileAccess } = {},
 ): Promise<TrackRecord[]> {
-  return runTask({ id: `unplaylisted-${rootId}`, label: `Finding songs not in a playlist in "${rootDisplayName}"`, priority: 'foreground' }, ({ reportProgress }) =>
-    findUnplaylistedTracks(fileAccess, libraryStore, rootId, reportProgress),
+  const { fileAccess: metadataFileAccess = fileAccess, ...scanOptions } = metadataOptions;
+  const tracks = await runTask(
+    { id: `unplaylisted-${rootId}`, label: `Finding songs not in a playlist in "${rootDisplayName}"`, priority: 'foreground' },
+    ({ reportProgress }) => findUnplaylistedTracks(fileAccess, libraryStore, rootId, reportProgress),
   );
+  void scanLibraryMetadataQueued(
+    { id: `metadata-unplaylisted-${rootId}`, label: `Reading tags for songs not in a playlist in "${rootDisplayName}"`, priority: 'visible' },
+    metadataFileAccess,
+    libraryStore,
+    tracks,
+    scanOptions,
+  );
+  return tracks;
 }
