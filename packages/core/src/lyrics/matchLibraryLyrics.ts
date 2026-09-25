@@ -152,7 +152,7 @@ export function matchLibraryLyricsQueued(
       ...options,
       checkpoint,
       onProgress: (matchedCount) => {
-        reportProgress({ detail: `${matchedCount} matched`, current: ++processed, total });
+        reportProgress({ detail: '', current: ++processed, total });
         options.onProgress?.(matchedCount);
       },
     }),
