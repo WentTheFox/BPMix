@@ -53,6 +53,7 @@ import {
   useMemoryUsageLogging,
   useMissingTrackRelocation,
   useNotificationCenter,
+  useScanNotifications,
   useBackNavigation,
   usePlaybackPersistence,
   usePlaylistTransport,
@@ -434,7 +435,7 @@ function AppContent() {
               // two refresh()s in sync rather than letting them drift). Scan
               // it now instead of silently showing an empty library until the
               // user notices and clicks Rescan themselves.
-              await scanRootCoordinated(fileAccess, libraryStore, root.id);
+              await scanRootCoordinated(fileAccess, libraryStore, root.id, root.displayName);
               [playlists, tracks] = await Promise.all([
                 libraryStore.listPlaylists(root.id),
                 libraryStore.listTracks(root.id),
@@ -767,40 +768,7 @@ function AppContent() {
       browseDeviceStorage,
     });
 
-  // Surfaces a Cancel action on the notification bell for every root
-  // currently being scanned (covers a user's own Rescan click AND a
-  // background refresh() scan the user never explicitly triggered - see
-  // isRootScanning's doc), rather than an inline library-row button - a
-  // scan can run long enough to want cancelling from whichever screen the
-  // user's actually looking at, not just the library one. Deliberately
-  // keyed on scanningRootIdsKey alone (not grantedRoots/notificationCenter
-  // directly) so this only upserts/dismisses on an actual start/stop, not
-  // every render - notificationCenter is a new object every time
-  // notifications changes (see useNotificationCenter's own useMemo), so
-  // depending on the whole object here would re-run this effect every time
-  // it itself calls upsertProgress/dismiss, looping forever. Identical to
-  // apps/web/src/App.tsx's copy of this effect.
-  const scanningRootIds = grantedRoots.filter((root) => isRootScanning(root.id)).map((root) => root.id);
-  const scanningRootIdsKey = scanningRootIds.join(',');
-  const previouslyScanningRootIdsRef = useRef<string[]>([]);
-  useEffect(() => {
-    const stillScanning = new Set(scanningRootIds);
-    for (const rootId of previouslyScanningRootIdsRef.current) {
-      if (!stillScanning.has(rootId)) notificationCenter.dismiss(`scanning-${rootId}`);
-    }
-    for (const rootId of scanningRootIds) {
-      const rootDisplayName = grantedRoots.find((r) => r.id === rootId)?.displayName ?? rootId;
-      notificationCenter.upsertProgress(`scanning-${rootId}`, `Scanning "${rootDisplayName}"…`, 0, 0, false, undefined, {
-        label: 'Cancel',
-        onPress: () => cancelScan(rootId),
-      });
-    }
-    previouslyScanningRootIdsRef.current = scanningRootIds;
-    // Deliberately keyed on scanningRootIdsKey alone - see
-    // apps/web/src/App.tsx's identical effect for why (avoids an infinite
-    // loop from notificationCenter's changing identity).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scanningRootIdsKey]);
+  useScanNotifications(notificationCenter, grantedRoots, cancelScan);
 
   const missingTrackRelocation = useMissingTrackRelocation({ fileAccess, rescan, setError });
 

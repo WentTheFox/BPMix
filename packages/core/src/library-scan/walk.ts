@@ -2,6 +2,12 @@ import type { FileAccess, FileRef } from '../file-access/types';
 
 const PLAYLIST_EXTENSIONS = ['.m3u8', '.m3u'];
 
+export interface WalkProgress {
+  foldersListed: number;
+  /** Every file seen so far, playlists and non-audio files included. */
+  filesFound: number;
+}
+
 export interface WalkResult {
   /** Every file found under the root, playlists included. */
   files: FileRef[];
@@ -102,6 +108,8 @@ export async function walkDirectory(
   rootId: string,
   startPath?: string,
   signal?: AbortSignal,
+  /** Called after every completed listing with running totals - there's no known total up front, a walk only discovers the tree as it goes. */
+  onProgress?: (progress: WalkProgress) => void,
 ): Promise<WalkResult> {
   const files: FileRef[] = [];
   const playlistFiles: FileRef[] = [];
@@ -109,6 +117,7 @@ export async function walkDirectory(
   // recursion below - holding it while awaiting children would deadlock
   // once the tree is deeper than MAX_CONCURRENT_LISTINGS.
   const limit = createLimiter(MAX_CONCURRENT_LISTINGS);
+  let foldersListed = 0;
 
   async function recurse(relativePath?: string): Promise<void> {
     if (signal?.aborted) throw new ScanCancelledError();
@@ -130,6 +139,8 @@ export async function walkDirectory(
         subdirectories.push(entry.relativePath);
       }
     }
+    foldersListed++;
+    onProgress?.({ foldersListed, filesFound: files.length });
     await Promise.all(subdirectories.map((dir) => recurse(dir)));
   }
 

@@ -3,6 +3,20 @@ import type { LibraryStore, PlaylistRecord, TrackRecord } from '../library-store
 import { parseM3u8, resolveM3u8EntryPath } from '../playlist/m3u8';
 import { ScanCancelledError, walkDirectory } from './walk';
 
+/**
+ * A scan's live status, reported through scanRoot's onProgress. 'listing'
+ * has no total (the walk only discovers the tree as it goes) - only the
+ * running folder/file counts; 'playlists' and 'saving' do know their total
+ * up front, so `current`/`total` are meaningful for those two.
+ */
+export interface ScanProgress {
+  phase: 'listing' | 'playlists' | 'saving';
+  foldersListed: number;
+  filesFound: number;
+  current: number;
+  total: number;
+}
+
 export interface ScanResult {
   playlists: PlaylistRecord[];
   tracks: TrackRecord[];
@@ -56,17 +70,33 @@ export function describeUnresolvedEntries(
  * it fires. Prefer scanRootCoordinated (scanCoordinator.ts) over calling
  * this directly from UI code - it also de-dupes concurrent scans of the
  * same root, which this function alone doesn't guard against.
+ *
+ * `onProgress` is called after every directory listing, playlist read and
+ * store write - often, for a big library, so throttle before rendering it
+ * (scanRootCoordinated already does).
  */
-export async function scanRoot(fileAccess: FileAccess, store: LibraryStore, rootId: string, signal?: AbortSignal): Promise<ScanResult> {
-  const { files, playlistFiles } = await walkDirectory(fileAccess, rootId, undefined, signal);
+export async function scanRoot(
+  fileAccess: FileAccess,
+  store: LibraryStore,
+  rootId: string,
+  signal?: AbortSignal,
+  onProgress?: (progress: ScanProgress) => void,
+): Promise<ScanResult> {
+  let walked = { foldersListed: 0, filesFound: 0 };
+  const { files, playlistFiles } = await walkDirectory(fileAccess, rootId, undefined, signal, (progress) => {
+    walked = progress;
+    onProgress?.({ phase: 'listing', ...progress, current: 0, total: 0 });
+  });
+  const report = (phase: 'playlists' | 'saving', current: number, total: number) => onProgress?.({ phase, ...walked, current, total });
 
   const filesByRelativePath = new Map(files.map((f) => [f.relativePath, f]));
   const tracksById = new Map<string, TrackRecord>();
   const playlists: PlaylistRecord[] = [];
   const unresolvedEntries: ScanResult['unresolvedEntries'] = [];
 
-  for (const playlistFile of playlistFiles) {
+  for (const [index, playlistFile] of playlistFiles.entries()) {
     if (signal?.aborted) throw new ScanCancelledError();
+    report('playlists', index, playlistFiles.length);
     const text = await fileAccess.readFileText(playlistFile);
     const entries = parseM3u8(text);
     const trackFileIds: string[] = [];
@@ -111,10 +141,14 @@ export async function scanRoot(fileAccess: FileAccess, store: LibraryStore, root
   // shouldn't still write a scan's worth of tracks/playlists to the store.
   if (signal?.aborted) throw new ScanCancelledError();
 
+  const saveTotal = tracksById.size + playlists.length;
+  let saved = 0;
   for (const track of tracksById.values()) {
+    report('saving', saved++, saveTotal);
     await store.upsertTrack(track);
   }
   for (const playlist of playlists) {
+    report('saving', saved++, saveTotal);
     await store.upsertPlaylist(playlist);
   }
 

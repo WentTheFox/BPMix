@@ -9,7 +9,16 @@ import type {
   TrackRecord,
 } from '../library-store/types';
 import type { TrackMetadata } from '../metadata/types';
-import { cancelRootScan, getActiveScanRootIds, isRootScanning, scanRootCoordinated, subscribeScanning } from './scanCoordinator';
+import {
+  cancelRootScan,
+  getActiveScanRootIds,
+  getScanDisplayName,
+  getScanProgress,
+  isRootScanning,
+  scanRootCoordinated,
+  subscribeScanning,
+  subscribeScanProgress,
+} from './scanCoordinator';
 import { ScanCancelledError } from './walk';
 
 /** A FileAccess whose listDirectory never resolves until released() is called - lets a test hold a scan open to exercise de-dup/cancel behavior deterministically instead of racing real timers. */
@@ -158,6 +167,27 @@ describe('scanRootCoordinated', () => {
     fileAccess.release();
     await promise;
     expect(listener).toHaveBeenCalledTimes(2);
+
+    unsubscribe();
+  });
+
+  it('exposes the display name and live progress of an in-flight scan, and forgets both once it finishes', async () => {
+    const fileAccess = new HangingFileAccess();
+    const store = new FakeLibraryStore();
+    const progressListener = vi.fn();
+    const unsubscribe = subscribeScanProgress(progressListener);
+
+    const promise = scanRootCoordinated(fileAccess, store, 'root-1', 'My Music');
+    expect(getScanDisplayName('root-1')).toBe('My Music');
+    expect(getScanProgress('root-1')).toBeUndefined();
+
+    fileAccess.release();
+    await promise;
+    // The root listing's 'listing' tick, then the (empty) save phase's
+    // nothing - a phase change is always delivered immediately, unthrottled.
+    expect(progressListener).toHaveBeenCalledWith('root-1', expect.objectContaining({ phase: 'listing', foldersListed: 1, filesFound: 0 }));
+    expect(getScanDisplayName('root-1')).toBeUndefined();
+    expect(getScanProgress('root-1')).toBeUndefined();
 
     unsubscribe();
   });

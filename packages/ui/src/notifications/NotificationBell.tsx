@@ -38,7 +38,11 @@ function NotificationRow({
 }) {
   const isProgress = notification.kind === 'progress';
   const progress = notification.progress;
-  const fraction = progress && progress.total > 0 ? progress.current / progress.total : 0;
+  // total 0 means "no known total yet" (e.g. a library scan still
+  // discovering folders - the running count lives in the title instead), so
+  // no "0/0" counter and no permanently-empty bar for it.
+  const hasTotal = progress !== undefined && progress.total > 0;
+  const fraction = hasTotal ? progress.current / progress.total : 0;
 
   return (
     <View style={[styles.row, { borderColor: withAlpha(colors.text, 0.1) }]}>
@@ -53,10 +57,11 @@ function NotificationRow({
             {notification.title}
           </Text>
           <Text style={[styles.rowTime, { color: colors.subtleText }]}>
-            {isProgress && progress ? `${progress.current}/${progress.total}${progress.done ? ' - done' : ''} - ` : ''}
+            {isProgress && progress && hasTotal ? `${progress.current}/${progress.total} - ` : ''}
+            {isProgress && progress?.done ? 'done - ' : ''}
             {relativeTime(notification.createdAt)}
           </Text>
-          {isProgress && progress && !progress.done && (
+          {isProgress && progress && hasTotal && !progress.done && (
             <View style={[styles.progressTrack, { backgroundColor: withAlpha(colors.accent, 0.18) }]}>
               <View style={[styles.progressFill, { backgroundColor: colors.accent, width: `${Math.round(fraction * 100)}%` }]} />
             </View>

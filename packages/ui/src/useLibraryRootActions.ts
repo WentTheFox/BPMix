@@ -132,7 +132,7 @@ export function useLibraryRootActions(input: LibraryRootActionsInput): LibraryRo
       const root = await fileAccess.requestRoot();
       if (!root) return; // user cancelled the picker
       setBusyRootId(root.id);
-      const result = await scanRootCoordinated(fileAccess, libraryStore, root.id);
+      const result = await scanRootCoordinated(fileAccess, libraryStore, root.id, root.displayName);
       await refresh();
       const description = describeUnresolvedEntries(result.unresolvedEntries, root.displayName);
       if (description) onUnresolvedEntries?.(description.title, description.detail);
@@ -155,9 +155,9 @@ export function useLibraryRootActions(input: LibraryRootActionsInput): LibraryRo
       setError(null);
       setBusyRootId(rootId);
       try {
-        const result = await scanRootCoordinated(fileAccess, libraryStore, rootId);
-        await refresh();
         const rootDisplayName = grantedRoots.find((r) => r.id === rootId)?.displayName ?? rootId;
+        const result = await scanRootCoordinated(fileAccess, libraryStore, rootId, rootDisplayName);
+        await refresh();
         const description = describeUnresolvedEntries(result.unresolvedEntries, rootDisplayName);
         if (description) onUnresolvedEntries?.(description.title, description.detail);
         logLibraryAction('rescan', { rootId });
