@@ -118,7 +118,7 @@ export const TrackRow = memo(function TrackRow({ track, isCurrent, isPlaying, is
           </Text>
         )}
         {isMissing && (
-          <View style={styles.missingIcon}>
+          <View>
             <Icon path={mdiAlertCircleOutline} size={18} color="#dc2626" />
           </View>
         )}
@@ -128,7 +128,6 @@ export const TrackRow = memo(function TrackRow({ track, isCurrent, isPlaying, is
               e.stopPropagation();
               onAddToPlaylist(track);
             }}
-            style={styles.addButton}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <Icon path={mdiPlaylistPlus} size={18} color={colors.accent} />
@@ -152,16 +151,9 @@ const styles = StyleSheet.create({
   trackRowContentMissing: {
     opacity: 0.45,
   },
-  missingIcon: {
-    marginLeft: 'auto',
-  },
-  addButton: {
-    marginLeft: 'auto',
-  },
   trackDuration: {
     fontSize: 12,
     opacity: 0.6,
-    marginLeft: 'auto',
     flexShrink: 0,
   },
   art: {
@@ -181,8 +173,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Takes all the row's leftover width, so the trailing items (duration,
+  // missing icon, add button) always sit flush right, in that order. They
+  // used to each carry marginLeft: 'auto', which splits the free space
+  // between them - with more than one present (e.g. duration + add button
+  // in the Unplaylisted view) the duration drifted to wherever that split
+  // landed, varying with the title/artist length.
   trackTextColumn: {
-    flexShrink: 1,
+    flex: 1,
     minWidth: 0,
   },
   titleRow: {
