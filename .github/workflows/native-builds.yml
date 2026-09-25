@@ -6,12 +6,22 @@ name: Native builds
 # triggered by hand, never on every push to main.
 on:
   workflow_dispatch:
+    inputs:
+      # A manual test build usually only needs the platform being worked
+      # on - skipping the other saves its runner time (and a tag build
+      # always builds both, since a release needs both artifacts).
+      platform:
+        description: Which platform(s) to build
+        type: choice
+        options: [both, windows, android]
+        default: both
   push:
     tags:
       - 'v*'
 
 jobs:
   android:
+    if: github.event_name != 'workflow_dispatch' || inputs.platform != 'windows'
     runs-on: ubuntu-latest
     steps:
       # Full history, not the default shallow clone - apps/mobile/android/
@@ -40,6 +50,25 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          # ~/.gradle/caches + wrapper: every run used to re-download the
+          # whole Gradle dependency graph. Keyed on the Gradle files and the
+          # pnpm lockfile, since native modules' build.gradle files live in
+          # node_modules.
+          cache: gradle
+          cache-dependency-path: |
+            apps/mobile/android/**/*.gradle*
+            apps/mobile/android/gradle/wrapper/gradle-wrapper.properties
+            pnpm-lock.yaml
+
+      # The C++ half of the build (React Native itself plus native modules
+      # like react-native-audio-api, for four ABIs) is most of the ~13 min.
+      # CMake >= 3.17 picks up CMAKE_<LANG>_COMPILER_LAUNCHER from the
+      # environment (see the build step), so every NDK compile goes through
+      # ccache, and this action persists its cache between runs.
+      - uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
+        with:
+          key: android-${{ hashFiles('pnpm-lock.yaml') }}
+          max-size: 2G
 
       # Stamps the real commit into the About screen's build info (see
       # packages/core/src/buildInfo.ts) - assembleRelease is invoked
@@ -63,7 +92,18 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          CMAKE_C_COMPILER_LAUNCHER: ccache
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
+          # Hash paths relative to the checkout, and ignore the build dir
+          # CMake compiles from, so cache entries still hit when those
+          # absolute paths differ between runs.
+          CCACHE_BASEDIR: ${{ github.workspace }}
+          CCACHE_NOHASHDIR: 'true'
         run: ./gradlew assembleRelease --no-daemon
+
+      - name: ccache stats
+        if: always()
+        run: ccache --show-stats
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -78,6 +118,7 @@ jobs:
     # class of problem CLAUDE.md's Windows housekeeping note already
     # describes on the user's own machine (only VS2022 is supported here).
     # windows-2022 keeps the classic VS2022 toolchain this project needs.
+    if: github.event_name != 'workflow_dispatch' || inputs.platform != 'android'
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -100,6 +141,15 @@ jobs:
         run: node scripts/generate-build-info.mjs
 
       - uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce # v2
+
+      # The restore below downloads WinAppSDK, Hermes, react-native-windows
+      # etc. from scratch every run (~2 of the job's ~5 min) - these lock
+      # files pin every NuGet package version, so they make a safe key.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ hashFiles('apps/mobile/windows/**/packages.lock.json') }}
+          restore-keys: nuget-
 
       - name: Restore NuGet packages
         run: nuget restore apps/mobile/windows/BPMix.sln
