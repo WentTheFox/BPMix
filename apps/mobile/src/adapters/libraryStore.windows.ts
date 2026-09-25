@@ -121,12 +121,55 @@ export function createLibraryStore(): LibraryStore {
    * had just added on the newer instance. Reading fresh right before every
    * write closes that window: even a very stale caller's write only ever
    * layers its own specific change onto whatever is *currently* on disk.
+   *
+   * Mutations are queued and flushed one batch at a time: every mutation
+   * waiting when a flush starts is applied to a single fresh read and
+   * saved with a single write. Without this, callers that fire many writes
+   * at once (findUnplaylistedTracks upserting every newly found track in
+   * parallel, on top of scanLibraryMetadata's putMetadata stream) each did
+   * their own full read/parse/stringify/write of the whole library file
+   * concurrently - thrashing disk and CPU until the whole system went
+   * sluggish, and silently losing writes, since overlapping
+   * read-modify-writes each saved over the others' changes.
    */
-  async function mutate(apply: (data: StoredData) => void): Promise<void> {
-    const data = await readFresh();
-    apply(data);
-    await native.writeText(STORAGE_FILE, JSON.stringify(data));
-    loaded = Promise.resolve(data); // keep the read cache consistent with what's now on disk
+  let pendingMutations: { apply: (data: StoredData) => void; resolve: () => void; reject: (err: unknown) => void }[] = [];
+  let flushing = false;
+
+  async function flushMutations(): Promise<void> {
+    flushing = true;
+    try {
+      while (pendingMutations.length > 0) {
+        const batch = pendingMutations;
+        pendingMutations = [];
+        try {
+          const data = await readFresh();
+          const applied: typeof batch = [];
+          for (const mutation of batch) {
+            // One caller's bad mutation fails only that caller, not the batch.
+            try {
+              mutation.apply(data);
+              applied.push(mutation);
+            } catch (err) {
+              mutation.reject(err);
+            }
+          }
+          await native.writeText(STORAGE_FILE, JSON.stringify(data));
+          loaded = Promise.resolve(data); // keep the read cache consistent with what's now on disk
+          for (const mutation of applied) mutation.resolve();
+        } catch (err) {
+          for (const mutation of batch) mutation.reject(err);
+        }
+      }
+    } finally {
+      flushing = false;
+    }
+  }
+
+  function mutate(apply: (data: StoredData) => void): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      pendingMutations.push({ apply, resolve, reject });
+      if (!flushing) void flushMutations();
+    });
   }
 
   return {
