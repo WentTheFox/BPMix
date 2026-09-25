@@ -8,7 +8,7 @@
     <CppWinRTGenerateWindowsMetadata>true</CppWinRTGenerateWindowsMetadata>
     <MinimalCoreWin>true</MinimalCoreWin>
     <ProjectGuid>{F0C23846-287A-41D9-992C-ED9930B0BA54}</ProjectGuid>
-    <ProjectName>Mobile</ProjectName>
+    <ProjectName>BPMix</ProjectName>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>BPMix.Windows</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
@@ -100,14 +100,14 @@
   </ItemDefinitionGroup>
   <PropertyGroup Label="UserMacros" />
   <ItemGroup>
-    <ClInclude Include="Mobile.h" />
+    <ClInclude Include="BPMix.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="AutolinkedNativeModules.g.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="targetver.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Mobile.cpp" />
+    <ClCompile Include="BPMix.cpp" />
     <ClCompile Include="AutolinkedNativeModules.g.cpp" />
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
@@ -119,10 +119,10 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="Mobile.rc" />
+    <ResourceCompile Include="BPMix.rc" />
   </ItemGroup>
   <ItemGroup>
-    <Image Include="Mobile.ico" />
+    <Image Include="BPMix.ico" />
     <Image Include="small.ico" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

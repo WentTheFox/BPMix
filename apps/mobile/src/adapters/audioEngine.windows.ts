@@ -2,7 +2,7 @@ import type { AudioEngine, DecodedAudio, EngineTrackAnalysis, FileAccess, FileRe
 import { NativeEventEmitter, NativeModules } from 'react-native';
 
 /**
- * Backed by a real native module (windows/Mobile/AudioEngineModule.h) using
+ * Backed by a real native module (windows/BPMix/AudioEngineModule.h) using
  * Media Foundation to decode and XAudio2 to play - there is no Web-Audio
  * style API on Windows, so gain/rate automation is an approximated linear
  * step-ramp on a background thread rather than true AudioParam automation,

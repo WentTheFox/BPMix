@@ -3,7 +3,7 @@ import { NativeModules } from 'react-native';
 import { base64ToArrayBuffer } from './base64';
 
 /**
- * Backed by a real native module (windows/Mobile/FileAccessModule.h) built
+ * Backed by a real native module (windows/BPMix/FileAccessModule.h) built
  * directly against WinRT's StorageFolder/FutureAccessList APIs - there is no
  * maintained folder-picker/file-access library for the current
  * react-native-windows C++/WinRT template, so this is a from-scratch

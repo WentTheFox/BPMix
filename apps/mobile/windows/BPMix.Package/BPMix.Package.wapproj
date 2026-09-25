@@ -4,7 +4,7 @@
   <PropertyGroup>
     <ProjectGuid>{64a9e9fd-564a-47f2-8dad-e34735e92bbf}</ProjectGuid>
     <DefaultLanguage>en-US</DefaultLanguage>
-    <EntryPointProjectUniqueName>..\Mobile\Mobile.vcxproj</EntryPointProjectUniqueName>
+    <EntryPointProjectUniqueName>..\BPMix\BPMix.vcxproj</EntryPointProjectUniqueName>
     <DebuggerType>NativeOnly</DebuggerType>
     <BackgroundTaskDebugEngines>NativeOnly</BackgroundTaskDebugEngines>
   </PropertyGroup>
@@ -60,7 +60,7 @@
     <Content Include="Images\Wide310x150Logo.scale-200.png" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\Mobile\Mobile.vcxproj">
+    <ProjectReference Include="..\BPMix\BPMix.vcxproj">
       <SkipGetTargetFrameworkProperties>True</SkipGetTargetFrameworkProperties>
     </ProjectReference>
   </ItemGroup>

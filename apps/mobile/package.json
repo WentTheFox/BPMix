@@ -56,7 +56,7 @@
   },
   "react-native-windows": {
     "init-windows": {
-      "name": "Mobile",
+      "name": "BPMix",
       "namespace": "BPMix.Windows",
       "template": "cpp-app"
     }

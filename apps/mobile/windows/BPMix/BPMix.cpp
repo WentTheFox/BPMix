@@ -1,8 +1,8 @@
-// Mobile.cpp : Defines the entry point for the application.
+// BPMix.cpp : Defines the entry point for the application.
 //
 
 #include "pch.h"
-#include "Mobile.h"
+#include "BPMix.h"
 
 #include "AutolinkedNativeModules.g.h"
 
@@ -83,13 +83,13 @@ _Use_decl_annotations_ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE, PSTR 
 
   // Get the AppWindow so we can configure its initial title and size
   auto appWindow{reactNativeWin32App.AppWindow()};
-  appWindow.Title(L"BpmixMobile");
+  appWindow.Title(L"BPMix");
   appWindow.Resize({1000, 1000});
   BPMix_MainWindowHwnd = winrt::Microsoft::UI::GetWindowFromWindowId(appWindow.Id());
 
   // Get the ReactViewOptions so we can set the initial RN component to load
   auto viewOptions{reactNativeWin32App.ReactViewOptions()};
-  viewOptions.ComponentName(L"BpmixMobile");
+  viewOptions.ComponentName(L"BPMix");
 
   // Start the app
   reactNativeWin32App.Start();

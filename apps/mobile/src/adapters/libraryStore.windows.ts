@@ -12,7 +12,7 @@ import {
 import { NativeModules } from 'react-native';
 
 /**
- * Backed by a real native module (windows/Mobile/LocalStorageModule.h) that
+ * Backed by a real native module (windows/BPMix/LocalStorageModule.h) that
  * reads/writes a whole text file in the app's own sandboxed local-data
  * folder - see that module's header comment for why (every third-party
  * Windows persistence library found ships pre-NuGet-era project files that

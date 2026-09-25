@@ -32,7 +32,7 @@
 // state (unlike the Android adapter, which has to cache SAF child URIs
 // because those are opaque).
 
-// Defined in Mobile.cpp, captured once on the UI thread at startup.
+// Defined in BPMix.cpp, captured once on the UI thread at startup.
 extern HWND BPMix_MainWindowHwnd;
 
 namespace BPMix {

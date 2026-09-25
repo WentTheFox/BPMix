@@ -102,15 +102,44 @@ jobs:
       - uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce # v2
 
       - name: Restore NuGet packages
-        run: nuget restore apps/mobile/windows/Mobile.sln
+        run: nuget restore apps/mobile/windows/BPMix.sln
 
-      # Unsigned MSIX (AppxPackageSigningEnabled=false) - this repo has no
-      # code-signing certificate for Windows yet, unlike Android's now-real
-      # release keystore. SideloadOnly still produces an installable
-      # package for manual/test installs; it just isn't Store- or
-      # enterprise-distribution ready.
+      # Package.appxmanifest's Identity Version is checked in as a fixed
+      # 1.0.0.0, and Add-AppxPackage won't install a different build over an
+      # installed package with the same version - so a tag build stamps
+      # vX.Y.Z in as X.Y.Z.0. Non-tag (workflow_dispatch) builds keep the
+      # checked-in version.
+      - name: Stamp package version
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        run: |
+          if ('${{ github.ref_name }}' -notmatch '^v(\d+)\.(\d+)\.(\d+)') { throw "Tag ${{ github.ref_name }} isn't vX.Y.Z" }
+          $version = "$($Matches[1]).$($Matches[2]).$($Matches[3]).0"
+          $path = Resolve-Path 'apps/mobile/windows/BPMix.Package/Package.appxmanifest'
+          [xml]$manifest = Get-Content $path -Raw
+          $manifest.Package.Identity.Version = $version
+          $manifest.Save($path)
+          Write-Host "Package version: $version"
+
+      # Self-signed code-signing certificate from
+      # scripts/windows/New-SigningCertificate.ps1 (which also sets both
+      # secrets); its subject must equal Package.appxmanifest's Publisher.
+      # Windows refuses to install an unsigned MSIX at all - the release's
+      # Install.cmd trusts this certificate on the user's machine first (see
+      # scripts/windows/Install.ps1).
+      - name: Decode signing certificate
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+        run: |
+          if (-not $env:WINDOWS_SIGNING_PFX_BASE64) { throw 'WINDOWS_SIGNING_PFX_BASE64 secret is not set' }
+          [IO.File]::WriteAllBytes("${{ runner.temp }}\bpmix-signing.pfx", [Convert]::FromBase64String($env:WINDOWS_SIGNING_PFX_BASE64))
+
+      # SideloadOnly, signed with the certificate above. The timestamp keeps
+      # already-released packages installable after the certificate itself
+      # expires.
       #
-      # PlatformToolset=v143 overrides apps/mobile/windows/Mobile/Mobile.vcxproj's
+      # PlatformToolset=v143 overrides apps/mobile/windows/BPMix/BPMix.vcxproj's
       # own <PlatformToolset>v145</PlatformToolset> (confirmed live: MSB8020,
       # "build tools for v145 cannot be found") - v145 only exists on
       # whatever newer/preview VS the project was last retargeted against
@@ -122,19 +151,51 @@ jobs:
       # the same VS-version class of problem on the user's own machine.
       - name: Build
         run: >
-          msbuild apps/mobile/windows/Mobile.sln
+          msbuild apps/mobile/windows/BPMix.sln
           /p:Configuration=Release /p:Platform=x64
           /p:PlatformToolset=v143
           /p:AppxBundlePlatforms=x64
           /p:AppxBundle=Always
           /p:UapAppxPackageBuildMode=SideloadOnly
-          /p:AppxPackageSigningEnabled=false
+          /p:AppxPackageSigningEnabled=true
+          "/p:PackageCertificateKeyFile=${{ runner.temp }}\bpmix-signing.pfx"
+          "/p:PackageCertificatePassword=${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}"
+          /p:AppxPackageSigningTimestampServerUrl=http://timestamp.digicert.com
           /m
+
+      # The folder that becomes the release's sideload zip: the bundle, the
+      # public half of the signing certificate, the x64 framework
+      # dependencies (VCLibs, WindowsAppRuntime), and scripts/windows'
+      # double-clickable Install.cmd. VS's own generated
+      # Install.ps1/Add-AppDevPackage.ps1 are left out - they need an
+      # execution-policy change just to start, and prompt about developer
+      # licenses.
+      - name: Assemble sideload package
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+        run: |
+          $testDir = Get-ChildItem apps/mobile/windows/BPMix.Package/AppPackages -Directory | Select-Object -First 1
+          $bundle = Get-ChildItem $testDir -Filter '*.msixbundle' | Select-Object -First 1
+          if (-not $bundle) { throw "No .msixbundle in $testDir" }
+          $out = New-Item -ItemType Directory -Force 'windows-release/BPMix'
+          Copy-Item $bundle.FullName $out
+          New-Item -ItemType Directory -Force "$out/Dependencies" | Out-Null
+          Copy-Item "$testDir/Dependencies/x64/*" "$out/Dependencies/"
+          Copy-Item scripts/windows/Install.ps1, scripts/windows/Install.cmd $out
+          $pfx = [Security.Cryptography.X509Certificates.X509Certificate2]::new("${{ runner.temp }}\bpmix-signing.pfx", $env:WINDOWS_SIGNING_PFX_PASSWORD)
+          [IO.File]::WriteAllBytes("$out/BPMix.cer", $pfx.Export('Cert'))
+          # Fail here rather than on a user's machine if the bundle somehow
+          # came out unsigned.
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [IO.Compression.ZipFile]::OpenRead($bundle.FullName)
+          try { if ($zip.Entries.FullName -notcontains 'AppxSignature.p7x') { throw 'msixbundle is not signed' } } finally { $zip.Dispose() }
+          Get-ChildItem -Recurse $out | Select-Object FullName, Length
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: bpmix-windows-x64
-          path: apps/mobile/windows/Mobile.Package/AppPackages/**
+          path: windows-release/
           if-no-files-found: error
 
   # Only for a real version-tag build (a workflow_dispatch run against a
@@ -156,14 +217,11 @@ jobs:
         with:
           path: artifacts
 
-      # The Android artifact is already just the .apk. The Windows one is
-      # AppPackages' whole per-build "_Test" folder (see AppxBundle=Always
-      # above) - the .msixbundle alone isn't enough to sideload-install;
-      # Install.ps1 and the Dependencies/ redistributables (VCLibs,
-      # WindowsAppRuntime) next to it are what actually make that work, so
-      # the release gets both the bare .msixbundle (for anyone who already
-      # has the dependencies and just wants the package) and a zip of the
-      # whole folder (for an actual first-time sideload install).
+      # The Android artifact is already just the .apk. The Windows one is the
+      # sideload folder assembled in the windows job: the release gets it
+      # zipped (the normal path - extract, double-click Install.cmd), plus
+      # the bare .msixbundle and BPMix.cer for anyone who'd rather trust the
+      # certificate and install by hand.
       - name: Collect release assets
         run: |
           mkdir -p release-assets
@@ -178,6 +236,7 @@ jobs:
           # .msixbundle under its original name, still need to exist for the
           # zip step right below.
           cp "$windows_dir"/*.msixbundle "release-assets/bpmix-windows-${version}.msixbundle"
+          cp "$windows_dir"/BPMix.cer release-assets/
           (cd "$(dirname "$windows_dir")" && zip -rq "$assets_dir/bpmix-windows-${version}-sideload.zip" "$(basename "$windows_dir")")
           # apps/mobile's in-app update flow (useAppUpdateCheck, @bpmix/core's
           # checkForUpdate) verifies the downloaded APK's own computed SHA-256

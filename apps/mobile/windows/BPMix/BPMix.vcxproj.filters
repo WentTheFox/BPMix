@@ -21,7 +21,7 @@
     <ClInclude Include="resource.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Mobile.h">
+    <ClInclude Include="BPMix.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="AutolinkedNativeModules.g.h">
@@ -32,7 +32,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Mobile.cpp">
+    <ClCompile Include="BPMix.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="AutolinkedNativeModules.g.cpp">
@@ -43,7 +43,7 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="Mobile.rc">
+    <ResourceCompile Include="BPMix.rc">
       <Filter>Resource Files</Filter>
     </ResourceCompile>
   </ItemGroup>
@@ -51,7 +51,7 @@
     <Image Include="small.ico">
       <Filter>Resource Files</Filter>
     </Image>
-    <Image Include="Mobile.ico">
+    <Image Include="BPMix.ico">
       <Filter>Resource Files</Filter>
     </Image>
   </ItemGroup>
