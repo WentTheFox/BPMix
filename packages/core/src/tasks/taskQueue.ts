@@ -209,3 +209,47 @@ export function runLatestTask(
     if (latestById.get(options.id)?.token === token) latestById.delete(options.id);
   });
 }
+
+interface JoinablePass {
+  joinKey: string;
+  addItems?: (items: unknown[]) => boolean;
+  promise: Promise<void>;
+}
+const runningPasses = new Map<string, JoinablePass>();
+
+/**
+ * runLatestTask for passes over a list of items (tracks) that can take on
+ * more items while running: a request that arrives while a pass with the
+ * same id and `joinKey` is running adds its items to that pass - anything
+ * the pass hasn't seen yet gets processed there - and resolves when that
+ * pass does, instead of queueing a second full pass that would redo
+ * everything. (Before this, a refresh() mid-pass queued a whole second
+ * lyrics/metadata pass over the entire library right behind the first.)
+ * A request with a different `joinKey` (e.g. a lyrics pass whose lyrics
+ * folders changed) can't join, and queues as usual.
+ *
+ * `body` must call `register` with the pass's add-items function once it
+ * starts (scanLibraryMetadata/matchLibraryLyrics' onExtendable); that
+ * function returns false once the pass has finished, so a request that
+ * arrives too late starts a new pass instead.
+ */
+export function runJoinableTask<Item>(
+  options: { id: string; label: string; priority: TaskPriority; joinKey?: string },
+  items: Item[],
+  body: (context: TaskContext, register: (addItems: (items: Item[]) => boolean) => void) => Promise<void>,
+): Promise<void> {
+  const { joinKey = '', ...taskOptions } = options;
+  const running = runningPasses.get(options.id);
+  if (running && running.joinKey === joinKey && running.addItems?.(items)) return running.promise;
+
+  const pass: JoinablePass = { joinKey, promise: Promise.resolve() };
+  pass.promise = runLatestTask(taskOptions, (context) =>
+    body(context, (addItems) => {
+      pass.addItems = addItems as (items: unknown[]) => boolean;
+      runningPasses.set(options.id, pass);
+    }),
+  ).finally(() => {
+    if (runningPasses.get(options.id) === pass) runningPasses.delete(options.id);
+  });
+  return pass.promise;
+}

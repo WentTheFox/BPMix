@@ -3,7 +3,7 @@ import type { LibraryStore, TrackRecord } from '../library-store/types';
 import type { CoverArtResizer } from './coverArtResizer';
 import { ensureTrackMetadata, isMetadataFresh } from './ensureMetadata';
 import { requestIdle } from './idleCallback';
-import { runLatestTask } from '../tasks/taskQueue';
+import { runJoinableTask } from '../tasks/taskQueue';
 
 /**
  * Upper bound on how long a single scanLibraryMetadata() run is allowed to
@@ -51,6 +51,14 @@ export interface ScanLibraryMetadataOptions {
   forceRefresh?: boolean;
   /** Awaited before each track - a background task's TaskContext.checkpoint (see taskQueue.ts), so the pass pauses while a folder scan/Unplaylisted walk runs instead of competing with it. */
   checkpoint?: () => Promise<void>;
+  /**
+   * Called once, up front, with a function that appends more tracks to this
+   * pass while it's still running - tracks it already has are ignored - and
+   * returns false once the pass has finished (too late to join). Lets a
+   * later request join a running pass instead of queueing a second full one
+   * (see scanLibraryMetadataQueued).
+   */
+  onExtendable?: (addTracks: (tracks: TrackRecord[]) => boolean) => void;
 }
 
 function trackToFileRef(track: TrackRecord): FileRef {
@@ -91,8 +99,20 @@ export function scanLibraryMetadata(
   options: ScanLibraryMetadataOptions = {},
 ): Promise<void> {
   const remaining = [...tracks];
-  const total = remaining.length;
+  let total = remaining.length;
   let index = 0;
+  const seen = new Set(remaining.map((t) => t.fileId));
+  let finished = false;
+  options.onExtendable?.((more) => {
+    if (finished) return false;
+    for (const track of more) {
+      if (seen.has(track.fileId)) continue;
+      seen.add(track.fileId);
+      remaining.push(track);
+      total++;
+    }
+    return true;
+  });
 
   const processOne = async (): Promise<void> => {
     // Default to the next track in original order - only reach for a
@@ -124,6 +144,7 @@ export function scanLibraryMetadata(
   };
 
   if (total === 0) {
+    finished = true;
     return Promise.resolve();
   }
 
@@ -141,6 +162,7 @@ export function scanLibraryMetadata(
         if (index < total) {
           requestIdle(runChunk, IDLE_CALLBACK_TIMEOUT_MS);
         } else {
+          finished = true;
           resolve();
         }
       })();
@@ -156,6 +178,8 @@ export function scanLibraryMetadata(
  * progress there (the notification bell shows it). `task` names it for
  * display; its priority defaults to 'background' (a whole-library pass) -
  * use 'visible' for a small pass over tracks that are on screen right now.
+ * A request made while a pass with the same `task.id` is running joins it
+ * (see runJoinableTask) rather than queueing a second full pass.
  */
 export function scanLibraryMetadataQueued(
   task: { id: string; label: string; priority?: 'visible' | 'background' },
@@ -164,10 +188,11 @@ export function scanLibraryMetadataQueued(
   tracks: TrackRecord[],
   options: Omit<ScanLibraryMetadataOptions, 'checkpoint'> = {},
 ): Promise<void> {
-  return runLatestTask({ ...task, priority: task.priority ?? 'background' }, ({ checkpoint, reportProgress }) =>
+  return runJoinableTask({ ...task, priority: task.priority ?? 'background' }, tracks, ({ checkpoint, reportProgress }, register) =>
     scanLibraryMetadata(fileAccess, store, tracks, {
       ...options,
       checkpoint,
+      onExtendable: register,
       onProgress: (info) => {
         reportProgress({ detail: '', current: info.index + 1, total: info.total });
         options.onProgress?.(info);

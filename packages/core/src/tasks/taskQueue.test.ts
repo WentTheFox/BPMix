@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { getTasks, runLatestTask, runTask, type TaskContext } from './taskQueue';
+import { getTasks, runJoinableTask, runLatestTask, runTask, type TaskContext } from './taskQueue';
 
 /** A promise plus its resolver, for holding a task body open until the test says so. */
 function gate() {
@@ -173,5 +173,70 @@ describe('taskQueue', () => {
 
     await Promise.all([background, visible, foreground]);
     expect(order).toEqual(['bg:1', 'vis:1', 'fg', 'vis:2', 'bg:2']);
+  });
+
+  describe('runJoinableTask', () => {
+    /**
+     * A minimal extendable pass over string items, like
+     * scanLibraryMetadata/matchLibraryLyrics: processes items one at a
+     * time, accepts new ones while running, and records what it processed.
+     */
+    function startPass(items: string[], processed: string[], joinKey = '', stepGate?: Promise<void>) {
+      return runJoinableTask({ id: 'pass', label: 'Pass', priority: 'background', joinKey }, items, async (_ctx, register) => {
+        const remaining = [...items];
+        const seen = new Set(items);
+        let finished = false;
+        register((more) => {
+          if (finished) return false;
+          for (const item of more) {
+            if (seen.has(item)) continue;
+            seen.add(item);
+            remaining.push(item);
+          }
+          return true;
+        });
+        while (remaining.length > 0) {
+          await stepGate;
+          processed.push(remaining.shift()!);
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+        finished = true;
+      });
+    }
+
+    it('adds the new items of a mid-pass request to the running pass instead of queueing a second full pass', async () => {
+      const processed: string[] = [];
+      const hold = gate();
+      const first = startPass(['a', 'b'], processed, '', hold.promise);
+      await vi.waitFor(() => expect(stateOf('pass')).toBe('running'));
+
+      const second = startPass(['a', 'b', 'c'], processed);
+      expect(second).toBe(first); // joined - same pass
+      expect(getTasks().filter((t) => t.id === 'pass')).toHaveLength(1);
+
+      hold.open();
+      await second;
+      expect(processed).toEqual(['a', 'b', 'c']); // nothing processed twice
+    });
+
+    it('queues a separate pass for a request with a different joinKey', async () => {
+      const processed: string[] = [];
+      const hold = gate();
+      const first = startPass(['a'], processed, 'folders-v1', hold.promise);
+      await vi.waitFor(() => expect(stateOf('pass')).toBe('running'));
+
+      const second = startPass(['a', 'b'], processed, 'folders-v2');
+      expect(second).not.toBe(first);
+      hold.open();
+      await Promise.all([first, second]);
+      expect(processed).toEqual(['a', 'a', 'b']);
+    });
+
+    it('starts a new pass for a request that arrives after the running one finished', async () => {
+      const processed: string[] = [];
+      await startPass(['a'], processed);
+      await startPass(['a', 'b'], processed);
+      expect(processed).toEqual(['a', 'a', 'b']);
+    });
   });
 });
