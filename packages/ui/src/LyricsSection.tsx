@@ -1,9 +1,19 @@
-import { scanAllLyricsScopes, type FileAccess, type FileRef, type LibraryStore, type LyricsScope } from '@bpmix/core';
+import {
+  formatLrc,
+  resolveAssignedLyricsFile,
+  scanAllLyricsScopes,
+  type FileAccess,
+  type FileRef,
+  type LibraryStore,
+  type LyricLine,
+  type LyricsScope,
+} from '@bpmix/core';
 import { mdiSubtitles } from '@mdi/js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View, type ListRenderItemInfo } from 'react-native';
 import { IconLabel } from './IconLabel';
 import { LyricsPickerScreen } from './LyricsPickerScreen';
+import { LyricsSyncScreen } from './LyricsSyncScreen';
 import type { Colors } from './theme';
 import { useAssignedLyrics } from './useAssignedLyrics';
 import { invalidateHasLyricsCache } from './useHasLyrics';
@@ -19,6 +29,8 @@ export interface LyricsSectionProps {
   positionSeconds: number;
   /** Jumps playback to a tapped synced line's timestamp - same callback SeekBar uses. */
   onSeekTo: (positionSeconds: number) => void;
+  /** Fires whenever the manual sync screen (LyricsSyncScreen) opens/closes, so NowPlayingScreen can hide the disc/seek bar above and let this section take over the full screen while syncing - see its own call site. Omitted entirely by a caller that doesn't need the fullscreen treatment. */
+  onSyncActiveChange?: (active: boolean) => void;
 }
 
 interface Row {
@@ -39,7 +51,7 @@ interface Row {
  * only need to pass through the same fileAccess/libraryStore/lyricsScopes
  * they already have.
  */
-export function LyricsSection({ colors, fileAccess, libraryStore, lyricsScopes, trackFileId, positionSeconds, onSeekTo }: LyricsSectionProps) {
+export function LyricsSection({ colors, fileAccess, libraryStore, lyricsScopes, trackFileId, positionSeconds, onSeekTo, onSyncActiveChange }: LyricsSectionProps) {
   const [reloadToken, setReloadToken] = useState(0);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [candidates, setCandidates] = useState<FileRef[] | null>(null);
@@ -49,6 +61,16 @@ export function LyricsSection({ colors, fileAccess, libraryStore, lyricsScopes, 
   // everywhere: SQLite on Android, IndexedDB on web) shouldn't leave the
   // picker looking idle/tappable-again in that gap.
   const [assigning, setAssigning] = useState(false);
+  const [syncOpen, setSyncOpen] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
+  useEffect(() => {
+    onSyncActiveChange?.(syncOpen);
+    // Also reports "closed" on unmount - e.g. the track changes mid-sync and
+    // this whole section remounts fresh - so NowPlayingScreen never gets
+    // stuck believing sync is still active for a screen that's gone.
+    return () => onSyncActiveChange?.(false);
+  }, [syncOpen, onSyncActiveChange]);
 
   const lyrics = useAssignedLyrics(fileAccess, libraryStore, lyricsScopes, trackFileId, reloadToken);
   // Memoized on `lyrics` itself (stable across re-renders until it actually
@@ -91,7 +113,45 @@ export function LyricsSection({ colors, fileAccess, libraryStore, lyricsScopes, 
     });
   };
 
+  // Writes the hand-synced result back to the assigned .lrc file in place
+  // (same file, same assignment - manual sync corrects an existing file's
+  // timing, it doesn't create a new one) and reloads so LyricsList picks up
+  // the now-synced content. Silently no-ops if the assignment vanished out
+  // from under the sync session (e.g. the lyrics scope was removed while
+  // the screen was open) - same "no worse than not having synced" handling
+  // LyricsPickerScreen's own write already gets.
+  const completeSync = async (lines: LyricLine[]) => {
+    if (!trackFileId || syncing) return;
+    setSyncing(true);
+    try {
+      const resolved = await resolveAssignedLyricsFile(fileAccess, libraryStore, lyricsScopes, trackFileId);
+      if (resolved) {
+        await fileAccess.writeFileText(resolved.rootId, resolved.file.relativePath, formatLrc(lines));
+      }
+    } finally {
+      setSyncing(false);
+      setSyncOpen(false);
+      setReloadToken((t) => t + 1);
+    }
+  };
+
   if (!trackFileId) return null;
+
+  if (syncOpen) {
+    return (
+      <View style={styles.container}>
+        <LyricsSyncScreen
+          colors={colors}
+          lines={rows.map((row) => row.text)}
+          positionSeconds={positionSeconds}
+          onSeekTo={onSeekTo}
+          onCancel={() => setSyncOpen(false)}
+          onComplete={(lines) => void completeSync(lines)}
+          saving={syncing}
+        />
+      </View>
+    );
+  }
 
   if (pickerOpen) {
     return (
@@ -135,6 +195,7 @@ export function LyricsSection({ colors, fileAccess, libraryStore, lyricsScopes, 
       synced={lyrics.synced}
       positionSeconds={positionSeconds}
       onEditPress={() => setPickerOpen(true)}
+      onSyncPress={() => setSyncOpen(true)}
       onSeekTo={onSeekTo}
     />
   );
@@ -163,6 +224,7 @@ interface LyricsListProps {
   synced: boolean;
   positionSeconds: number;
   onEditPress: () => void;
+  onSyncPress: () => void;
   onSeekTo: (positionSeconds: number) => void;
 }
 
@@ -189,7 +251,7 @@ function lineOpacity(index: number, currentIndex: number | null): number {
   return Math.max(MIN_UPCOMING_LINE_OPACITY, 1 - linesAhead * UPCOMING_LINE_FADE_PER_LINE);
 }
 
-function LyricsList({ colors, rows, synced, positionSeconds, onEditPress, onSeekTo }: LyricsListProps) {
+function LyricsList({ colors, rows, synced, positionSeconds, onEditPress, onSyncPress, onSeekTo }: LyricsListProps) {
   const listRef = useRef<FlatList<Row>>(null);
   const currentIndex = useMemo(() => (synced ? currentLyricsLineIndex(rows, positionSeconds) : null), [rows, synced, positionSeconds]);
 
@@ -284,9 +346,8 @@ function LyricsList({ colors, rows, synced, positionSeconds, onEditPress, onSeek
       {!synced && (
         <View style={styles.unsyncedRow}>
           <Text style={[styles.unsyncedNote, { color: colors.subtleText }]}>Not synced to playback</Text>
-          {/* Disabled placeholder - manual line-by-line syncing is a planned feature (see CLAUDE.md's TODOs), not implemented yet. */}
-          <Pressable disabled style={styles.syncButton}>
-            <Text style={[styles.syncButtonText, { color: colors.subtleText }]}>Sync lyrics manually</Text>
+          <Pressable onPress={onSyncPress} style={styles.syncButton}>
+            <Text style={[styles.syncButtonText, { color: colors.accent }]}>Sync lyrics manually</Text>
           </Pressable>
         </View>
       )}

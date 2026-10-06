@@ -70,3 +70,31 @@ export function parseLrc(content: string): ParsedLyrics {
   lines.sort((a, b) => a.timeSeconds! - b.timeSeconds!);
   return { synced: true, tags, lines };
 }
+
+/** `83.4` -> `"01:23.40"` - the [mm:ss.xx] timestamp format parseLrc's TIMESTAMP_TAG regex above reads back. */
+function formatTimestamp(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds - minutes * 60;
+  return `${String(minutes).padStart(2, '0')}:${seconds.toFixed(2).padStart(5, '0')}`;
+}
+
+/**
+ * Inverse of parseLrc, for writing a freshly hand-synced result back out
+ * (see LyricsSyncScreen) - a line with a null timeSeconds is written as
+ * plain unsynced text (parseLrc already tolerates a mix of timed and
+ * plain lines in one file; `synced` there just means "at least one
+ * timestamp was found anywhere", not "every line has one"). `translation`
+ * is never written - it only ever exists on a merged in-memory
+ * ParsedLyrics (see matchTranslationLines), not a single real .lrc file on
+ * disk.
+ */
+export function formatLrc(lines: LyricLine[], tags: Record<string, string> = {}): string {
+  const out: string[] = [];
+  for (const [key, value] of Object.entries(tags)) {
+    out.push(`[${key}:${value}]`);
+  }
+  for (const line of lines) {
+    out.push(line.timeSeconds === null ? line.text : `[${formatTimestamp(line.timeSeconds)}]${line.text}`);
+  }
+  return `${out.join('\n')}\n`;
+}

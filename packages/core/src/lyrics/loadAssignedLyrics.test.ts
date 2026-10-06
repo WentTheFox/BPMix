@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { DirectoryEntry, FileAccess, FileRef, GrantedRoot } from '../file-access/types';
 import type { LyricsScope } from '../library-store/types';
-import { loadAssignedLyrics, scanAllLyricsScopes } from './loadAssignedLyrics';
+import { loadAssignedLyrics, resolveAssignedLyricsFile, scanAllLyricsScopes } from './loadAssignedLyrics';
 
 /** In-memory FileAccess over a flat { relativePath: content } map, scoped to one rootId. */
 class FakeFileAccess implements FileAccess {
@@ -90,5 +90,19 @@ describe('loadAssignedLyrics', () => {
     });
     const result = await loadAssignedLyrics(fileAccess, { getLyricsAssignment: async () => 'Track One.lrc' } as never, [SCOPE], 'track-1');
     expect(result).toEqual({ synced: true, tags: {}, lines: [{ timeSeconds: 1, text: 'Hello' }, { timeSeconds: 2, text: 'World' }] });
+  });
+});
+
+describe('resolveAssignedLyricsFile', () => {
+  it('returns null when the track has no assignment', async () => {
+    const fileAccess = new FakeFileAccess('root', {});
+    const result = await resolveAssignedLyricsFile(fileAccess, { getLyricsAssignment: async () => null } as never, [SCOPE], 'track-1');
+    expect(result).toBeNull();
+  });
+
+  it('returns the rootId alongside the resolved FileRef', async () => {
+    const fileAccess = new FakeFileAccess('root', { 'Track One.lrc': LRC_CONTENT });
+    const result = await resolveAssignedLyricsFile(fileAccess, { getLyricsAssignment: async () => 'Track One.lrc' } as never, [SCOPE], 'track-1');
+    expect(result).toEqual({ rootId: 'root', file: { id: 'Track One.lrc', name: 'Track One.lrc', relativePath: 'Track One.lrc', sizeBytes: 0, lastModifiedMs: 0 } });
   });
 });

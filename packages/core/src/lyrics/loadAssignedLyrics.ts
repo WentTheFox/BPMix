@@ -101,3 +101,29 @@ export async function loadAssignedLyrics(
   const translation = parseLrc(await fileAccess.readFileText(translationFile));
   return matchTranslationLines(native, translation);
 }
+
+/**
+ * Resolves a track's assigned .lrc file to its FileRef and the rootId it
+ * lives under - what LyricsSyncScreen needs to write the hand-synced
+ * result back with fileAccess.writeFileText(rootId, relativePath, ...),
+ * neither of which loadAssignedLyrics' own ParsedLyrics return value
+ * carries. Doesn't go through scanAllLyricsScopes' cross-scope cache (that
+ * flattens away which scope/rootId each file came from) - walks scopes one
+ * at a time instead, same cost as a cache miss there, acceptable for a
+ * call site that only runs once per sync session, not per track change.
+ */
+export async function resolveAssignedLyricsFile(
+  fileAccess: FileAccess,
+  libraryStore: LibraryStore,
+  scopes: LyricsScope[],
+  trackFileId: string,
+): Promise<{ rootId: string; file: FileRef } | null> {
+  const lrcFileId = await libraryStore.getLyricsAssignment(trackFileId);
+  if (!lrcFileId) return null;
+  for (const scope of scopes) {
+    const files = await scanLyricsRoot(fileAccess, scope.rootId, scope.relativePath);
+    const file = files.find((f) => f.id === lrcFileId);
+    if (file) return { rootId: scope.rootId, file };
+  }
+  return null;
+}

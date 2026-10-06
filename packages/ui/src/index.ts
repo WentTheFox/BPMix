@@ -21,6 +21,7 @@ export * from './MarqueeText';
 export { LoopButton, ShuffleButton } from './LoopShuffleButtons';
 export * from './LyricsFolderSection';
 export * from './LyricsPickerScreen';
+export * from './LyricsSyncScreen';
 export * from './useLibraryRootActions';
 export * from './LyricsSection';
 export * from './MiniPlayerBar';

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseLrc } from './lrc';
+import { formatLrc, parseLrc } from './lrc';
 
 describe('parseLrc', () => {
   it('parses timestamps and tags, sorted by time', () => {
@@ -63,5 +63,31 @@ describe('parseLrc', () => {
         { timeSeconds: 5, text: 'Line two' },
       ],
     });
+  });
+});
+
+describe('formatLrc', () => {
+  it('writes tags followed by [mm:ss.xx]text lines', () => {
+    const text = formatLrc(
+      [
+        { timeSeconds: 0, text: 'First line' },
+        { timeSeconds: 72.5, text: 'Second line' },
+      ],
+      { ti: 'Track One' },
+    );
+    expect(text).toBe('[ti:Track One]\n[00:00.00]First line\n[01:12.50]Second line\n');
+  });
+
+  it('writes a null-timeSeconds line as plain unsynced text', () => {
+    const text = formatLrc([{ timeSeconds: null, text: 'Not yet timed' }]);
+    expect(text).toBe('Not yet timed\n');
+  });
+
+  it('round-trips through parseLrc', () => {
+    const lines = [
+      { timeSeconds: 0, text: 'First line' },
+      { timeSeconds: 5.25, text: 'Second line' },
+    ];
+    expect(parseLrc(formatLrc(lines)).lines).toEqual(lines);
   });
 });

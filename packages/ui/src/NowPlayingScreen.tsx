@@ -106,68 +106,81 @@ export function NowPlayingScreen({
   const [previewPositionSeconds, setPreviewPositionSeconds] = useState<number | null>(null);
   const displayPositionSeconds = previewPositionSeconds ?? positionSeconds;
   const displayCurrentProgress = previewPositionSeconds != null && durationSeconds > 0 ? previewPositionSeconds / durationSeconds : currentProgress;
+  // True while LyricsSection's manual sync screen is open - hides the disc/
+  // title/seek bar block (and this screen's own header, redundant with the
+  // sync screen's own Cancel) so it can use the full screen instead of being
+  // squeezed into whatever space was left below the disc. See
+  // LyricsSection.onSyncActiveChange's own doc.
+  const [lyricsSyncActive, setLyricsSyncActive] = useState(false);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <HeaderRow
-        left={
-          onClose ? (
-            <BackButton text="Now Playing" color={colors.text} onPress={onClose} />
-          ) : (
-            <Text style={[styles.dockedTitle, { color: colors.text }]}>Now Playing</Text>
-          )
-        }
-        right={headerRight}
-      />
+      {!lyricsSyncActive && (
+        <HeaderRow
+          left={
+            onClose ? (
+              <BackButton text="Now Playing" color={colors.text} onPress={onClose} />
+            ) : (
+              <Text style={[styles.dockedTitle, { color: colors.text }]}>Now Playing</Text>
+            )
+          }
+          right={headerRight}
+        />
+      )}
       <View style={styles.content}>
-        <View>
-          <MarqueeText text={title} style={[styles.nowPlayingName, { color: colors.text }]} />
-          {upNextTitle && (
-            <View style={styles.upNext}>
-              <Text style={[styles.upNextText, { color: colors.subtleText }]} numberOfLines={1}>
-                Up next: {upNextTitle}
-              </Text>
+        {!lyricsSyncActive && (
+          <View>
+            <MarqueeText text={title} style={[styles.nowPlayingName, { color: colors.text }]} />
+            {upNextTitle && (
+              <View style={styles.upNext}>
+                <Text style={[styles.upNextText, { color: colors.subtleText }]} numberOfLines={1}>
+                  Up next: {upNextTitle}
+                </Text>
+              </View>
+            )}
+            <View style={styles.artRow}>
+              <CrossfadeArt
+                colors={colors}
+                currentArtUri={currentArtUri}
+                currentGain={currentGain}
+                currentProgress={displayCurrentProgress}
+                currentTurnsPerSecond={currentTurnsPerSecond}
+                currentSeeking={previewPositionSeconds != null}
+                nextArtUri={nextArtUri}
+                nextGain={nextGain}
+                size={ART_SIZE}
+              />
             </View>
-          )}
-          <View style={styles.artRow}>
-            <CrossfadeArt
-              colors={colors}
-              currentArtUri={currentArtUri}
-              currentGain={currentGain}
-              currentProgress={displayCurrentProgress}
-              currentTurnsPerSecond={currentTurnsPerSecond}
-              currentSeeking={previewPositionSeconds != null}
-              nextArtUri={nextArtUri}
-              nextGain={nextGain}
-              size={ART_SIZE}
-            />
+            {isLoading ? (
+              <LoadingBar colors={colors} />
+            ) : (
+              <SeekBar
+                colors={colors}
+                positionSeconds={positionSeconds}
+                durationSeconds={durationSeconds}
+                onSeekTo={onSeekTo}
+                onPreview={setPreviewPositionSeconds}
+              />
+            )}
+            <View style={styles.seekTimesRow}>
+              <Text style={[styles.seekTimeText, { color: colors.subtleText }]}>{formatSeconds(displayPositionSeconds)}</Text>
+              <Text style={[styles.seekTimeText, { color: colors.subtleText }]}>{formatSeconds(durationSeconds)}</Text>
+            </View>
           </View>
-          {isLoading ? (
-            <LoadingBar colors={colors} />
-          ) : (
-            <SeekBar
-              colors={colors}
-              positionSeconds={positionSeconds}
-              durationSeconds={durationSeconds}
-              onSeekTo={onSeekTo}
-              onPreview={setPreviewPositionSeconds}
-            />
-          )}
-          <View style={styles.seekTimesRow}>
-            <Text style={[styles.seekTimeText, { color: colors.subtleText }]}>{formatSeconds(displayPositionSeconds)}</Text>
-            <Text style={[styles.seekTimeText, { color: colors.subtleText }]}>{formatSeconds(durationSeconds)}</Text>
-          </View>
-        </View>
+        )}
         {lyricsEnabled && (
-          <LyricsSection
-            colors={colors}
-            fileAccess={fileAccess}
-            libraryStore={libraryStore}
-            lyricsScopes={lyricsScopes}
-            trackFileId={lyricsTrackKey}
-            positionSeconds={displayPositionSeconds}
-            onSeekTo={onSeekTo}
-          />
+          <View style={lyricsSyncActive && styles.fullScreenLyrics}>
+            <LyricsSection
+              colors={colors}
+              fileAccess={fileAccess}
+              libraryStore={libraryStore}
+              lyricsScopes={lyricsScopes}
+              trackFileId={lyricsTrackKey}
+              positionSeconds={displayPositionSeconds}
+              onSeekTo={onSeekTo}
+              onSyncActiveChange={setLyricsSyncActive}
+            />
+          </View>
         )}
         <View style={styles.footer}>{controls}</View>
       </View>
@@ -177,6 +190,13 @@ export function NowPlayingScreen({
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+  },
+  // Only applied while lyricsSyncActive - LyricsSection has no intrinsic
+  // height of its own (content's justifyContent:'space-between' otherwise
+  // just sizes it to its content), so this is what actually lets the sync
+  // screen claim the space the disc/seek bar block would have used.
+  fullScreenLyrics: {
     flex: 1,
   },
   content: {
