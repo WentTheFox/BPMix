@@ -10,6 +10,7 @@ class FakeLibraryStore implements LibraryStore {
   analysis = new Map<string, AnalysisResult>();
 
   async upsertTrack(): Promise<void> {}
+  async deleteTrack(): Promise<void> {}
   async upsertPlaylist(): Promise<void> {}
   async listTracks(): Promise<TrackRecord[]> {
     return [];

@@ -69,6 +69,9 @@ class FakeLibraryStore implements LibraryStore {
   async upsertTrack(track: TrackRecord): Promise<void> {
     this.tracks.set(track.fileId, track);
   }
+  async deleteTrack(fileId: string): Promise<void> {
+    this.tracks.delete(fileId);
+  }
   async upsertPlaylist(playlist: PlaylistRecord): Promise<void> {
     this.playlists.set(playlist.id, playlist);
   }

@@ -304,6 +304,11 @@ export function createLibraryStore(): LibraryStore {
       );
     },
 
+    async deleteTrack(fileId: string): Promise<void> {
+      await ready;
+      await run('DELETE FROM tracks WHERE fileId = ?', [fileId]);
+    },
+
     async listTracks(rootId: string): Promise<TrackRecord[]> {
       await ready;
       const result = await run('SELECT * FROM tracks WHERE rootId = ?', [rootId]);

@@ -184,6 +184,13 @@ export function createLibraryStore(): LibraryStore {
       });
     },
 
+    async deleteTrack(fileId: string): Promise<void> {
+      await mutate((data) => {
+        const index = data.tracks.findIndex((t) => t.fileId === fileId);
+        if (index !== -1) data.tracks.splice(index, 1);
+      });
+    },
+
     async upsertPlaylist(playlist: PlaylistRecord): Promise<void> {
       await mutate((data) => {
         const index = data.playlists.findIndex((p) => p.id === playlist.id);

@@ -91,6 +91,10 @@ export function createLibraryStore(): LibraryStore {
       const db = await getDb();
       await idbPut(db, TRACKS_STORE, track);
     },
+    async deleteTrack(fileId: string): Promise<void> {
+      const db = await getDb();
+      await idbDelete(db, TRACKS_STORE, fileId);
+    },
     async upsertPlaylist(playlist: PlaylistRecord): Promise<void> {
       const db = await getDb();
       await idbPut(db, PLAYLISTS_STORE, playlist);

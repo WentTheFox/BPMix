@@ -16,6 +16,15 @@ import { ScanCancelledError } from './walk';
 class FakeFileAccess implements FileAccess {
   constructor(private readonly filesByPath: Record<string, string>) {}
 
+  /** Simulates a file showing up between scans (e.g. a sync finishing). */
+  addFile(relativePath: string, content: string): void {
+    this.filesByPath[relativePath] = content;
+  }
+  /** Simulates a file going missing between scans. */
+  removeFile(relativePath: string): void {
+    delete this.filesByPath[relativePath];
+  }
+
   async requestRoot(): Promise<GrantedRoot | null> {
     throw new Error('not used in this test');
   }
@@ -80,6 +89,9 @@ class FakeLibraryStore implements LibraryStore {
 
   async upsertTrack(track: TrackRecord): Promise<void> {
     this.tracks.set(track.fileId, track);
+  }
+  async deleteTrack(fileId: string): Promise<void> {
+    this.tracks.delete(fileId);
   }
   async upsertPlaylist(playlist: PlaylistRecord): Promise<void> {
     this.playlists.set(playlist.id, playlist);
@@ -180,6 +192,56 @@ describe('scanRoot', () => {
     expect(result.playlists[0]!.trackFileIds).toEqual(['missing:root-1:Missing.mp3']);
     const placeholder = store.tracks.get('missing:root-1:Missing.mp3');
     expect(placeholder).toEqual({ fileId: 'missing:root-1:Missing.mp3', rootId: 'root-1', relativePath: 'Missing.mp3', sizeBytes: 0, lastModifiedMs: 0, missing: true });
+  });
+
+  it('deletes a stale missing-track placeholder once the real file resolves on a later scan', async () => {
+    const fileAccess = new FakeFileAccess({
+      'Mix.m3u8': ['Track.mp3'].join('\n'),
+    });
+    const store = new FakeLibraryStore();
+
+    await scanRoot(fileAccess, store, 'root-1');
+    expect(store.tracks.has('missing:root-1:Track.mp3')).toBe(true);
+
+    // The file shows up by the next scan (e.g. a sync that was still in
+    // progress the first time around).
+    fileAccess.addFile('Track.mp3', 'fake-audio');
+    await scanRoot(fileAccess, store, 'root-1');
+
+    expect(store.tracks.has('missing:root-1:Track.mp3')).toBe(false);
+    expect(store.tracks.has('Track.mp3')).toBe(true);
+    expect(store.tracks.size).toBe(1);
+  });
+
+  it('deletes a stale real track row once its file goes missing on a later scan', async () => {
+    const fileAccess = new FakeFileAccess({
+      'Mix.m3u8': ['Track.mp3'].join('\n'),
+      'Track.mp3': 'fake-audio',
+    });
+    const store = new FakeLibraryStore();
+
+    await scanRoot(fileAccess, store, 'root-1');
+    expect(store.tracks.has('Track.mp3')).toBe(true);
+
+    fileAccess.removeFile('Track.mp3');
+    await scanRoot(fileAccess, store, 'root-1');
+
+    expect(store.tracks.has('Track.mp3')).toBe(false);
+    expect(store.tracks.has('missing:root-1:Track.mp3')).toBe(true);
+    expect(store.tracks.size).toBe(1);
+  });
+
+  it('leaves an Unplaylisted track (not referenced by any playlist this scan) alone', async () => {
+    // findUnplaylistedTracks upserts tracks scanRoot itself never touches -
+    // this cleanup pass must not treat "not resolved by this scan" the same
+    // as "superseded by a different id for the same path".
+    const fileAccess = new FakeFileAccess({ 'Loose.mp3': 'fake-audio' });
+    const store = new FakeLibraryStore();
+    await store.upsertTrack({ fileId: 'Loose.mp3', rootId: 'root-1', relativePath: 'Loose.mp3', sizeBytes: 12, lastModifiedMs: 0 });
+
+    await scanRoot(fileAccess, store, 'root-1');
+
+    expect(store.tracks.has('Loose.mp3')).toBe(true);
   });
 
   it('re-scanning an unchanged root is idempotent', async () => {

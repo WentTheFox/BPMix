@@ -82,6 +82,10 @@ export async function scanRoot(
   signal?: AbortSignal,
   onProgress?: (progress: ScanProgress) => void,
 ): Promise<ScanResult> {
+  // Read upfront, before this scan writes anything - see the stale-track
+  // cleanup pass at the end for what this is for.
+  const existingTracks = await store.listTracks(rootId);
+
   let walked = { foldersListed: 0, filesFound: 0 };
   const { files, playlistFiles } = await walkDirectory(fileAccess, rootId, undefined, signal, (progress) => {
     walked = progress;
@@ -150,6 +154,28 @@ export async function scanRoot(
   for (const playlist of playlists) {
     report('saving', saved++, saveTotal);
     await store.upsertPlaylist(playlist);
+  }
+
+  // A previously-stored track for the same relativePath whose fileId this
+  // scan didn't reuse is stale - e.g. a `missing:`-prefixed placeholder now
+  // that the real file has resolved, or the reverse (a real track's row
+  // left behind once its file went missing and got a placeholder instead).
+  // Either way the old id's row is now dead weight: nothing references it
+  // (the fresh upsert above already wrote the current, correct row under
+  // the new id for this relativePath), and left alone it silently persists
+  // forever, inflating library-wide counts (e.g. the lyrics-match "X of Y
+  // tracks" total) for as long as the root exists. Doesn't touch a track
+  // whose relativePath isn't resolved by this scan at all - that's an
+  // "Unplaylisted" track no playlist currently references, a legitimate,
+  // still-valid row (see findUnplaylistedTracks), not something this
+  // cleanup should remove.
+  const resolvedFileIdByPath = new Map<string, string>();
+  for (const track of tracksById.values()) resolvedFileIdByPath.set(track.relativePath, track.fileId);
+  for (const existing of existingTracks) {
+    const resolvedFileId = resolvedFileIdByPath.get(existing.relativePath);
+    if (resolvedFileId !== undefined && resolvedFileId !== existing.fileId) {
+      await store.deleteTrack(existing.fileId);
+    }
   }
 
   return { playlists, tracks: [...tracksById.values()], unresolvedEntries };
