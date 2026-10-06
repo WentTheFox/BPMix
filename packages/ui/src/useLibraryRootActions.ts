@@ -1,5 +1,6 @@
 import {
   cancelRootScan,
+  deleteRootLibraryData,
   describeUnresolvedEntries,
   errorMessage,
   getActiveScanRootIds,
@@ -186,6 +187,12 @@ export function useLibraryRootActions(input: LibraryRootActionsInput): LibraryRo
       setError(null);
       try {
         await fileAccess.revokeRoot(rootId);
+        // Cleans up this root's own tracks/playlists rows - without this,
+        // revoking the OS-level grant alone left them behind forever,
+        // invisible (the root's no longer listed) but still inflating
+        // library-wide counts (e.g. the lyrics-match "X of Y tracks" total)
+        // indefinitely - see deleteRootLibraryData's own doc.
+        await deleteRootLibraryData(libraryStore, rootId);
         await refresh();
         logLibraryAction('removeRoot', { rootId });
       } catch (err) {
@@ -193,7 +200,7 @@ export function useLibraryRootActions(input: LibraryRootActionsInput): LibraryRo
         logLibraryAction('removeRoot:failed', { rootId, error: String(err) });
       }
     },
-    [fileAccess, refresh, setError],
+    [fileAccess, libraryStore, refresh, setError],
   );
 
   const addLyricsFolder = useCallback(async () => {

@@ -115,8 +115,14 @@ export interface LibraryStore {
   /** Removes a single track row outright - used by scanRoot to clean up a stale row a rescan has just superseded (e.g. a `missing:`-prefixed placeholder once the real file resolves, or the reverse once a previously-real file goes missing) - see scanRoot's own doc for why this can't just be another upsertTrack (the old and new rows have different fileIds for the same relativePath, so upserting the new one alone leaves the old one orphaned). Not used for an "Unplaylisted" track that simply stops being referenced by any playlist - that's an intentional, still-valid row (see findUnplaylistedTracks), not something scanRoot's cleanup pass touches. */
   deleteTrack(fileId: string): Promise<void>;
   upsertPlaylist(playlist: PlaylistRecord): Promise<void>;
+  /** Counterpart to deleteTrack, for the same reason - used to clean up a root's playlist rows once it's removed (see useLibraryRootActions.removeRoot). */
+  deletePlaylist(id: string): Promise<void>;
   listTracks(rootId: string): Promise<TrackRecord[]>;
   listPlaylists(rootId: string): Promise<PlaylistRecord[]>;
+  /** Every track row across every root, regardless of whether that root is still granted - used by pruneOrphanedRootData to discover a root's leftover data after it stops being listed (see that function's own doc for why this can't just be driven by the currently-granted roots list alone). */
+  listAllTracks(): Promise<TrackRecord[]>;
+  /** Counterpart to listAllTracks. */
+  listAllPlaylists(): Promise<PlaylistRecord[]>;
 
   getAnalysis(fileId: string): Promise<AnalysisResult | null>;
   putAnalysis(result: AnalysisResult): Promise<void>;

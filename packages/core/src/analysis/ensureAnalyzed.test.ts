@@ -12,10 +12,17 @@ class FakeLibraryStore implements LibraryStore {
   async upsertTrack(): Promise<void> {}
   async deleteTrack(): Promise<void> {}
   async upsertPlaylist(): Promise<void> {}
+  async deletePlaylist(): Promise<void> {}
   async listTracks(): Promise<TrackRecord[]> {
     return [];
   }
   async listPlaylists(): Promise<PlaylistRecord[]> {
+    return [];
+  }
+  async listAllTracks(): Promise<TrackRecord[]> {
+    return [];
+  }
+  async listAllPlaylists(): Promise<PlaylistRecord[]> {
     return [];
   }
   async getAnalysis(fileId: string): Promise<AnalysisResult | null> {

@@ -202,6 +202,13 @@ export function createLibraryStore(): LibraryStore {
       });
     },
 
+    async deletePlaylist(id: string): Promise<void> {
+      await mutate((data) => {
+        const index = data.playlists.findIndex((p) => p.id === id);
+        if (index !== -1) data.playlists.splice(index, 1);
+      });
+    },
+
     async listTracks(rootId: string): Promise<TrackRecord[]> {
       const data = await load();
       return data.tracks.filter((t) => t.rootId === rootId);
@@ -210,6 +217,16 @@ export function createLibraryStore(): LibraryStore {
     async listPlaylists(rootId: string): Promise<PlaylistRecord[]> {
       const data = await load();
       return data.playlists.filter((p) => p.rootId === rootId);
+    },
+
+    async listAllTracks(): Promise<TrackRecord[]> {
+      const data = await load();
+      return data.tracks;
+    },
+
+    async listAllPlaylists(): Promise<PlaylistRecord[]> {
+      const data = await load();
+      return data.playlists;
     },
 
     async getAnalysis(fileId: string): Promise<AnalysisResult | null> {

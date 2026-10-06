@@ -309,6 +309,11 @@ export function createLibraryStore(): LibraryStore {
       await run('DELETE FROM tracks WHERE fileId = ?', [fileId]);
     },
 
+    async deletePlaylist(id: string): Promise<void> {
+      await ready;
+      await run('DELETE FROM playlists WHERE id = ?', [id]);
+    },
+
     async listTracks(rootId: string): Promise<TrackRecord[]> {
       await ready;
       const result = await run('SELECT * FROM tracks WHERE rootId = ?', [rootId]);
@@ -318,6 +323,20 @@ export function createLibraryStore(): LibraryStore {
     async listPlaylists(rootId: string): Promise<PlaylistRecord[]> {
       await ready;
       const result = await run('SELECT * FROM playlists WHERE rootId = ?', [rootId]);
+      return rowsToArray<{ id: string; rootId: string; fileId: string; name: string; trackFileIds: string }>(
+        result,
+      ).map((row) => ({ ...row, trackFileIds: JSON.parse(row.trackFileIds) as string[] }));
+    },
+
+    async listAllTracks(): Promise<TrackRecord[]> {
+      await ready;
+      const result = await run('SELECT * FROM tracks');
+      return rowsToArray<TrackRecord>(result);
+    },
+
+    async listAllPlaylists(): Promise<PlaylistRecord[]> {
+      await ready;
+      const result = await run('SELECT * FROM playlists');
       return rowsToArray<{ id: string; rootId: string; fileId: string; name: string; trackFileIds: string }>(
         result,
       ).map((row) => ({ ...row, trackFileIds: JSON.parse(row.trackFileIds) as string[] }));

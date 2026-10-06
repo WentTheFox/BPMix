@@ -99,6 +99,10 @@ export function createLibraryStore(): LibraryStore {
       const db = await getDb();
       await idbPut(db, PLAYLISTS_STORE, playlist);
     },
+    async deletePlaylist(id: string): Promise<void> {
+      const db = await getDb();
+      await idbDelete(db, PLAYLISTS_STORE, id);
+    },
     async listTracks(rootId: string): Promise<TrackRecord[]> {
       const db = await getDb();
       return byIndex<TrackRecord>(db, TRACKS_STORE, 'rootId', rootId);
@@ -106,6 +110,14 @@ export function createLibraryStore(): LibraryStore {
     async listPlaylists(rootId: string): Promise<PlaylistRecord[]> {
       const db = await getDb();
       return byIndex<PlaylistRecord>(db, PLAYLISTS_STORE, 'rootId', rootId);
+    },
+    async listAllTracks(): Promise<TrackRecord[]> {
+      const db = await getDb();
+      return idbGetAll<TrackRecord>(db, TRACKS_STORE);
+    },
+    async listAllPlaylists(): Promise<PlaylistRecord[]> {
+      const db = await getDb();
+      return idbGetAll<PlaylistRecord>(db, PLAYLISTS_STORE);
     },
 
     async getAnalysis(fileId: string): Promise<AnalysisResult | null> {
@@ -205,12 +217,4 @@ export function createLibraryStore(): LibraryStore {
       await idbPut(db, SETTINGS_STORE, value, key);
     },
   };
-}
-
-// Also list every granted root's stored playlists, needed by the UI to
-// restore the library screen without a fresh scan on every launch.
-export async function listAllRootIds(): Promise<string[]> {
-  const db = await getDb();
-  const tracks = await idbGetAll<TrackRecord>(db, TRACKS_STORE);
-  return [...new Set(tracks.map((t) => t.rootId))];
 }

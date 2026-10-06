@@ -17,6 +17,7 @@ import {
   LYRICS_MATCHED_COUNT_SETTING_KEY,
   matchLibraryLyricsQueued,
   PlaylistPlayer,
+  pruneOrphanedRootData,
   scanLibraryMetadataQueued,
   scanRootCoordinated,
   trackDisplayName,
@@ -149,6 +150,8 @@ let volumeNormalizationEnabled = true;
 // of the "now playing" display waiting on the next ~200ms poll tick to
 // notice (see PlaylistPlayer's onAdvance doc).
 let notifyAdvance: () => void = () => {};
+/** Guards pruneOrphanedRootData to once per app launch - see refresh()'s call site for why a repeat isn't needed every refresh. */
+let hasPrunedOrphanedRootData = false;
 
 const playlistPlayer = new PlaylistPlayer(
   audioEngine,
@@ -402,6 +405,27 @@ function AppContent() {
       throw err;
     }
     setGrantedRoots(roots);
+
+    // Self-heals installs from before removeRoot cleaned up after itself
+    // (see pruneOrphanedRootData's own doc) - fire-and-forget background
+    // work, never awaited, so a large orphaned-data scan can't delay the
+    // rest of this refresh or RestoringScreen. Once per app launch: cheap
+    // insurance, not worth a full listAllTracks()/listAllPlaylists() scan
+    // on every manual pull-to-refresh once a session's already clean.
+    if (!hasPrunedOrphanedRootData) {
+      hasPrunedOrphanedRootData = true;
+      void pruneOrphanedRootData(
+        libraryStore,
+        roots.map((root) => root.id),
+      )
+        .then((prunedRootIds) => {
+          if (prunedRootIds.length > 0) logLibraryAction('pruneOrphanedRootData', { prunedRootIds });
+        })
+        .catch((err) => {
+          logLibraryAction('pruneOrphanedRootData:failed', { error: String(err) });
+        });
+    }
+
     advanceStep('scanningLibrary');
 
     // Each root's scan is isolated in its own try/catch - see

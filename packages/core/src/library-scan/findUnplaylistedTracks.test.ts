@@ -75,11 +75,20 @@ class FakeLibraryStore implements LibraryStore {
   async upsertPlaylist(playlist: PlaylistRecord): Promise<void> {
     this.playlists.set(playlist.id, playlist);
   }
+  async deletePlaylist(id: string): Promise<void> {
+    this.playlists.delete(id);
+  }
   async listTracks(rootId: string): Promise<TrackRecord[]> {
     return [...this.tracks.values()].filter((t) => t.rootId === rootId);
   }
   async listPlaylists(rootId: string): Promise<PlaylistRecord[]> {
     return [...this.playlists.values()].filter((p) => p.rootId === rootId);
+  }
+  async listAllTracks(): Promise<TrackRecord[]> {
+    return [...this.tracks.values()];
+  }
+  async listAllPlaylists(): Promise<PlaylistRecord[]> {
+    return [...this.playlists.values()];
   }
   async getAnalysis(): Promise<AnalysisResult | null> {
     return null;
