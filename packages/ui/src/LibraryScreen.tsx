@@ -62,8 +62,10 @@ export interface LibraryScreenProps {
   nowPlayingRootId?: string | null;
   /** Opens the "Now Playing" virtual playlist - mirrors the currently playing real playlist's order, or the live shuffle order instead if shuffle is on (see App.tsx's handleShowNowPlaying). Omitted along with nowPlayingRootId when nothing has played yet. */
   onShowNowPlaying?: () => void;
-  /** id of the real PlaylistRecord actually playing right now (see App.tsx's playingContext), or null - highlights that one row in the plain playlists list below in the accent color, same idea as TrackRow's own now-playing highlight. A PlaylistRecord's id is its source .m3u8's own FileRef.id (see scan.ts), which already embeds enough (a root uuid on web, a full path on Android) to be globally unique - no need to also match rootId here. */
+  /** id of the real PlaylistRecord actually playing right now (see App.tsx's playingContext), or null - highlights that one row in the plain playlists list below in the accent color, same idea as TrackRow's own now-playing highlight. A PlaylistRecord's id is its source .m3u8's own FileRef.id (see scan.ts), which already embeds enough (a root uuid on web, a full path on Android) to be globally unique - no need to also match rootId here. Not highlighted at all while nowPlayingIsShuffled is true - see that prop's doc. */
   nowPlayingPlaylistId?: string | null;
+  /** True while shuffle is on for whatever's actually playing - once shuffled, the real playlist's own track order no longer matches actual playback order, so its row stops getting the now-playing highlight and the "Now Playing" automatic row gets it instead (that one always reflects the live shuffle order - see App.tsx's handleShowNowPlaying). */
+  nowPlayingIsShuffled?: boolean;
   onSelectPlaylist: (root: GrantedRoot, playlist: PlaylistRecord, tracksById: Map<string, TrackRecord>) => void;
   error?: string | null;
   /** Rendered right after the error text - e.g. a "Grant Access" button for Android's AllFilesAccessRequiredError, so the user doesn't have to find Settings on their own. */
@@ -106,6 +108,7 @@ export function LibraryScreen({
   nowPlayingRootId,
   onShowNowPlaying,
   nowPlayingPlaylistId,
+  nowPlayingIsShuffled = false,
   onSelectPlaylist,
   error,
   errorAction,
@@ -165,7 +168,7 @@ export function LibraryScreen({
             </View>
             {playlists.length === 0 && <Text style={[styles.empty, { color: colors.subtleText }]}>No playlists found yet.</Text>}
             {playlists.map((playlist) => {
-              const isNowPlaying = playlist.id === nowPlayingPlaylistId;
+              const isNowPlaying = playlist.id === nowPlayingPlaylistId && !nowPlayingIsShuffled;
               return (
                 <Pressable key={playlist.id} style={styles.playlist} onPress={() => onSelectPlaylist(root, playlist, tracksById)}>
                   <IconLabel
@@ -183,7 +186,13 @@ export function LibraryScreen({
               <View style={styles.automaticSection}>
                 <Text style={[styles.automaticHeading, { color: colors.subtleText }]}>Automatic</Text>
                 {onShowNowPlaying && nowPlayingRootId === root.id && (
-                  <AutomaticPlaylistRow colors={colors} icon={mdiPlay} label="Now Playing" onPress={onShowNowPlaying} />
+                  <AutomaticPlaylistRow
+                    colors={colors}
+                    icon={mdiPlay}
+                    label="Now Playing"
+                    onPress={onShowNowPlaying}
+                    highlighted={nowPlayingIsShuffled}
+                  />
                 )}
                 {onShowUnplaylisted && (
                   <AutomaticPlaylistRow colors={colors} icon={mdiMusicNote} label="Unplaylisted" onPress={() => onShowUnplaylisted(root.id)} />

@@ -274,8 +274,8 @@ function AppContent() {
   // Which real playlist is actually playing right now - see
   // apps/web/src/App.tsx's identical state for why this is separate from
   // `screen` (the user may navigate back to Library while a track keeps
-  // playing) and why it's session-scoped rather than restored from
-  // PlaybackState on relaunch.
+  // playing) and why it's also restored from PlaybackState on relaunch,
+  // not just set on a manual track tap.
   const [playingContext, setPlayingContext] = useState<{ root: GrantedRoot; playlist: PlaylistRecord; tracksById: Map<string, TrackRecord> } | null>(
     null,
   );
@@ -582,9 +582,10 @@ function AppContent() {
     setActiveTracksById: (tracksById) => {
       activeTracksById = tracksById;
     },
-    onRestoreScreen: (opened, nowPlayingOpen) => {
+    onRestoreScreen: (opened, nowPlayingOpen, playing) => {
       if (opened) setScreen({ kind: 'playlist', root: opened.root, playlist: opened.playlist, tracksById: opened.tracksById });
       if (nowPlayingOpen) setNowPlayingScreenOpen(true);
+      setPlayingContext(playing);
     },
     onError: (err) => {
       setError(errorMessage(err));
@@ -744,6 +745,29 @@ function AppContent() {
 
   const missingTrackRelocation = useMissingTrackRelocation({ fileAccess, rescan, setError });
 
+  // See apps/web/src/App.tsx's identical block for why this is defined up
+  // here (ahead of usePlaylistTransport's own toggleShuffle output, which
+  // handleToggleShuffle below wraps) rather than alongside its closer
+  // sibling handleShowUnplaylisted. Mirrors whatever's actually playing, or
+  // the live shuffle order instead if shuffle is on - reads
+  // playlistPlayer.getShuffleOrder() directly rather than gating on
+  // playerState.shuffleEnabled, which would still read stale (pre-toggle)
+  // when handleToggleShuffle calls this synchronously right after toggling.
+  const handleShowNowPlaying = () => {
+    if (!playingContext) return;
+    const { root, playlist: playingPlaylist, tracksById } = playingContext;
+    const trackFileIds = playlistPlayer.getShuffleOrder() ?? playingPlaylist.trackFileIds;
+    const playlist: PlaylistRecord = {
+      id: `virtual:${root.id}:now-playing`,
+      rootId: root.id,
+      fileId: `virtual:${root.id}:now-playing`,
+      name: 'Now Playing',
+      trackFileIds,
+    };
+    setScreen({ kind: 'playlist', root, playlist, tracksById });
+    persistPlaybackPatch({ openedPlaylistId: playlist.id, openedRootId: root.id });
+  };
+
   const {
     playFromTrack,
     togglePause,
@@ -753,7 +777,7 @@ function AppContent() {
     handleNextPress,
     handlePreviousPress,
     cycleLoopMode,
-    toggleShuffle,
+    toggleShuffle: toggleShuffleRaw,
   } = usePlaylistTransport({
     playlistPlayer,
     playerState,
@@ -764,6 +788,15 @@ function AppContent() {
     setActiveTracksById,
     isTrackMissing: (fileId) => activeTracksById.get(fileId)?.missing === true || missingFileIds.has(fileId),
   });
+
+  // See apps/web/src/App.tsx's identical handleToggleShuffle for why.
+  const handleToggleShuffle = () => {
+    const wasEnabled = playerState.shuffleEnabled;
+    toggleShuffleRaw();
+    if (!wasEnabled && playingContext && screen.kind === 'playlist' && screen.playlist.id === playingContext.playlist.id) {
+      handleShowNowPlaying();
+    }
+  };
 
   // See apps/web/src/App.tsx's identical handlePressTrack for why this is
   // memoized - stabilizes TrackList's renderItem, which is what lets
@@ -966,7 +999,7 @@ function AppContent() {
             loopMode={playerState.loopMode}
             onCycleLoop={cycleLoopMode}
             shuffleEnabled={playerState.shuffleEnabled}
-            onToggleShuffle={toggleShuffle}
+            onToggleShuffle={handleToggleShuffle}
             volume={volume}
             onChangeVolume={handleVolumeChange}
             showVolumeButton={settings.showVolumeButtonOnNowPlaying}
@@ -1180,24 +1213,6 @@ function AppContent() {
     persistPlaybackPatch({ openedPlaylistId: playlist.id, openedRootId: root.id });
   };
 
-  // Another virtual, never-persisted PlaylistRecord - see
-  // apps/web/src/App.tsx's identical helper for why (mirrors whatever's
-  // actually playing, or the live shuffle order instead if shuffle is on).
-  const handleShowNowPlaying = () => {
-    if (!playingContext) return;
-    const { root, playlist: playingPlaylist, tracksById } = playingContext;
-    const trackFileIds = playerState.shuffleEnabled ? (playlistPlayer.getShuffleOrder() ?? playingPlaylist.trackFileIds) : playingPlaylist.trackFileIds;
-    const playlist: PlaylistRecord = {
-      id: `virtual:${root.id}:now-playing`,
-      rootId: root.id,
-      fileId: `virtual:${root.id}:now-playing`,
-      name: 'Now Playing',
-      trackFileIds,
-    };
-    setScreen({ kind: 'playlist', root, playlist, tracksById });
-    persistPlaybackPatch({ openedPlaylistId: playlist.id, openedRootId: root.id });
-  };
-
   // See apps/web/src/App.tsx's identical block for why this is scoped to
   // just the Unplaylisted virtual playlist.
   const isUnplaylistedScreen = screen.kind === 'playlist' && screen.playlist.id === `virtual:${screen.root.id}:unplaylisted`;
@@ -1264,6 +1279,7 @@ function AppContent() {
         nowPlayingRootId={playingContext?.root.id ?? null}
         onShowNowPlaying={playingContext ? handleShowNowPlaying : undefined}
         nowPlayingPlaylistId={playingContext?.playlist.id ?? null}
+        nowPlayingIsShuffled={playerState.shuffleEnabled}
         onSelectPlaylist={(root, playlist, tracksById) => {
           setScreen({ kind: 'playlist', root, playlist, tracksById });
           persistPlaybackPatch({ openedPlaylistId: playlist.id, openedRootId: root.id });

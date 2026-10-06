@@ -59,12 +59,20 @@ interface UsePlaybackPersistenceOptions {
    * `opened` is null when the user was explicitly on the Library screen
    * (see PlaybackState.openedPlaylistId's doc), non-null for a playlist
    * screen (which may not be the same playlist as the one actually
-   * playing). `nowPlayingOpen` reflects whether the Now Playing screen was
-   * showing when this state was last persisted.
+   * playing - see `playing` below for that one). `nowPlayingOpen` reflects
+   * whether the Now Playing screen was showing when this state was last
+   * persisted. `playing` is the playlist actually loaded into
+   * PlaylistPlayer (always non-null once a restore has something to
+   * restore at all) - feed this into the caller's own playingContext-style
+   * state, the same thing a manual track tap sets, so a restored-but-not-
+   * yet-manually-reselected session still has one (e.g. for the "Now
+   * Playing" automatic library row, or switching to it when shuffle turns
+   * on - see App.tsx's handleShowNowPlaying/handleToggleShuffle).
    */
   onRestoreScreen: (
     opened: { root: GrantedRoot; playlist: PlaylistRecord; tracksById: Map<string, TrackRecord> } | null,
     nowPlayingOpen: boolean,
+    playing: { root: GrantedRoot; playlist: PlaylistRecord; tracksById: Map<string, TrackRecord> },
   ) => void;
   onError: (error: unknown) => void;
   /** Advances the caller's restoring checklist (see RestoringScreen/useRestoringProgress) to this step. */
@@ -369,7 +377,7 @@ export function usePlaybackPersistence({
               // ?? false covers state persisted before nowPlayingOpen existed
               // (web/Windows store PlaybackState as a plain object, so an
               // older blob simply lacks the field rather than defaulting it).
-              onRestoreScreen(opened, stored.nowPlayingOpen ?? false);
+              onRestoreScreen(opened, stored.nowPlayingOpen ?? false, { root: targetRoot, playlist, tracksById });
               loadPromise
                 .then(() => {
                   // One more recheck: the decode itself (loadPromise) can
