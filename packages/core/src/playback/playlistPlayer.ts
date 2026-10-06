@@ -73,12 +73,17 @@ export interface PlaylistPlayerState {
  * between tracks - the crossfade engine builds on top of this later.
  *
  * Manual next()/previous() respect loop mode: loop='all' wraps at the
- * playlist boundary, loop='one' restarts the current track instead of
- * changing tracks (there's no natural "previous/next" while repeating one
- * song), and loop='off' just clamps at the boundary. Pass { force: true }
- * to always move to the literal next/previous track regardless of loop mode
- * (wrapping at the boundary too) - the UI's double-tap gesture uses this to
- * let you escape loop='one'/'off' clamping when you explicitly want to.
+ * playlist boundary and loop='off' just clamps at the boundary. loop='one'
+ * only affects natural end-of-track (handleTrackEnded restarts the same
+ * track instead of advancing) and previous() (which still restarts the
+ * current track rather than changing tracks, since there's no natural
+ * "previous" while repeating one song) - a manual next() press always
+ * advances to the actual next track regardless of loop mode, since "repeat
+ * this song" shouldn't require an extra tap just to move on from it. Pass
+ * { force: true } to always move to the literal next/previous track
+ * regardless of loop mode (wrapping at the boundary too) - the UI's
+ * double-tap gesture uses this to let you escape loop='one' previous()/
+ * loop='off' clamping when you explicitly want to.
  */
 export class PlaylistPlayer {
   private readonly engine: AudioEngine;
@@ -532,10 +537,9 @@ export class PlaylistPlayer {
   async next(options: { force?: boolean } = {}): Promise<void> {
     if (this.order.length === 0) return;
     logPlayback('next', { force: !!options.force, loopMode: this.loopMode, fileId: this.currentFileId() });
-    if (!options.force && this.loopMode === 'one') {
-      this.trackPlayer.seek(0);
-      return;
-    }
+    // Unlike previous() below, a manual next() always advances regardless of
+    // loop='one' - see this class's own doc for why. (loop='one' still
+    // governs natural end-of-track, via handleTrackEnded.)
     const isLast = this.position >= this.order.length - 1;
     if (isLast) {
       if (options.force || this.loopMode === 'all') {

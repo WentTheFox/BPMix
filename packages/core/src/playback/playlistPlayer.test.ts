@@ -191,14 +191,17 @@ describe('PlaylistPlayer', () => {
     expect(player.getState().currentFileId).toBe('a');
   });
 
-  it('loop "one" makes manual next()/previous() restart the current track instead of changing tracks', async () => {
+  it('loop "one" makes manual previous() restart the current track instead of changing tracks', async () => {
     player.setLoopMode('one');
-    await player.next();
-    expect(player.getState().currentFileId).toBe('a');
-    expect(player.getState().track.positionSeconds).toBe(0);
-
     await player.previous();
     expect(player.getState().currentFileId).toBe('a');
+    expect(player.getState().track.positionSeconds).toBe(0);
+  });
+
+  it('loop "one" does not stop a manual next() from advancing to the actual next track', async () => {
+    player.setLoopMode('one');
+    await player.next();
+    expect(player.getState().currentFileId).toBe('b');
   });
 
   it('next()/previous() with { force: true } always moves tracks even under loop "one"', async () => {
