@@ -169,7 +169,20 @@ export function NowPlayingScreen({
           </View>
         )}
         {lyricsEnabled && (
-          <View style={lyricsSyncActive && styles.fullScreenLyrics}>
+          // styles.lyricsWrapper (flex:1, minHeight:0 - unconditional, not
+          // just while syncing) is what actually lets LyricsSection's own
+          // flex:1 participate in `content`'s flex layout at all - without
+          // it this wrapper fell back to a default auto-sized block (no
+          // flex/minHeight of its own), so LyricsSection grew to its full
+          // unclipped lyric-list height instead of being capped to
+          // whatever space was left after the disc/seek bar block and the
+          // footer controls, pushing the controls off the bottom of the
+          // pane/viewport with nothing able to scroll to them - the actual
+          // root cause behind the minHeight:0 fixes elsewhere in this file
+          // and in LyricsSection.tsx (necessary, but not sufficient on
+          // their own without this). fullScreenLyrics layers its own
+          // further styling on top only while lyricsSyncActive.
+          <View style={[styles.lyricsWrapper, lyricsSyncActive && styles.fullScreenLyrics]}>
             <LyricsSection
               colors={colors}
               fileAccess={fileAccess}
@@ -189,18 +202,42 @@ export function NowPlayingScreen({
 }
 
 const styles = StyleSheet.create({
+  // minHeight: 0 here and on `content`/`fullScreenLyrics` below is a no-op
+  // on native (Yoga already lets a flex item shrink below its content
+  // size) but required on web: react-native-web compiles a View straight
+  // to CSS flexbox, whose spec default is min-height:auto on a flex item -
+  // it refuses to shrink below its content's natural height unless told
+  // otherwise. Without this, LyricsSection's tall lyric list (itself
+  // flex:1, same reasoning - see its own container/list styles) pushed
+  // this screen's height past its allotted pane/viewport instead of
+  // clipping to it, shoving the transport controls in NowPlayingScreen's
+  // footer (pinned to the bottom via content's justifyContent:
+  // 'space-between') out of view with no scrollbar able to reach them -
+  // confirmed live on the medium/wide docked pane with a long-lyrics track.
   container: {
     flex: 1,
+    minHeight: 0,
   },
-  // Only applied while lyricsSyncActive - LyricsSection has no intrinsic
-  // height of its own (content's justifyContent:'space-between' otherwise
-  // just sizes it to its content), so this is what actually lets the sync
-  // screen claim the space the disc/seek bar block would have used.
+  // Always applied (not just while syncing) - see the lyricsEnabled block's
+  // own comment for why this exact wrapper, unconditionally sized, is what
+  // actually fixes the controls-pushed-off-screen bug.
+  lyricsWrapper: {
+    flex: 1,
+    minHeight: 0,
+  },
+  // Layered on top of lyricsWrapper only while lyricsSyncActive -
+  // LyricsSection has no intrinsic height preference of its own
+  // (content's justifyContent:'space-between' otherwise just sizes it to
+  // its content when nothing else claims the space), so this is what
+  // actually lets the sync screen claim the space the disc/seek bar block
+  // would have used.
   fullScreenLyrics: {
     flex: 1,
+    minHeight: 0,
   },
   content: {
     flex: 1,
+    minHeight: 0,
     width: '100%',
     maxWidth: 480,
     alignSelf: 'center',

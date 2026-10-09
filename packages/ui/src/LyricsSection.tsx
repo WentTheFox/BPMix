@@ -452,8 +452,16 @@ export function currentLyricsLineIndex(rows: Row[], positionSeconds: number): nu
 }
 
 const styles = StyleSheet.create({
+  // minHeight: 0 here and on `list` below - a no-op on native, required on
+  // web (react-native-web's View/FlatList compile to real CSS flexbox,
+  // whose default min-height:auto on a flex item refuses to shrink below
+  // its content's natural size) - see NowPlayingScreen's identical note on
+  // its own container/content for the full chain this is part of and the
+  // bug it fixes (the transport controls being pushed off-screen by a long
+  // lyric list).
   container: {
     flex: 1,
+    minHeight: 0,
     marginTop: 16,
   },
   placeholderContainer: {
@@ -496,6 +504,7 @@ const styles = StyleSheet.create({
   },
   list: {
     flex: 1,
+    minHeight: 0,
   },
   line: {
     fontSize: 16,
