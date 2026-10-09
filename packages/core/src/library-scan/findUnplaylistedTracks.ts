@@ -42,10 +42,30 @@ export async function findUnplaylistedTracks(
 ): Promise<TrackRecord[]> {
   const [playlists, existingTracks] = await Promise.all([libraryStore.listPlaylists(rootId), libraryStore.listTracks(rootId)]);
   const byFileId = new Map(existingTracks.map((track) => [track.fileId, track]));
+  const referenced = new Set(playlists.flatMap((playlist) => playlist.trackFileIds));
 
   const { files } = await walkDirectory(fileAccess, rootId, undefined, undefined, ({ foldersListed, filesFound }) =>
     onProgress?.({ detail: `${filesFound} files in ${foldersListed} folder${foldersListed === 1 ? '' : 's'}`, current: 0, total: 0 }),
   );
+  const walkedPaths = new Set(files.map((file) => file.relativePath));
+
+  // A previously-known, unreferenced track whose relativePath this walk
+  // didn't find at all is a ghost, not a legitimate "unplaylisted" entry -
+  // its file was moved/renamed/deleted outside of any playlist entry
+  // tracking it (e.g. a library organizer like beets retagging and
+  // relocating files). scanRoot's own stale-row cleanup (see scan.ts)
+  // only fires for a relativePath still referenced by a playlist this
+  // scan, so a ghost like this survives every rescan untouched and shows
+  // up here forever with no metadata (nothing ever reads tags for a file
+  // that no longer exists at its stored path) - confirmed live as songs
+  // appearing duplicated, with the dead copy never gaining a title/artist.
+  // A `missing:` placeholder is a different, intentional case (see
+  // TrackRecord.missing) and is left alone here, same as the existing
+  // return filter already did.
+  const ghostFileIds = existingTracks.filter((t) => !t.missing && !referenced.has(t.fileId) && !walkedPaths.has(t.relativePath)).map((t) => t.fileId);
+  await Promise.all(ghostFileIds.map((fileId) => libraryStore.deleteTrack(fileId)));
+  for (const fileId of ghostFileIds) byFileId.delete(fileId);
+
   const newlyDiscovered: TrackRecord[] = [];
   for (const file of files) {
     if (!isAudioFileName(file.name) || byFileId.has(file.id)) continue;
@@ -67,7 +87,6 @@ export async function findUnplaylistedTracks(
     }),
   );
 
-  const referenced = new Set(playlists.flatMap((playlist) => playlist.trackFileIds));
   return [...byFileId.values()].filter((track) => !referenced.has(track.fileId) && !track.missing);
 }
 

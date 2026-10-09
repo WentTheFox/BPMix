@@ -199,6 +199,36 @@ describe('findUnplaylistedTracks', () => {
     });
   });
 
+  it('drops and deletes a ghost row whose file was moved/renamed away, instead of surfacing a dead duplicate', async () => {
+    const fileAccess = new FakeFileAccess({ 'Track A (renamed).mp3': 'fake-audio-a' });
+    const store = new FakeLibraryStore();
+    // The stored row still points at the file's old path - e.g. a library
+    // organizer renamed it on disk without this root having been rescanned
+    // since (scan.ts's own stale-row cleanup only fires for a path a
+    // playlist still references this scan, not an unreferenced one like this).
+    await store.upsertTrack({ fileId: 'Track A.mp3', rootId: 'root-1', relativePath: 'Track A.mp3', sizeBytes: 12, lastModifiedMs: 0 });
+
+    const result = await findUnplaylistedTracks(fileAccess, store, 'root-1');
+
+    // Only the real, renamed file shows up - no dead duplicate under the old path/id.
+    expect(result.map((t) => t.fileId)).toEqual(['Track A (renamed).mp3']);
+    expect(await store.listTracks('root-1')).toEqual([
+      { fileId: 'Track A (renamed).mp3', rootId: 'root-1', relativePath: 'Track A (renamed).mp3', sizeBytes: 12, lastModifiedMs: 0 },
+    ]);
+  });
+
+  it('leaves a ghost row alone if some playlist still references it - not this function\'s cleanup to do', async () => {
+    const fileAccess = new FakeFileAccess({});
+    const store = new FakeLibraryStore();
+    await store.upsertTrack({ fileId: 'Track A.mp3', rootId: 'root-1', relativePath: 'Track A.mp3', sizeBytes: 12, lastModifiedMs: 0 });
+    await store.upsertPlaylist({ id: 'p1', rootId: 'root-1', fileId: 'Party Mix.m3u8', name: 'Party Mix', trackFileIds: ['Track A.mp3'] });
+
+    const result = await findUnplaylistedTracks(fileAccess, store, 'root-1');
+
+    expect(result).toEqual([]);
+    expect(await store.listTracks('root-1')).toEqual([{ fileId: 'Track A.mp3', rootId: 'root-1', relativePath: 'Track A.mp3', sizeBytes: 12, lastModifiedMs: 0 }]);
+  });
+
   it('ignores non-audio files entirely', async () => {
     const fileAccess = new FakeFileAccess({ 'readme.txt': 'not audio', 'cover.jpg': 'not audio either' });
     const store = new FakeLibraryStore();
