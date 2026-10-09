@@ -74,7 +74,7 @@ describe('addTracksToPlaylist', () => {
     await addTracksToPlaylist(fileAccess, 'root-1', playlist, [track('Mixes/Track B.mp3'), track('Loose/Track C.mp3')]);
 
     const written = fileAccess.written.get('Mixes/Party.m3u8')!;
-    expect(parseM3u8(written).map((e) => e.rawPath)).toEqual(['Track A.mp3', 'Track B.mp3', '../Loose/Track C.mp3']);
+    expect(parseM3u8(written).map((e) => e.rawPath)).toEqual(['Track A.mp3', './Track B.mp3', '../Loose/Track C.mp3']);
   });
 
   it('inserts tracks at the start when position is "start"', async () => {
@@ -84,7 +84,7 @@ describe('addTracksToPlaylist', () => {
     await addTracksToPlaylist(fileAccess, 'root-1', playlist, [track('Track B.mp3')], 'start');
 
     const written = fileAccess.written.get('Party.m3u8')!;
-    expect(parseM3u8(written).map((e) => e.rawPath)).toEqual(['Track B.mp3', 'Track A.mp3']);
+    expect(parseM3u8(written).map((e) => e.rawPath)).toEqual(['./Track B.mp3', 'Track A.mp3']);
   });
 
   it('is a no-op for an empty track list', async () => {

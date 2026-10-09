@@ -9,6 +9,7 @@ export * from './ConfirmDialog';
 export * from './CreatePlaylistButton';
 export * from './CreatePlaylistScreen';
 export * from './CrossfadeArt';
+export * from './EditPlaylistFileScreen';
 export * from './Icon';
 export * from './IconLabel';
 export * from './FolderBrowser';

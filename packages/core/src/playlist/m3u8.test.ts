@@ -59,12 +59,17 @@ describe('relativizeM3u8EntryPath', () => {
     expect(resolveM3u8EntryPath('Playlists/Mix.m3u8', relativizeM3u8EntryPath('Playlists/Mix.m3u8', target))).toBe(target);
   });
 
-  it('stays in the same directory as the playlist when the target is a sibling file', () => {
-    expect(relativizeM3u8EntryPath('Mix.m3u8', 'Track.mp3')).toBe('Track.mp3');
+  it('stays in the same directory as the playlist when the target is a sibling file, prefixed with ./', () => {
+    expect(relativizeM3u8EntryPath('Mix.m3u8', 'Track.mp3')).toBe('./Track.mp3');
   });
 
-  it('descends into a subfolder relative to the playlist', () => {
-    expect(relativizeM3u8EntryPath('Mix.m3u8', 'Artist/Track.mp3')).toBe('Artist/Track.mp3');
+  it('descends into a subfolder relative to the playlist, prefixed with ./', () => {
+    expect(relativizeM3u8EntryPath('Mix.m3u8', 'Artist/Track.mp3')).toBe('./Artist/Track.mp3');
+  });
+
+  it('round-trips the ./ prefix back through resolveM3u8EntryPath correctly', () => {
+    const target = 'Artist/Track.mp3';
+    expect(resolveM3u8EntryPath('Mix.m3u8', relativizeM3u8EntryPath('Mix.m3u8', target))).toBe(target);
   });
 
   it('shares a common prefix without introducing unnecessary ../ hops', () => {

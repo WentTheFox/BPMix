@@ -120,5 +120,12 @@ export function relativizeM3u8EntryPath(playlistRelativePath: string, targetRela
 
   const ups = playlistDirParts.slice(commonLength).map(() => '..');
   const downs = targetParts.slice(commonLength);
+  // No ../ hops needed - explicitly prefix with ./ rather than leaving a bare
+  // path, matching the convention real-world .m3u8 files (and every other
+  // entry already in one) are written with. Without this, a rewritten entry
+  // stood out from its neighbors - confirmed live as the one addTracksToPlaylist
+  // had written sitting first in a user's playlist with no ./ prefix, unlike
+  // every surrounding line.
+  if (ups.length === 0) return `./${downs.join('/')}`;
   return [...ups, ...downs].join('/');
 }

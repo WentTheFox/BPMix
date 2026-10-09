@@ -25,6 +25,7 @@ export * from './library-scan/loadRootLibrary';
 export * from './library-scan/addTracksToPlaylist';
 export * from './library-scan/createPlaylistFromFolder';
 export * from './library-scan/deleteRootLibraryData';
+export * from './library-scan/editPlaylistTracks';
 export * from './library-scan/findUnplaylistedTracks';
 export * from './library-scan/pruneOrphanedRootData';
 export * from './library-scan/relocateMissingTrack';

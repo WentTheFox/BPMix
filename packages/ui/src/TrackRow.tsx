@@ -1,5 +1,5 @@
 import { formatDuration, isMetadataCurrent, trackDisplayName, type LibraryStore, type TrackRecord } from '@bpmix/core';
-import { mdiAlertCircleOutline, mdiPause, mdiPlay, mdiPlaylistPlus, mdiSubtitles } from '@mdi/js';
+import { mdiAlertCircleOutline, mdiCheck, mdiChevronDown, mdiChevronUp, mdiPause, mdiPlay, mdiPlaylistPlus, mdiSubtitles } from '@mdi/js';
 import { memo, useEffect, useRef } from 'react';
 import { ActivityIndicator, Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Icon } from './Icon';
@@ -41,6 +41,17 @@ export interface TrackRowProps {
   isMissing?: boolean;
   /** Shows a per-row "add to playlist" button when given (see AddToPlaylistDialog) - only passed by the Unplaylisted automatic view today, since a track already sitting in a real playlist has nowhere new to be added to from here. Omitted (not just falsy) elsewhere, so an ordinary playlist screen's rows look exactly as they did before this existed. */
   onAddToPlaylist?: (track: TrackRecord) => void;
+  /** True while the playlist screen is in reorder mode (see TrackList) - replaces this row's normal trailing content (duration/missing-icon/add-to-playlist icon) with either a selected checkmark or insert-above/insert-below buttons, and changes what a tap on the row does (see onPress below). */
+  reorderMode?: boolean;
+  isSelected?: boolean;
+  /** Starts reorder mode, selecting this track - only meaningful (and only wired by TrackList) while reorderMode is false; see TrackList's own doc for why a long-press mid-reorder-mode must not re-trigger this. */
+  onLongPress?: (track: TrackRecord) => void;
+  /** Toggles this row's selection - only called while reorderMode is true. */
+  onToggleSelect?: (track: TrackRecord) => void;
+  /** Requests moving the current selection to just before this (unselected) row - only rendered/called while reorderMode is true and this row isn't itself selected. */
+  onInsertBefore?: (track: TrackRecord) => void;
+  /** Requests moving the current selection to just after this (unselected) row - same conditions as onInsertBefore. */
+  onInsertAfter?: (track: TrackRecord) => void;
 }
 
 /**
@@ -53,7 +64,24 @@ export interface TrackRowProps {
  * the text. Shared between mobile and web (identical on both, so it lives
  * here rather than being duplicated per-app).
  */
-export const TrackRow = memo(function TrackRow({ track, isCurrent, isPlaying, isLoading, textColor, colors, onPress, libraryStore, isMissing, onAddToPlaylist }: TrackRowProps) {
+export const TrackRow = memo(function TrackRow({
+  track,
+  isCurrent,
+  isPlaying,
+  isLoading,
+  textColor,
+  colors,
+  onPress,
+  libraryStore,
+  isMissing,
+  onAddToPlaylist,
+  reorderMode,
+  isSelected,
+  onLongPress,
+  onToggleSelect,
+  onInsertBefore,
+  onInsertAfter,
+}: TrackRowProps) {
   const metadata = useTrackMetadata(libraryStore, track.fileId);
   // Not just metadata !== null - useTrackMetadata can display a still-stale
   // (older parserVersion) result immediately while it keeps retrying, and
@@ -86,7 +114,11 @@ export const TrackRow = memo(function TrackRow({ track, isCurrent, isPlaying, is
   const duration = metadata?.durationSeconds != null ? formatDuration(metadata.durationSeconds) : null;
 
   return (
-    <Pressable style={styles.trackRow} onPress={() => onPress(track)}>
+    <Pressable
+      style={[styles.trackRow, reorderMode && isSelected && { backgroundColor: withAlpha(colors.accent, 0.15) }]}
+      onPress={() => (reorderMode ? onToggleSelect?.(track) : onPress(track))}
+      onLongPress={onLongPress ? () => onLongPress(track) : undefined}
+    >
       <View style={[styles.trackRowContent, isMissing && styles.trackRowContentMissing]}>
         <View style={styles.art}>
           {artLoading ? <Skeleton style={styles.art} /> : <View style={[styles.art, styles.artPlaceholder]} />}
@@ -112,26 +144,55 @@ export const TrackRow = memo(function TrackRow({ track, isCurrent, isPlaying, is
             artLoading && <Skeleton style={styles.artistSkeleton} />
           )}
         </View>
-        {duration && (
-          <Text style={[styles.trackDuration, { color: textColor }]} numberOfLines={1}>
-            {duration}
-          </Text>
-        )}
-        {isMissing && (
-          <View>
-            <Icon path={mdiAlertCircleOutline} size={18} color="#dc2626" />
-          </View>
-        )}
-        {onAddToPlaylist && (
-          <Pressable
-            onPress={(e) => {
-              e.stopPropagation();
-              onAddToPlaylist(track);
-            }}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Icon path={mdiPlaylistPlus} size={18} color={colors.accent} />
-          </Pressable>
+        {reorderMode ? (
+          isSelected ? (
+            <Icon path={mdiCheck} size={18} color={colors.accent} />
+          ) : (
+            <View style={styles.insertButtons}>
+              <Pressable
+                onPress={(e) => {
+                  e.stopPropagation();
+                  onInsertBefore?.(track);
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Icon path={mdiChevronUp} size={18} color={colors.accent} />
+              </Pressable>
+              <Pressable
+                onPress={(e) => {
+                  e.stopPropagation();
+                  onInsertAfter?.(track);
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Icon path={mdiChevronDown} size={18} color={colors.accent} />
+              </Pressable>
+            </View>
+          )
+        ) : (
+          <>
+            {duration && (
+              <Text style={[styles.trackDuration, { color: textColor }]} numberOfLines={1}>
+                {duration}
+              </Text>
+            )}
+            {isMissing && (
+              <View>
+                <Icon path={mdiAlertCircleOutline} size={18} color="#dc2626" />
+              </View>
+            )}
+            {onAddToPlaylist && (
+              <Pressable
+                onPress={(e) => {
+                  e.stopPropagation();
+                  onAddToPlaylist(track);
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Icon path={mdiPlaylistPlus} size={18} color={colors.accent} />
+              </Pressable>
+            )}
+          </>
         )}
       </View>
     </Pressable>
@@ -202,5 +263,9 @@ const styles = StyleSheet.create({
     width: '40%',
     height: 10,
     marginTop: 4,
+  },
+  insertButtons: {
+    flexDirection: 'row',
+    gap: 8,
   },
 });

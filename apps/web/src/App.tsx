@@ -10,8 +10,10 @@ import {
   logLibraryAction,
   LYRICS_MATCHED_COUNT_SETTING_KEY,
   matchLibraryLyricsQueued,
+  movePlaylistTracks,
   PlaylistPlayer,
   pruneOrphanedRootData,
+  removePlaylistTracks,
   scanLibraryMetadataQueued,
   scanRootCoordinated,
   trackDisplayName,
@@ -21,6 +23,7 @@ import {
   BackButton,
   ConfirmDialog,
   CreatePlaylistScreen,
+  EditPlaylistFileScreen,
   FolderBrowser,
   FolderPickerButton,
   HeaderActions,
@@ -287,6 +290,9 @@ function App() {
   // screen, or reopened a different root's Unplaylisted) - only the
   // latest request's result is applied.
   const unplaylistedRequestRef = useRef(0);
+  // Drives the "Edit raw" overlay (see EditPlaylistFileScreen) - set from
+  // TrackList's onEditRaw, only ever for a real, file-backed playlist.
+  const [editingPlaylistFile, setEditingPlaylistFile] = useState<{ root: GrantedRoot; playlist: PlaylistRecord } | null>(null);
   // Which real playlist is actually playing right now (not necessarily
   // `screen`, which is whichever screen is currently OPEN - the user may
   // have navigated back to Library while a track keeps playing). Set
@@ -1085,6 +1091,26 @@ function App() {
     </ScreenLayer>
   );
 
+  // Opened from TrackList's "Edit raw" button (a real playlist only - see
+  // isRealPlaylistScreen) - zIndex 15, above the docked/overlaid Now
+  // Playing screen (10) since it's reachable from the playlist screen
+  // underneath that, below Settings (20) since it's not reachable from there.
+  const editPlaylistFileScreen = editingPlaylistFile && (
+    <ScreenLayer zIndex={15} colors={colors}>
+      <EditPlaylistFileScreen
+        colors={colors}
+        fileAccess={fileAccess}
+        rootId={editingPlaylistFile.root.id}
+        playlist={editingPlaylistFile.playlist}
+        onCancel={() => setEditingPlaylistFile(null)}
+        onSaved={() => {
+          void rescan(editingPlaylistFile.root.id);
+          setEditingPlaylistFile(null);
+        }}
+      />
+    </ScreenLayer>
+  );
+
   // Covers the library scan + playback-state restore's own async window -
   // without this, the library screen would render first (empty, then
   // populated) and only jump to a restored playlist screen a beat later,
@@ -1208,6 +1234,10 @@ function App() {
   // playlist has no such use case, and every real playlist's tracks are
   // by definition already in a playlist.
   const isUnplaylistedScreen = screen.kind === 'playlist' && screen.playlist.id === `virtual:${screen.root.id}:unplaylisted`;
+  // Gates TrackList's reorder mode and "Edit raw" button - both write to a
+  // real .m3u8, which neither virtual playlist (Unplaylisted, Now Playing)
+  // has one of. See apps/mobile/App.tsx's identical block.
+  const isRealPlaylistScreen = screen.kind === 'playlist' && !screen.playlist.id.startsWith('virtual:');
 
   const addToPlaylistDialog =
     addToPlaylistTrack && screen.kind === 'playlist' ? (
@@ -1260,6 +1290,57 @@ function App() {
           initialNumToRender={30}
           missingFileIds={missingFileIds}
           onAddToPlaylist={isUnplaylistedScreen ? setAddToPlaylistTrack : undefined}
+          onMoveTracks={
+            isRealPlaylistScreen
+              ? async (movingFileIds, anchorFileId, position) => {
+                  const playlistId = screen.playlist.id;
+                  try {
+                    await movePlaylistTracks(fileAccess, screen.root.id, screen.playlist, screen.tracksById, movingFileIds, anchorFileId, position);
+                    // Patches the open screen's own order immediately rather
+                    // than waiting on rescan() below - nothing today
+                    // reconciles the currently-OPEN screen against a rescan's
+                    // result (only PlaylistPlayer's own now-playing order
+                    // gets that treatment, see refresh()'s reconcilePlaylist
+                    // call), so without this the reorder looked like it did
+                    // nothing until the playlist was closed and reopened,
+                    // despite the .m3u8 itself already being correct.
+                    setScreen((prev) => {
+                      if (prev.kind !== 'playlist' || prev.playlist.id !== playlistId) return prev;
+                      const moving = new Set(movingFileIds);
+                      const remaining = prev.playlist.trackFileIds.filter((id) => !moving.has(id));
+                      const anchorIndex = remaining.indexOf(anchorFileId);
+                      if (anchorIndex === -1) return prev;
+                      const insertAt = position === 'before' ? anchorIndex : anchorIndex + 1;
+                      const trackFileIds = [...remaining.slice(0, insertAt), ...movingFileIds, ...remaining.slice(insertAt)];
+                      return { ...prev, playlist: { ...prev.playlist, trackFileIds } };
+                    });
+                    void rescan(screen.root.id);
+                  } catch (err) {
+                    notificationCenter.addError(`Couldn't reorder "${screen.playlist.name}"`, errorMessage(err));
+                  }
+                }
+              : undefined
+          }
+          onRemoveTracks={
+            isRealPlaylistScreen
+              ? async (fileIds) => {
+                  const playlistId = screen.playlist.id;
+                  try {
+                    await removePlaylistTracks(fileAccess, screen.root.id, screen.playlist, screen.tracksById, fileIds);
+                    // Same immediate-patch reasoning as onMoveTracks above.
+                    setScreen((prev) => {
+                      if (prev.kind !== 'playlist' || prev.playlist.id !== playlistId) return prev;
+                      const removing = new Set(fileIds);
+                      return { ...prev, playlist: { ...prev.playlist, trackFileIds: prev.playlist.trackFileIds.filter((id) => !removing.has(id)) } };
+                    });
+                    void rescan(screen.root.id);
+                  } catch (err) {
+                    notificationCenter.addError(`Couldn't remove tracks from "${screen.playlist.name}"`, errorMessage(err));
+                  }
+                }
+              : undefined
+          }
+          onEditRaw={isRealPlaylistScreen ? () => setEditingPlaylistFile({ root: screen.root, playlist: screen.playlist }) : undefined}
         />
       </>
     ) : null;
@@ -1369,6 +1450,7 @@ function App() {
         {nowPlayingScreen}
         {settingsScreen}
         {externalConnectionsScreen}
+        {editPlaylistFileScreen}
         {missingFileDialog}
         {addToPlaylistDialog}
       </View>
@@ -1383,6 +1465,7 @@ function App() {
       {miniPlayerBar}
       {settingsScreen}
       {externalConnectionsScreen}
+      {editPlaylistFileScreen}
       {missingFileDialog}
       {addToPlaylistDialog}
     </View>

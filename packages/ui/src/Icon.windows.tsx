@@ -13,6 +13,7 @@ import {
   mdiFolderPlus,
   mdiMusicNote,
   mdiPause,
+  mdiPencilOutline,
   mdiPlay,
   mdiPlaylistMusic,
   mdiPlaylistPlus,
@@ -24,6 +25,7 @@ import {
   mdiSkipNext,
   mdiSkipPrevious,
   mdiSubtitles,
+  mdiSwapVertical,
   mdiTrashCanOutline,
   mdiVolumeHigh,
   mdiVolumeLow,
@@ -115,6 +117,11 @@ const CODEPOINTS: Record<string, number> = {
   // Added for the settings gear button (see HeaderActions.tsx) - sourced
   // from the same official codepoint table as the volume/bell glyphs above.
   [mdiCog]: 0xe713, // "Settings" - the font's own gear glyph
+  // Added for TrackList's playlist reorder/edit-raw controls - sourced from
+  // the same official codepoint table as the volume/bell/settings glyphs
+  // above, no GDI+ re-verification.
+  [mdiSwapVertical]: 0xe8cb, // "Sort" - the font's closest glyph to a reorder/sort affordance; no dedicated "reorder" icon exists
+  [mdiPencilOutline]: 0xe70f, // "Edit" - a plain pencil
 };
 
 const FALLBACK_CODEPOINT = 0xe11b; // "StatusErrorFull" (a "?" in a circle) - visible placeholder for an unmapped icon, not a silent blank.
