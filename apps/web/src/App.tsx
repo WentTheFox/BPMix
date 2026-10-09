@@ -43,6 +43,7 @@ import {
   useLastFmConnection,
   useLastFmScrobbling,
   useLibraryRootActions,
+  useOpenPlaylistMetadataScan,
   useMemoryUsageLogging,
   useMissingTrackRelocation,
   useNotificationCenter,
@@ -752,6 +753,8 @@ function App() {
     });
 
   useTaskNotifications(notificationCenter);
+
+  useOpenPlaylistMetadataScan({ fileAccess: backgroundFileAccess, libraryStore, resizer: coverArtResizer, screen });
 
   const missingTrackRelocation = useMissingTrackRelocation({ fileAccess, rescan, setError });
 

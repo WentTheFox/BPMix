@@ -23,6 +23,7 @@ export * from './LyricsFolderSection';
 export * from './LyricsPickerScreen';
 export * from './LyricsSyncScreen';
 export * from './useLibraryRootActions';
+export * from './useOpenPlaylistMetadataScan';
 export * from './LyricsSection';
 export * from './MiniPlayerBar';
 export * from './MultiPaneLayout';
