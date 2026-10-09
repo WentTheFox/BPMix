@@ -179,10 +179,18 @@ export function scanLibraryMetadata(
  * display; its priority defaults to 'background' (a whole-library pass) -
  * use 'visible' for a small pass over tracks that are on screen right now.
  * A request made while a pass with the same `task.id` is running joins it
- * (see runJoinableTask) rather than queueing a second full pass.
+ * (see runJoinableTask) rather than queueing a second full pass - unless
+ * `task.joinKey` differs from the running pass's own, in which case it
+ * can't join and instead supersedes it via runLatestTask's own same-id
+ * dedup (see taskQueue.ts), which now also makes an already-running
+ * superseded pass yield at its next checkpoint instead of blocking the
+ * new one - see useOpenPlaylistMetadataScan for the motivating case (one
+ * shared id across every playlist, `joinKey` set to the playlist id, so
+ * opening a different playlist preempts rather than queues behind the
+ * previous one's still-running scan).
  */
 export function scanLibraryMetadataQueued(
-  task: { id: string; label: string; priority?: 'visible' | 'background' },
+  task: { id: string; label: string; priority?: 'visible' | 'background'; joinKey?: string },
   fileAccess: FileAccess,
   store: LibraryStore,
   tracks: TrackRecord[],

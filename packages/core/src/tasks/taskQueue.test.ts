@@ -142,6 +142,39 @@ describe('taskQueue', () => {
     expect(ran).toEqual(['newer', 'newest']);
   });
 
+  it('runLatestTask: a running task yields at its own next checkpoint once superseded, even to an equal-priority newer request, then resumes once the newer one finishes', async () => {
+    const order: string[] = [];
+    const reachedOwnCheckpoint = gate();
+    const older = runLatestTask({ id: 'meta', label: 'Meta', priority: 'visible' }, async (ctx) => {
+      order.push('older:1');
+      await reachedOwnCheckpoint.promise;
+      await ctx.checkpoint();
+      order.push('older:2');
+    });
+    await vi.waitFor(() => expect(stateOf('meta')).toBe('running'));
+
+    // Same id, same priority - ordinarily this would just queue behind
+    // 'older' and wait for it to finish on its own (see the previous test).
+    // Superseding it here should instead make 'older' yield at its very
+    // next checkpoint despite the equal priority, since it's no longer the
+    // current request for this id.
+    const newerGate = gate();
+    const newer = runLatestTask({ id: 'meta', label: 'Meta', priority: 'visible' }, async () => {
+      order.push('newer:1');
+      await newerGate.promise;
+    });
+    reachedOwnCheckpoint.open();
+
+    await vi.waitFor(() => expect(order).toEqual(['older:1', 'newer:1']));
+    expect(stateOf('meta')).toBe('running'); // 'newer' holds the queue now
+    expect(getTasks().filter((t) => t.id === 'meta')).toHaveLength(2); // 'older', paused, is still tracked, not abandoned
+
+    newerGate.open();
+    await newer;
+    await older;
+    expect(order).toEqual(['older:1', 'newer:1', 'older:2']); // 'older' resumed and finished once 'newer' was done
+  });
+
   it('ranks foreground > visible > background: each pauses at a checkpoint for anything above it', async () => {
     const order: string[] = [];
     const bgStarted = gate();

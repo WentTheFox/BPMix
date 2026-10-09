@@ -150,15 +150,36 @@ export function runTask<T>(
 
   const checkpoint = async (): Promise<void> => {
     if (entry.priority === 'foreground' || holder !== entry) return;
-    const own = RANK[entry.priority];
+    // A still-running task whose signal has been aborted (see
+    // runLatestTask: a newer request with the same id supersedes this one)
+    // yields to literally anything waiting, not just strictly-higher
+    // priority work - it's been superseded, so it has no more claim to the
+    // queue than ordinary background filler work does, regardless of its
+    // own nominal priority. Without this, two same-priority 'visible'
+    // passes (e.g. metadata scans for two different playlists opened one
+    // after another) never preempt each other - the second just queues
+    // behind the first until it finishes on its own, even though the first
+    // is no longer for what's actually on screen (confirmed live: opening
+    // a second playlist while the first's scan was still running left the
+    // second waiting the whole time instead of jumping ahead).
+    const own = signal?.aborted ? -1 : RANK[entry.priority];
     if (!waiting.some((e) => RANK[e.priority] > own)) return;
     // Yield: go back to the front of this priority's line (ahead of any
     // same-priority task that hasn't started yet), let the higher-priority
-    // work run, and continue once pump() hands the queue back.
+    // work run, and continue once pump() hands the queue back. A superseded
+    // task instead goes to the very back of the whole queue, not the front
+    // of its own (nominal, no-longer-meaningful) priority tier - otherwise
+    // it would immediately jump back in front of the very task whose
+    // request superseded it, since pump() itself only ever looks at an
+    // entry's own `priority` field, not this per-checkpoint demotion.
     holder = null;
     entry.state = 'paused';
-    const firstSamePriority = waiting.findIndex((e) => e.priority === entry.priority);
-    waiting.splice(firstSamePriority === -1 ? waiting.length : firstSamePriority, 0, entry);
+    if (signal?.aborted) {
+      waiting.push(entry);
+    } else {
+      const firstSamePriority = waiting.findIndex((e) => e.priority === entry.priority);
+      waiting.splice(firstSamePriority === -1 ? waiting.length : firstSamePriority, 0, entry);
+    }
     const resumed = turn();
     pump();
     await resumed;
