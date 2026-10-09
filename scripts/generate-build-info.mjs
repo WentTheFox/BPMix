@@ -12,12 +12,19 @@
 // package.json files) and packages/core's own pretypecheck/pretest, so it
 // stays current right before whatever actually needs it.
 import { execSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const outPath = path.join(dirname, '../packages/core/src/buildInfo.ts');
+// The root postinstall hook runs this against the Docker build's
+// manifests-only install layer (see Dockerfile), which copies
+// packages/core/package.json but not its src/ directory - mkdir first so
+// that layer doesn't fail with ENOENT before the real `COPY . .` (and
+// apps/web's own prebuild, which regenerates this correctly with real
+// commit/version info) ever runs. A no-op once src/ already exists.
+mkdirSync(path.dirname(outPath), { recursive: true });
 
 // The Docker build context excludes .git entirely (see .dockerignore), and
 // a plain `git describe`/`rev-parse` on a shallow CI checkout may not see
