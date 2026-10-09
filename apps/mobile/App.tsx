@@ -275,6 +275,17 @@ function AppContent() {
   // usePlaybackPersistence's onStepChange updates below.
   const { completedSteps, currentStep, hasLyricsScopes, advanceStep, setHasLyricsScopes } = useRestoringProgress();
   const [screen, setScreen] = useState<Screen>({ kind: 'library' });
+  // True while handleShowUnplaylisted's real directory walk is still in
+  // flight for whatever's currently on screen - drives the "Finding…"
+  // notice at the top of the Unplaylisted playlist screen (see its render
+  // below), now that the screen itself opens immediately instead of
+  // waiting for the walk to finish.
+  const [isFindingUnplaylisted, setIsFindingUnplaylisted] = useState(false);
+  // Guards handleShowUnplaylisted's async result against a stale request
+  // landing after the user has already navigated elsewhere (closed the
+  // screen, or reopened a different root's Unplaylisted) - only the
+  // latest request's result is applied.
+  const unplaylistedRequestRef = useRef(0);
   // Which real playlist is actually playing right now - see
   // apps/web/src/App.tsx's identical state for why this is separate from
   // `screen` (the user may navigate back to Library while a track keeps
@@ -1225,19 +1236,33 @@ function AppContent() {
   // tracks themselves DO get persisted; only the playlist grouping is
   // recomputed fresh every time).
   const handleShowUnplaylisted = async (rootId: string) => {
+    // Already viewing this root's Unplaylisted screen - re-walking the
+    // whole root on every tap (findUnplaylistedTracksQueued is a real
+    // directory walk, not a cached lookup) just re-shows "Finding…" for no
+    // reason; nothing about the currently-open screen changes from this.
+    if (screen.kind === 'playlist' && screen.playlist.id === `virtual:${rootId}:unplaylisted`) return;
     const root = grantedRoots.find((r) => r.id === rootId);
     if (!root) return;
-    const tracks = await findUnplaylistedTracksQueued(fileAccess, libraryStore, rootId, root.displayName, { resizer: coverArtResizer });
-    const playlist: PlaylistRecord = {
-      id: `virtual:${rootId}:unplaylisted`,
-      rootId,
-      fileId: `virtual:${rootId}:unplaylisted`,
-      name: 'Songs not in a playlist',
-      trackFileIds: tracks.map((t) => t.fileId),
-    };
-    const tracksById = new Map(tracks.map((t) => [t.fileId, t]));
-    setScreen({ kind: 'playlist', root, playlist, tracksById });
-    persistPlaybackPatch({ openedPlaylistId: playlist.id, openedRootId: root.id });
+    const playlistId = `virtual:${rootId}:unplaylisted`;
+    // Opens the screen immediately, empty, with isFindingUnplaylisted
+    // driving a "Finding…" notice (see its render below) while the real
+    // walk runs in the background - previously this awaited the whole walk
+    // before navigating at all, which could leave the user staring at the
+    // Library screen for a while on a large root with no feedback other
+    // than the Unplaylisted row's own small label swap.
+    setScreen({ kind: 'playlist', root, playlist: { id: playlistId, rootId, fileId: playlistId, name: 'Songs not in a playlist', trackFileIds: [] }, tracksById: new Map() });
+    persistPlaybackPatch({ openedPlaylistId: playlistId, openedRootId: root.id });
+    const requestId = ++unplaylistedRequestRef.current;
+    setIsFindingUnplaylisted(true);
+    try {
+      const tracks = await findUnplaylistedTracksQueued(fileAccess, libraryStore, rootId, root.displayName, { resizer: coverArtResizer });
+      if (unplaylistedRequestRef.current !== requestId) return;
+      const playlist: PlaylistRecord = { id: playlistId, rootId, fileId: playlistId, name: 'Songs not in a playlist', trackFileIds: tracks.map((t) => t.fileId) };
+      const tracksById = new Map(tracks.map((t) => [t.fileId, t]));
+      setScreen((prev) => (prev.kind === 'playlist' && prev.playlist.id === playlistId ? { ...prev, playlist, tracksById } : prev));
+    } finally {
+      if (unplaylistedRequestRef.current === requestId) setIsFindingUnplaylisted(false);
+    }
   };
 
   // See apps/web/src/App.tsx's identical block for why this is scoped to
@@ -1274,6 +1299,7 @@ function AppContent() {
       <>
         <HeaderRow style={styles.backRow} left={<BackButton text={`Playlist: ${screen.playlist.name}`} color={colors.text} onPress={closePlaylistScreen} />} right={paneHeaderActionsEl} />
         {error && <Text style={styles.error}>{error}</Text>}
+        {isUnplaylistedScreen && isFindingUnplaylisted && <Text style={[styles.notice, { color: colors.subtleText }]}>Finding songs not in a playlist…</Text>}
         <TrackList
           trackFileIds={screen.playlist.trackFileIds}
           tracksById={screen.tracksById}
@@ -1405,6 +1431,11 @@ const styles = StyleSheet.create({
     marginTop: 12,
     maxWidth: 480,
     textAlign: 'center',
+  },
+  notice: {
+    marginTop: 12,
+    marginHorizontal: 16,
+    fontSize: 13,
   },
   backRow: {
     width: '100%',

@@ -195,7 +195,13 @@ export function LibraryScreen({
                   />
                 )}
                 {onShowUnplaylisted && (
-                  <AutomaticPlaylistRow colors={colors} icon={mdiMusicNote} label="Unplaylisted" onPress={() => onShowUnplaylisted(root.id)} />
+                  <AutomaticPlaylistRow
+                    colors={colors}
+                    icon={mdiMusicNote}
+                    label="Unplaylisted"
+                    onPress={() => onShowUnplaylisted(root.id)}
+                    highlighted={nowPlayingPlaylistId === `virtual:${root.id}:unplaylisted` && !nowPlayingIsShuffled}
+                  />
                 )}
               </View>
             ) : null}
