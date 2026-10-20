@@ -28,6 +28,7 @@ import {
   selectMissingFileIds,
   selectRootsWithLibrary,
 } from './librarySlice';
+import { playingContextSet } from '../navigation/navigationSlice';
 import { refreshLibrary } from './refreshLibrary';
 
 const track = (fileId: string, over: Partial<TrackRecord> = {}) => ({ fileId, rootId: 'r1', relativePath: `${fileId}.mp3`, ...over }) as unknown as TrackRecord;
@@ -185,6 +186,20 @@ describe('refreshLibrary', () => {
     await store.dispatch(refreshLibrary({ onNowPlayingReconciled }));
     expect(playlistPlayer.reconcilePlaylist).toHaveBeenCalledWith(['a']);
     expect(onNowPlayingReconciled).toHaveBeenCalledTimes(1);
+  });
+
+  it('refreshes the playing context (what the player resolves tracks through) from the fresh scan, but only for the playlist that is playing', async () => {
+    const stale = { root: root('r1'), playlist: playlist('p1', ['old']), tracks: [track('old')] };
+    const { store } = setup({ currentPlaylistId: 'p1' });
+    store.dispatch(playingContextSet(stale));
+    await store.dispatch(refreshLibrary());
+    expect(store.getState().navigation.playingContext?.playlist.trackFileIds).toEqual(['a']);
+    expect(store.getState().navigation.playingContext?.tracks.map((t) => t.fileId)).toEqual(['a', 'b']);
+
+    const other = setup({ currentPlaylistId: 'p1' });
+    other.store.dispatch(playingContextSet({ ...stale, playlist: playlist('p2', ['old']) }));
+    await other.store.dispatch(refreshLibrary());
+    expect(other.store.getState().navigation.playingContext?.playlist.trackFileIds).toEqual(['old']);
   });
 
   it('skips reconciling when nothing is playing', async () => {

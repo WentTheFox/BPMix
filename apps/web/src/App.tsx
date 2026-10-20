@@ -3,6 +3,7 @@ import {
   createBackgroundFileAccess,
   addError,
   createStore,
+  selectPlayingContext,
   fileFoundReported,
   fileMissingReported,
   refreshLibrary,
@@ -112,18 +113,9 @@ function trackToFileRef(track: TrackRecord): FileRef {
   };
 }
 
-// PlaylistPlayer resolves a fileId to a FileRef via this module-level map,
-// kept pointed at whichever playlist screen is currently open (there's only
-// ever one active player/screen in this app). setError is likewise bridged
-// in on mount so the player's async load/decode errors reach the UI.
-let activeTracksById = new Map<string, TrackRecord>();
-/** Stable identity across renders (unlike an inline arrow assigning activeTracksById directly) so usePlaylistTransport's playFromTrack doesn't get recreated every render. */
-const setActiveTracksById = (tracksById: Map<string, TrackRecord>) => {
-  activeTracksById = tracksById;
-};
-/** Mirrors the settings screen's volume-normalization toggle into resolveGain below - bridged in from an effect, since playlistPlayer is a module-level singleton built before any component (and its settings) exist. */
-let volumeNormalizationEnabled = true;
-// Bridged in on mount, same pattern as volumeNormalizationEnabled - lets PlaylistPlayer push
+/** Stand-in when nothing's playing yet, so lookups don't need a null check. */
+const NO_TRACKS: ReadonlyMap<string, TrackRecord> = new Map();
+// Bridged in on mount, same pattern as the other bridges - lets PlaylistPlayer push
 // an immediate re-render right when position changes outside a manual UI
 // action (a crossfade completing, or a natural end auto-advancing), instead
 // of the "now playing" display waiting on the next ~200ms poll tick to
@@ -133,14 +125,16 @@ let notifyAdvance: () => void = () => {};
 const playlistPlayer = new PlaylistPlayer(
   audioEngine,
   (fileId) => {
-    const track = activeTracksById.get(fileId);
+    // PlaylistPlayer resolves a fileId to a FileRef through the playing playlist's tracks, read
+    // synchronously from the store (so it's current from the very first decode).
+    const track = selectPlayingContext(store.getState())?.tracksById.get(fileId);
     if (!track) throw new Error(`Unknown track ${fileId}`);
     return trackToFileRef(track);
   },
   {
     onError: (error, fileId) => reportPlaybackError(error, fileId),
     resolveGain: async (fileId) =>
-      volumeNormalizationEnabled ? ((await libraryStore.getAnalysis(fileId))?.normalizationGain ?? 1) : 1,
+      store.getState().settings.values.volumeNormalizationEnabled ? ((await libraryStore.getAnalysis(fileId))?.normalizationGain ?? 1) : 1,
     onAdvance: () => notifyAdvance(),
     crossfadeSeconds: DEFAULT_CROSSFADE_SECONDS,
     // Just-in-time analysis (Stage 4): a track already needed a decode for
@@ -324,6 +318,7 @@ function AppContent() {
     openPlaylist,
     markOpenPlaylistPlaying,
     restore: restorePlaylistScreen,
+    setPlayingContext,
     setEditingPlaylistFile,
     setAddToPlaylistTrack,
     showNowPlaying,
@@ -390,14 +385,6 @@ function AppContent() {
     return true;
   };
 
-  useEffect(() => {
-    volumeNormalizationEnabled = settings.volumeNormalizationEnabled;
-  }, [settings.volumeNormalizationEnabled]);
-
-  useEffect(() => {
-    playlistPlayer.setCrossfadeSeconds(settings.crossfadeSeconds);
-  }, [settings.crossfadeSeconds]);
-
   // Loading lives in the refreshLibrary thunk (see @bpmix/core's
   // store/library); the callbacks bridge what this component still owns: the
   // restore checklist, and the playback state/persistence that a reconciled
@@ -410,8 +397,7 @@ function AppContent() {
         refreshLibrary({
           onStep: advanceStep,
           onLyricsScopesKnown: setHasLyricsScopes,
-          onNowPlayingReconciled: (tracksById) => {
-            activeTracksById = tracksById;
+          onNowPlayingReconciled: () => {
             setPlayerState(playlistPlayer.getState());
             persistPlaybackPatch({ shuffleOrder: playlistPlayer.getShuffleOrder() });
           },
@@ -429,9 +415,7 @@ function AppContent() {
     initialPlaybackStatePromise,
     refresh,
     setPlayerState,
-    setActiveTracksById: (tracksById) => {
-      activeTracksById = tracksById;
-    },
+    setPlayingContext,
     onRestoreScreen: restorePlaylistScreen,
     onError: (err) => {
       setError(errorMessage(err));
@@ -586,8 +570,7 @@ function AppContent() {
     transportActionAllowed,
     setPlayerState,
     setError,
-    setActiveTracksById,
-    isTrackMissing: (fileId) => activeTracksById.get(fileId)?.missing === true || missingFileIds.has(fileId),
+    isTrackMissing: (fileId) => playingContext?.tracksById.get(fileId)?.missing === true || missingFileIds.has(fileId),
   });
 
   // Turning shuffle on makes the actually-playing playlist's real track
@@ -628,7 +611,7 @@ function AppContent() {
         notificationCenter.addError(`Couldn't play "${trackDisplayName(t)}"`, 'This file failed to open earlier this session - it may still be syncing.');
       } else {
         markOpenPlaylistPlaying();
-        void playFromTrack(screen.playlist, screen.tracksById, t);
+        void playFromTrack(screen.playlist, t);
       }
     },
     // notificationCenter.addError specifically - see refresh()'s identical
@@ -659,7 +642,7 @@ function AppContent() {
   } = useCrossfadePlaybackDisplay({
     playlistPlayer,
     playerState,
-    activeTracksById,
+    activeTracksById: playingContext?.tracksById ?? NO_TRACKS,
     libraryStore,
     crossfadeSeconds: settings.crossfadeSeconds,
   });

@@ -68,8 +68,8 @@ interface UsePlaybackPersistenceOptions {
    */
   refresh: () => Promise<RootWithLibrary[]>;
   setPlayerState: (state: PlaylistPlayerState) => void;
-  /** Points the caller's activeTracksById (a module-level map PlaylistPlayer's resolveTrack callback reads from) at the restored playlist's tracks. */
-  setActiveTracksById: (tracksById: Map<string, TrackRecord>) => void;
+  /** Makes the restored playlist the store's playing context, which PlaylistPlayer resolves tracks through. Called before the playlist is loaded into the player. */
+  setPlayingContext: (loaded: { root: GrantedRoot; playlist: PlaylistRecord; tracksById: Map<string, TrackRecord> }) => void;
   /**
    * Switches the caller's screen state to whatever was last open -
    * `opened` is null when the user was explicitly on the Library screen
@@ -118,7 +118,7 @@ export function usePlaybackPersistence({
   initialPlaybackStatePromise,
   refresh,
   setPlayerState,
-  setActiveTracksById,
+  setPlayingContext,
   onRestoreScreen,
   onError,
   onStepChange,
@@ -338,7 +338,7 @@ export function usePlaybackPersistence({
             // ensureLyricsAssignment await above is a real gap where the
             // user's own manual action could have landed in between.
             if (!userTookOverRef.current) {
-              setActiveTracksById(tracksById);
+              setPlayingContext({ root: targetRoot, playlist, tracksById });
               playlistPlayer.setShuffle(stored.shuffleEnabled);
               playlistPlayer.setLoopMode(stored.loopMode);
               onStepChange?.('loadingPlaylist');

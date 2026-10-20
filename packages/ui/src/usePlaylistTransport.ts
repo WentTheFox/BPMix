@@ -21,8 +21,6 @@ export interface PlaylistTransportInput {
   transportActionAllowed: () => boolean;
   setPlayerState: (state: PlaylistPlayerState) => void;
   setError: (err: string | null) => void;
-  /** Updates the module-level activeTracksById each App.tsx keeps for synchronous lookup (see e.g. its use in useCoverArt callers) - playFromTrack is the one transport action that swaps in a whole new tracksById map. */
-  setActiveTracksById: (tracksById: Map<string, TrackRecord>) => void;
   /**
    * True for a track already known this session to be unreachable - a
    * persisted TrackRecord.missing (an unresolved playlist entry, known since
@@ -40,7 +38,8 @@ export interface PlaylistTransportInput {
 }
 
 export interface PlaylistTransport {
-  playFromTrack: (playlist: PlaylistRecord, tracksById: Map<string, TrackRecord>, track: TrackRecord) => Promise<void>;
+  /** The caller must already have made `playlist` the store's playing context (see usePlaylistScreen's markOpenPlaylistPlaying): PlaylistPlayer resolves tracks through it, synchronously, from the first decode. */
+  playFromTrack: (playlist: PlaylistRecord, track: TrackRecord) => Promise<void>;
   togglePause: () => void;
   seekTo: (positionSeconds: number) => void;
   goNext: (options?: { force?: boolean }) => Promise<void>;
@@ -61,7 +60,7 @@ export interface PlaylistTransport {
  * shared code even though this hook consumes its result.
  */
 export function usePlaylistTransport(input: PlaylistTransportInput): PlaylistTransport {
-  const { playlistPlayer, playerState, persistPlaybackPatch, transportActionAllowed, setPlayerState, setError, setActiveTracksById, isTrackMissing } = input;
+  const { playlistPlayer, playerState, persistPlaybackPatch, transportActionAllowed, setPlayerState, setError, isTrackMissing } = input;
   // A ref, not a dep on goNext/goPrevious's useCallback, since isTrackMissing
   // closes over App.tsx's missingFileIds state (changes over the session)
   // while those callbacks intentionally keep a narrow dep array (see their
@@ -72,10 +71,9 @@ export function usePlaylistTransport(input: PlaylistTransportInput): PlaylistTra
   isTrackMissingRef.current = isTrackMissing;
 
   const playFromTrack = useCallback(
-    async (playlist: PlaylistRecord, tracksById: Map<string, TrackRecord>, track: TrackRecord) => {
+    async (playlist: PlaylistRecord, track: TrackRecord) => {
       if (!transportActionAllowed()) return;
       setError(null);
-      setActiveTracksById(tracksById);
       // Tapping the already-current track just resumes it - re-running
       // setPlaylist() (a full reload/redecode) on every repeat tap was both
       // wasteful and, under rapid repeated taps, one of the ways we
@@ -108,7 +106,7 @@ export function usePlaylistTransport(input: PlaylistTransportInput): PlaylistTra
     // callbacks (and so e.g. useDoublePressHandler's memoized handlers)
     // every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [persistPlaybackPatch, setActiveTracksById],
+    [persistPlaybackPatch],
   );
 
   const togglePause = useCallback(() => {

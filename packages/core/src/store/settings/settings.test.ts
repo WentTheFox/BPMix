@@ -19,8 +19,9 @@ function makeStore(initial: Record<string, string> = {}) {
       db.set(key, value);
     }),
   };
-  const store = createStore({ libraryStore } as unknown as Services);
-  return { store, libraryStore, db };
+  const playlistPlayer = { setCrossfadeSeconds: vi.fn() };
+  const store = createStore({ libraryStore, playlistPlayer } as unknown as Services);
+  return { store, libraryStore, db, playlistPlayer };
 }
 
 describe('settings slice', () => {
@@ -75,6 +76,17 @@ describe('settings slice', () => {
     // A null session key (disconnect) is stored as '' - same as before.
     expect(libraryStore.putSetting).toHaveBeenCalledWith(LASTFM_SESSION_KEY_SETTING_KEY, '');
     expect(libraryStore.putSetting).toHaveBeenCalledTimes(3);
+  });
+
+  it('pushes the crossfade length into the player on hydration and when it changes, but not for other settings', async () => {
+    const { store, playlistPlayer } = makeStore({ [CROSSFADE_SECONDS_SETTING_KEY]: '12' });
+    await store.dispatch(loadSettings('light'));
+    expect(playlistPlayer.setCrossfadeSeconds).toHaveBeenLastCalledWith(12);
+    store.dispatch(settingsUpdated({ crossfadeSeconds: 3 }));
+    expect(playlistPlayer.setCrossfadeSeconds).toHaveBeenLastCalledWith(3);
+    playlistPlayer.setCrossfadeSeconds.mockClear();
+    store.dispatch(settingsUpdated({ lyricsEnabled: false }));
+    expect(playlistPlayer.setCrossfadeSeconds).not.toHaveBeenCalled();
   });
 
   it('reset restores preferences but leaves Last.fm credentials alone', async () => {

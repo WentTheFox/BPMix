@@ -1,12 +1,12 @@
 import type { ThunkAction, UnknownAction } from '@reduxjs/toolkit';
 import { FileAccessPermissionPendingError } from '../../file-access/types';
-import type { TrackRecord } from '../../library-store/types';
 import { errorMessage } from '../../errorMessage';
 import { pruneOrphanedRootData } from '../../library-scan/pruneOrphanedRootData';
 import { scanRootCoordinated } from '../../library-scan/scanCoordinator';
 import { LYRICS_MATCHED_COUNT_SETTING_KEY, matchLibraryLyricsQueued } from '../../lyrics/matchLibraryLyrics';
 import { scanLibraryMetadataQueued } from '../../metadata/scanLibraryMetadata';
 import { logLibraryAction } from '../../playback/playbackLog';
+import { playingContextRefreshed } from '../navigation/navigationSlice';
 import type { RootState } from '../rootReducer';
 import type { Services } from '../services';
 import {
@@ -34,7 +34,7 @@ export interface RefreshCallbacks {
   /** Called as soon as the configured lyrics scopes are known. */
   onLyricsScopesKnown?: (hasScopes: boolean) => void;
   /** The now-playing playlist was found in the fresh scan and the player's running order reconciled to it. */
-  onNowPlayingReconciled?: (tracksById: Map<string, TrackRecord>) => void;
+  onNowPlayingReconciled?: () => void;
 }
 
 type AppThunk<R> = ThunkAction<R, RootState, Services, UnknownAction>;
@@ -211,7 +211,8 @@ export function refreshLibrary(callbacks: RefreshCallbacks = {}): AppThunk<Promi
         const nowPlayingPlaylist = playlists.find((p) => p.id === nowPlayingPlaylistId);
         if (nowPlayingPlaylist) {
           playlistPlayer.reconcilePlaylist(nowPlayingPlaylist.trackFileIds);
-          callbacks.onNowPlayingReconciled?.(tracksById);
+          dispatch(playingContextRefreshed({ playlist: nowPlayingPlaylist, tracks: [...tracksById.values()] }));
+          callbacks.onNowPlayingReconciled?.();
           break;
         }
       }

@@ -187,6 +187,12 @@ export const navigationSlice = createSlice({
     playingContextSet(state, action: PayloadAction<PlaylistContext | null>) {
       state.playingContext = action.payload;
     },
+    /** A rescan re-read the playing playlist: keep the playing context (what the player resolves tracks through) in step with it. A no-op if something else is playing. */
+    playingContextRefreshed(state, action: PayloadAction<{ playlist: PlaylistRecord; tracks: TrackRecord[] }>) {
+      if (!state.playingContext || state.playingContext.playlist.id !== action.payload.playlist.id) return;
+      state.playingContext.playlist = action.payload.playlist;
+      state.playingContext.tracks = action.payload.tracks;
+    },
     /** Startup restore resolved: reopen the last open playlist (and Now Playing, if it was open) and record what's playing. */
     playbackRestored(state, action: PayloadAction<{ opened: PlaylistContext | null; nowPlayingOpen: boolean; playing: PlaylistContext }>) {
       if (action.payload.opened) state.screen = { kind: 'playlist', ...action.payload.opened };
@@ -231,6 +237,7 @@ export const {
   openPlaylistTracksRemoved,
   playingContextSetFromScreen,
   playingContextSet,
+  playingContextRefreshed,
   playbackRestored,
   editingPlaylistFileSet,
   addToPlaylistTrackSet,

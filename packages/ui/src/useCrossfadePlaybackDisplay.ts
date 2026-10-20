@@ -20,7 +20,8 @@ import { useTrackMetadata } from './useTrackMetadata';
 export interface CrossfadePlaybackDisplayInput {
   playlistPlayer: PlaylistPlayer;
   playerState: PlaylistPlayerState;
-  activeTracksById: Map<string, TrackRecord>;
+  /** The playing playlist's tracks (the store's playing context), looked up by fileId. */
+  activeTracksById: ReadonlyMap<string, TrackRecord>;
   libraryStore: LibraryStore;
   crossfadeSeconds: number;
 }
