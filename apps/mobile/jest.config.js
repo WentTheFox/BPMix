@@ -4,8 +4,10 @@ module.exports = {
   // so the default preset's transformIgnorePatterns (written for flat node_modules) matches
   // the outer ".pnpm" segment as "not an allowed package" and ignores everything. Treating
   // ".pnpm" itself as an allowed segment lets the pattern keep scanning to the real package name.
+  // immer/redux/reselect (pulled in by @reduxjs/toolkit via @bpmix/core) ship ESM-only entry points,
+  // so they need transforming too.
   transformIgnorePatterns: [
-    'node_modules/(?!(\\.pnpm|(jest-)?react-native|@react-native(-community)?|react-native-scoped-storage|react-native-sqlite-2|react-native-audio-api)/)',
+    'node_modules/(?!(\\.pnpm|(jest-)?react-native|@react-native(-community)?|react-native-scoped-storage|react-native-sqlite-2|react-native-audio-api|immer|redux|@reduxjs|reselect|react-redux)/)',
   ],
   // The preset defaults haste's platform resolution to iOS, which this project doesn't
   // target - without this, imports like './adapters/fileAccess' never resolve to the

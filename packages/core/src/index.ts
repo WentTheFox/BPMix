@@ -55,6 +55,8 @@ export * from './discord/richPresence';
 export * from './scrobble/lastfm';
 export * from './scrobble/scrobbleTracker';
 export * from './scrobble/scrobbleQueue';
+export * from './store/createStore';
+export * from './store/services';
 
 /** Runtime marker used by the Stage 0 empty-shell screens to prove the workspace wiring resolves. */
 export const CORE_PACKAGE_NAME = '@bpmix/core';

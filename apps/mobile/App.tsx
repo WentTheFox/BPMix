@@ -9,6 +9,7 @@ import {
   addTracksToPlaylist,
   BUILD_VERSION,
   DEFAULT_DISCORD_APPLICATION_ID,
+  createStore,
   ensureTrackAnalyzed,
   errorMessage,
   findUnplaylistedTracksQueued,
@@ -67,6 +68,7 @@ import {
   useThemeColors,
   useViewportTier,
   useVolumeControl,
+  StoreProvider,
 } from '@bpmix/ui';
 import type { RootWithLibrary } from '@bpmix/ui';
 import { mdiSubtitles } from '@mdi/js';
@@ -197,6 +199,20 @@ const playlistPlayer = new PlaylistPlayer(
 // persisted" should produce the same volume either way.
 playlistPlayer.awaitInitialVolume(initialPlaybackStatePromise.then((stored) => stored?.volume ?? 0.25));
 
+// The app's single redux store. Slices migrate into it one feature at a time
+// (see the store migration plan); services is what thunks/listeners may
+// reach for side effects, so reducers themselves stay pure.
+const store = createStore({
+  fileAccess,
+  libraryStore,
+  audioEngine,
+  playlistPlayer,
+  coverArtResizer,
+  appUpdateBridge: appUpdateBridge,
+  discordPresenceBridge: discordPresenceBridge,
+  now: Date.now,
+});
+
 // playlistPlayer/audioEngine are module-level singletons, but the native
 // AudioContext they wrap isn't torn down just because a Fast Refresh reload
 // discards this module's JS references to it - without this, a track kept
@@ -218,9 +234,11 @@ type Screen =
 
 function App() {
   return (
-    <SafeAreaProvider>
-      <AppContent />
-    </SafeAreaProvider>
+    <StoreProvider store={store}>
+      <SafeAreaProvider>
+        <AppContent />
+      </SafeAreaProvider>
+    </StoreProvider>
   );
 }
 

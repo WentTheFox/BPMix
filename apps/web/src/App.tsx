@@ -2,6 +2,7 @@ import type { FileRef, GrantedRoot, LyricsScope, PlaylistPlayerState, PlaylistRe
 import {
   addTracksToPlaylist,
   createBackgroundFileAccess,
+  createStore,
   ensureTrackAnalyzed,
   errorMessage,
   FileAccessPermissionPendingError,
@@ -59,6 +60,7 @@ import {
   useThemeColors,
   useViewportTier,
   useVolumeControl,
+  StoreProvider,
 } from '@bpmix/ui';
 import type { RootWithLibrary } from '@bpmix/ui';
 import { mdiSubtitles } from '@mdi/js';
@@ -165,6 +167,20 @@ const playlistPlayer = new PlaylistPlayer(
 // See apps/mobile/App.tsx's identical call for why.
 playlistPlayer.awaitInitialVolume(initialPlaybackStatePromise.then((stored) => stored?.volume ?? 0.25));
 
+// The app's single redux store. Slices migrate into it one feature at a time
+// (see the store migration plan); services is what thunks/listeners may
+// reach for side effects, so reducers themselves stay pure.
+const store = createStore({
+  fileAccess,
+  libraryStore,
+  audioEngine,
+  playlistPlayer,
+  coverArtResizer,
+  appUpdateBridge: null,
+  discordPresenceBridge: null,
+  now: Date.now,
+});
+
 // playlistPlayer/audioEngine are module-level singletons, but the browser's
 // AudioContext they wrap isn't torn down just because a Vite HMR reload
 // discards this module's JS references to it - without this, a track would
@@ -181,6 +197,14 @@ type Screen =
   | { kind: 'playlist'; root: GrantedRoot; playlist: PlaylistRecord; tracksById: Map<string, TrackRecord> };
 
 function App() {
+  return (
+    <StoreProvider store={store}>
+      <AppContent />
+    </StoreProvider>
+  );
+}
+
+function AppContent() {
   const { settings, updateSettings, resetSettings } = useAppSettings(libraryStore);
   const colors = useThemeColors(settings.themeMode, getAccentColorHex(settings.accentColor));
   // See useViewportTier's doc - 'narrow' keeps today's single-screen-plus-
