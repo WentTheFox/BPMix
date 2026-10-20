@@ -57,6 +57,7 @@ export * from './scrobble/scrobbleTracker';
 export * from './scrobble/scrobbleQueue';
 export * from './store/createStore';
 export * from './store/rootReducer';
+export * from './store/navigation/navigationSlice';
 export * from './store/notifications/notificationsSlice';
 export * from './store/notifications/notificationsThunks';
 export * from './store/notifications/notificationActions';

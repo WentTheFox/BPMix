@@ -59,6 +59,7 @@ import {
   usePlaylistTransport,
   useRestoringProgress,
   useThemeColors,
+  useNavigation,
   useViewportTier,
   useVolumeControl,
   StoreProvider,
@@ -206,12 +207,31 @@ function AppContent() {
   // See useViewportTier's doc - 'narrow' keeps today's single-screen-plus-
   // overlay behavior below; 'medium'/'wide' switch to MultiPaneLayout.
   const tier = useViewportTier();
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [externalConnectionsOpen, setExternalConnectionsOpen] = useState(false);
-  // See apps/mobile/App.tsx's identical pair for why these are lifted up
-  // here rather than left inside LyricsSection.
-  const [lyricsEditorOpen, setLyricsEditorOpen] = useState(false);
-  const [lyricsPickerOpen, setLyricsPickerOpen] = useState(false);
+  // Overlay visibility and the create-playlist flow live in the store's
+  // navigation slice (see useNavigation); the lyrics editor/picker flags are
+  // lifted out of LyricsSection so the header lyrics menu, a sibling of
+  // NowPlayingScreen rather than a descendant, can open them.
+  const {
+    settingsOpen,
+    externalConnectionsOpen,
+    nowPlayingOpen: nowPlayingScreenOpen,
+    lyricsEditorOpen,
+    lyricsPickerOpen,
+    createPlaylistRootId,
+    createPlaylistTarget,
+    openSettings,
+    closeSettings,
+    openExternalConnections,
+    closeExternalConnections,
+    setNowPlayingOpen,
+    setLyricsEditorOpen,
+    setLyricsPickerOpen,
+    openLyricsEditorFromMenu,
+    openLyricsPickerFromMenu,
+    startCreatePlaylist,
+    chooseCreatePlaylistFolder,
+    endCreatePlaylist,
+  } = useNavigation();
   const [rootsWithLibrary, setRootsWithLibrary] = useState<RootWithLibrary[]>([]);
   // True until refresh()'s first pass resolves rootsWithLibrary at least
   // once - refresh() itself is fire-and-forget from usePlaybackPersistence
@@ -227,14 +247,6 @@ function AppContent() {
   const [grantedRoots, setGrantedRoots] = useState<GrantedRoot[]>([]);
   const [lyricsScopes, setLyricsScopes] = useState<LyricsScope[]>([]);
   const [matchedLyricsCount, setMatchedLyricsCount] = useState<number | null>(null);
-  // "New Playlist" flow (see LibraryScreen's onCreatePlaylist and
-  // CreatePlaylistScreen) - two steps: first browse an already-granted
-  // root's own contents (via FolderBrowser, same shared component the
-  // Android-only root-granting flow uses - here it's just navigating
-  // within a root already granted) to pick a folder, then configure/
-  // preview/create the playlist itself once one's picked.
-  const [createPlaylistRootId, setCreatePlaylistRootId] = useState<string | null>(null);
-  const [createPlaylistTarget, setCreatePlaylistTarget] = useState<{ rootId: string; folderRelativePath: string; folderDisplayName: string } | null>(null);
   /** The track a "add to playlist" tap on an Unplaylisted row is currently offering to add - see addToPlaylistDialog below (declared up here, ahead of this component's early returns, since hooks can't be called conditionally). */
   const [addToPlaylistTrack, setAddToPlaylistTrack] = useState<TrackRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -336,9 +348,6 @@ function AppContent() {
   const [playingContext, setPlayingContext] = useState<{ root: GrantedRoot; playlist: PlaylistRecord; tracksById: Map<string, TrackRecord> } | null>(
     null,
   );
-  // Opened by tapping MiniPlayerBar's art/title area - closes back to
-  // whichever screen (library or playlist) was already showing underneath.
-  const [nowPlayingScreenOpen, setNowPlayingScreenOpen] = useState(false);
   const [playerState, setPlayerState] = useState<PlaylistPlayerState>(playlistPlayer.getState());
   // Distinguishes "merely restored on launch" from "actually played this
   // session" - see the mobile app's identical hasStartedPlayback for why:
@@ -364,10 +373,10 @@ function AppContent() {
   useBackNavigation(
     { externalConnectionsOpen, settingsOpen, nowPlayingOpen: tier === 'narrow' && nowPlayingScreenOpen, screenKind: screen.kind },
     {
-      closeExternalConnections: () => setExternalConnectionsOpen(false),
-      closeSettings: () => setSettingsOpen(false),
+      closeExternalConnections,
+      closeSettings,
       closeNowPlaying: () => {
-        setNowPlayingScreenOpen(false);
+        setNowPlayingOpen(false);
         persistPlaybackPatch({ nowPlayingOpen: false });
       },
       closePlaylist: () => {
@@ -685,7 +694,7 @@ function AppContent() {
     },
     onRestoreScreen: (opened, nowPlayingOpen, playing) => {
       if (opened) setScreen({ kind: 'playlist', root: opened.root, playlist: opened.playlist, tracksById: opened.tracksById });
-      if (nowPlayingOpen) setNowPlayingScreenOpen(true);
+      if (nowPlayingOpen) setNowPlayingOpen(true);
       setPlayingContext(playing);
     },
     onError: (err) => {
@@ -989,7 +998,7 @@ function AppContent() {
       volume={volume}
       onChangeVolume={handleVolumeChange}
       onPress={() => {
-        setNowPlayingScreenOpen(true);
+        setNowPlayingOpen(true);
         persistPlaybackPatch({ nowPlayingOpen: true });
       }}
       onPlayPause={togglePause}
@@ -1008,13 +1017,11 @@ function AppContent() {
     playerState.currentFileId && currentTrackHasLyrics
       ? {
           onOpenEditor: () => {
-            setLyricsEditorOpen(true);
-            setNowPlayingScreenOpen(true);
+            openLyricsEditorFromMenu();
             persistPlaybackPatch({ nowPlayingOpen: true });
           },
           onChangeFile: () => {
-            setLyricsPickerOpen(true);
-            setNowPlayingScreenOpen(true);
+            openLyricsPickerFromMenu();
             persistPlaybackPatch({ nowPlayingOpen: true });
           },
         }
@@ -1023,7 +1030,7 @@ function AppContent() {
   // Identical at every call site (Now Playing's headerRight, the
   // playlist screen's HeaderRow right slot, and the library screen's
   // headerRight) - hoisted once rather than reconstructed per site.
-  const headerActionsEl = <HeaderActions colors={colors} center={notificationCenter} onOpenSettings={() => setSettingsOpen(true)} lyricsMenu={lyricsMenu} />;
+  const headerActionsEl = <HeaderActions colors={colors} center={notificationCenter} onOpenSettings={openSettings} lyricsMenu={lyricsMenu} />;
   // Side-by-side tiers show several panes at once, each with its own header
   // - only the docked Now Playing pane (rightmost, so the window's top-right
   // corner) carries the settings/notification buttons there, instead of one
@@ -1046,7 +1053,7 @@ function AppContent() {
         onClose={
           tier === 'narrow'
             ? () => {
-                setNowPlayingScreenOpen(false);
+                setNowPlayingOpen(false);
                 persistPlaybackPatch({ nowPlayingOpen: false });
               }
             : undefined
@@ -1129,11 +1136,11 @@ function AppContent() {
         settings={settings}
         onUpdateSettings={updateSettings}
         onResetSettings={resetSettings}
-        onClose={() => setSettingsOpen(false)}
+        onClose={() => closeSettings()}
         volume={volume}
         onChangeVolume={handleVolumeChange}
         lastFm={lastFm}
-        onOpenExternalConnections={() => setExternalConnectionsOpen(true)}
+        onOpenExternalConnections={() => openExternalConnections()}
       />
     </ScreenLayer>
   );
@@ -1143,7 +1150,7 @@ function AppContent() {
   // has to sit on top of it, not beside it.
   const externalConnectionsScreen = externalConnectionsOpen && (
     <ScreenLayer zIndex={21} colors={colors}>
-      <ExternalConnectionsScreen colors={colors} settings={settings} onUpdateSettings={updateSettings} lastFm={lastFm} onClose={() => setExternalConnectionsOpen(false)} />
+      <ExternalConnectionsScreen colors={colors} settings={settings} onUpdateSettings={updateSettings} lastFm={lastFm} onClose={() => closeExternalConnections()} />
     </ScreenLayer>
   );
 
@@ -1188,14 +1195,13 @@ function AppContent() {
           rootId={createPlaylistRootId}
           rootDisplayName={root?.displayName ?? createPlaylistRootId}
           onSelect={(relativePath) => {
-            setCreatePlaylistTarget({
+            chooseCreatePlaylistFolder({
               rootId: createPlaylistRootId,
               folderRelativePath: relativePath,
               folderDisplayName: relativePath ? `${root?.displayName ?? ''}/${relativePath}` : (root?.displayName ?? ''),
             });
-            setCreatePlaylistRootId(null);
           }}
-          onCancel={() => setCreatePlaylistRootId(null)}
+          onCancel={() => endCreatePlaylist()}
         />
       </View>
     );
@@ -1225,9 +1231,9 @@ function AppContent() {
           rootId={createPlaylistTarget.rootId}
           folderRelativePath={createPlaylistTarget.folderRelativePath}
           folderDisplayName={createPlaylistTarget.folderDisplayName}
-          onCancel={() => setCreatePlaylistTarget(null)}
+          onCancel={() => endCreatePlaylist()}
           onCreated={() => {
-            setCreatePlaylistTarget(null);
+            endCreatePlaylist();
             void rescan(createPlaylistTarget.rootId);
           }}
         />
@@ -1411,7 +1417,7 @@ function AppContent() {
         onAddFolder={addFolder}
         onRescan={rescan}
         onRemoveRoot={(rootId) => void removeRoot(rootId)}
-        onCreatePlaylist={(rootId) => setCreatePlaylistRootId(rootId)}
+        onCreatePlaylist={(rootId) => startCreatePlaylist(rootId)}
         onShowUnplaylisted={handleShowUnplaylisted}
         nowPlayingRootId={playingContext?.root.id ?? null}
         onShowNowPlaying={playingContext ? handleShowNowPlaying : undefined}

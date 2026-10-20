@@ -33,6 +33,7 @@ export * from './MiniPlayerBar';
 export * from './MultiPaneLayout';
 export * from './navigation/backNavigation';
 export * from './navigation/useBackNavigation';
+export * from './navigation/useNavigation';
 export * from './notifications/NotificationBell';
 export * from './notifications/types';
 export * from './notifications/useNotificationCenter';
