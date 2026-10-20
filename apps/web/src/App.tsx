@@ -3,6 +3,7 @@ import {
   addTracksToPlaylist,
   createBackgroundFileAccess,
   createStore,
+  DEFAULT_CROSSFADE_SECONDS,
   ensureTrackAnalyzed,
   errorMessage,
   FileAccessPermissionPendingError,
@@ -76,11 +77,6 @@ import { useMediaSessionNotification } from './adapters/mediaSessionNotification
 import { isRunningInstalled, promptInstall, usePwaInstallAvailable } from './adapters/pwaInstall';
 
 const TRANSPORT_THROTTLE_MS = 300;
-// Only used to construct playlistPlayer below, before any component (and
-// its settings) exists - useAppSettings' own default and this must agree,
-// since App's crossfadeSeconds effect only re-syncs playlistPlayer once
-// settings finish loading from storage.
-const DEFAULT_CROSSFADE_SECONDS = 8;
 
 // File System Access API is Chromium-only (no Firefox/Safari support as of
 // this writing) - the composite adapter's server roots (Docker self-host)
@@ -205,7 +201,7 @@ function App() {
 }
 
 function AppContent() {
-  const { settings, updateSettings, resetSettings } = useAppSettings(libraryStore);
+  const { settings, updateSettings, resetSettings } = useAppSettings();
   const colors = useThemeColors(settings.themeMode, getAccentColorHex(settings.accentColor));
   // See useViewportTier's doc - 'narrow' keeps today's single-screen-plus-
   // overlay behavior below; 'medium'/'wide' switch to MultiPaneLayout.

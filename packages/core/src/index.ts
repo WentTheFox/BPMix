@@ -56,6 +56,11 @@ export * from './scrobble/lastfm';
 export * from './scrobble/scrobbleTracker';
 export * from './scrobble/scrobbleQueue';
 export * from './store/createStore';
+export * from './store/rootReducer';
+export * from './store/settings/settingsSlice';
+export * from './store/settings/settingsStorage';
+export * from './store/settings/settingsThunks';
+export * from './store/settings/types';
 export * from './store/services';
 
 /** Runtime marker used by the Stage 0 empty-shell screens to prove the workspace wiring resolves. */

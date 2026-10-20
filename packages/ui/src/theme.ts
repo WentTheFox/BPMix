@@ -1,16 +1,11 @@
 import { useColorScheme } from 'react-native';
 
-/**
- * The single source for the app's accent color - every UI element that
- * needs it (buttons, links, the current-track/current-lyric-line tint,
- * slider fill, etc.) reads it from Colors.accent rather than hardcoding a
- * hex value, so this is the only place a future "accent color" setting
- * would need to write to (e.g. swapping this constant for a value read out
- * of a settings store, or making useThemeColors take an override).
- */
-export const DEFAULT_ACCENT_COLOR = '#6181b8';
+import { DEFAULT_ACCENT_COLOR } from '@bpmix/core';
+import type { ThemeMode } from '@bpmix/core';
 
-export type ThemeMode = 'light' | 'flux' | 'dark' | 'amoled';
+// Defined in @bpmix/core (the settings slice owns them); re-exported so existing imports keep working.
+export { DEFAULT_ACCENT_COLOR };
+export type { ThemeMode };
 
 export interface Colors {
   background: string;

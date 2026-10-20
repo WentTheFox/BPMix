@@ -10,6 +10,7 @@ import {
   BUILD_VERSION,
   DEFAULT_DISCORD_APPLICATION_ID,
   createStore,
+  DEFAULT_CROSSFADE_SECONDS,
   ensureTrackAnalyzed,
   errorMessage,
   findUnplaylistedTracksQueued,
@@ -101,11 +102,6 @@ import { MemoryOverlay } from './src/debug/MemoryOverlay';
 const SHOW_MEMORY_OVERLAY = false;
 
 const TRANSPORT_THROTTLE_MS = 300;
-// Only used to construct playlistPlayer below, before any component (and
-// its settings) exists - useAppSettings' own default and this must agree,
-// since AppContent's crossfadeSeconds effect only re-syncs playlistPlayer
-// once settings finish loading from storage.
-const DEFAULT_CROSSFADE_SECONDS = 8;
 
 const fileAccess = createFileAccess();
 const libraryStore = createLibraryStore();
@@ -255,7 +251,7 @@ const AppStatusBar = memo(function AppStatusBarInner({ barStyle }: { barStyle: '
 
 function AppContent() {
   const insets = useSafeAreaInsets();
-  const { settings, updateSettings, resetSettings } = useAppSettings(libraryStore);
+  const { settings, updateSettings, resetSettings } = useAppSettings();
   const colors = useThemeColors(settings.themeMode, getAccentColorHex(settings.accentColor));
   // See useViewportTier's doc - 'narrow' keeps today's single-screen-plus-
   // overlay behavior below; 'medium'/'wide' switch to MultiPaneLayout.

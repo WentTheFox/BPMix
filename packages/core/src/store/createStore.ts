@@ -1,27 +1,23 @@
-import { combineSlices, configureStore } from '@reduxjs/toolkit';
+import { configureStore } from '@reduxjs/toolkit';
+import { createAppListenerMiddleware } from './listeners';
+import { rootReducer } from './rootReducer';
+import type { RootState } from './rootReducer';
 import type { Services } from './services';
 
 /**
- * Add each feature slice here as it migrates (see the store migration plan).
- * Slices own their own state shape; this just composes them.
- */
-export const rootReducer = combineSlices();
-
-export type RootState = ReturnType<typeof rootReducer>;
-
-/**
- * Builds the app's single store. Services are the thunk `extraArgument`,
- * so nothing in state or reducers touches I/O.
+ * Builds the app's single store. Services are the thunk and listener
+ * `extraArgument`, so nothing in state or reducers touches I/O.
  *
  * State must stay serializable (no Map/Set/functions - see the plan for the
  * side registries that hold those), which the default serializable and
  * immutable checks enforce in development.
  */
 export function createStore(services: Services) {
+  const listenerMiddleware = createAppListenerMiddleware(services);
   return configureStore({
     reducer: rootReducer,
     middleware: (getDefaultMiddleware) =>
-      getDefaultMiddleware({ thunk: { extraArgument: services } }),
+      getDefaultMiddleware({ thunk: { extraArgument: services } }).prepend(listenerMiddleware.middleware),
   });
 }
 
