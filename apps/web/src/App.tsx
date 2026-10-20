@@ -800,7 +800,7 @@ function AppContent() {
       onRescanned: (rootId) => void verifyRootMetadata(rootId),
     });
 
-  useTaskNotifications(notificationCenter);
+  useTaskNotifications();
 
   useOpenPlaylistMetadataScan({ fileAccess: backgroundFileAccess, libraryStore, resizer: coverArtResizer, screen });
 

@@ -1,11 +1,13 @@
-import { logLibraryAction } from '@bpmix/core';
-import { useCallback, useMemo, useState } from 'react';
+import {
+  addError as addErrorThunk,
+  clearAllNotifications,
+  dismissNotification,
+  runNotificationAction,
+  upsertNotification,
+} from '@bpmix/core';
+import { useCallback, useMemo } from 'react';
+import { useAppDispatch, useAppSelector } from '../store/hooks';
 import type { AppNotification } from './types';
-
-/** Generates a reasonably-unique id without depending on crypto.randomUUID (not available in every RN JS engine). */
-function makeId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
 
 export interface NotificationCenter {
   notifications: AppNotification[];
@@ -35,50 +37,38 @@ export interface NotificationCenter {
 }
 
 /**
- * Backing store for NotificationBell - session-only (not persisted across a
- * reload), shared shape between mobile/web so a future tweak to what counts
- * as a notification can't drift between the two apps the way ad hoc
- * setError(errorMessage(err)) calls already had (a raw browser/native error
- * string dumped as the *entire* user-visible message, e.g. "A requested
- * file or directory could not be found at the time an operation was
- * processed" with zero surrounding context).
+ * View over the store's `notifications` slice (see @bpmix/core's
+ * store/notifications) for NotificationBell - session-only (not persisted
+ * across a reload), shared between mobile/web so a future tweak to what
+ * counts as a notification can't drift between the two apps. The slice only
+ * holds an action's label; the callback is looked up by id when pressed.
+ *
+ * Every function here is stable across renders (they only depend on
+ * `dispatch`), so callers can list one as an effect dependency without
+ * re-running it on each notification update.
  */
 export function useNotificationCenter(): NotificationCenter {
-  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const dispatch = useAppDispatch();
+  const items = useAppSelector((state) => state.notifications.items);
 
-  const addError = useCallback((title: string, detail?: string) => {
-    // Every one-shot error surfaced through the notification bell funnels
-    // through here regardless of which call site raised it, so logging once
-    // here (rather than at each individual setError/addError call site
-    // across both apps) covers all of them - see playbackLog.ts's own doc
-    // for why this permanent logging exists at all.
-    logLibraryAction('notification:error', detail ? { title, detail } : { title });
-    setNotifications((prev) => [{ id: makeId(), kind: 'error', title, detail, createdAt: Date.now() }, ...prev]);
-  }, []);
-
-  const upsert = useCallback((fields: Omit<AppNotification, 'kind' | 'createdAt'>) => {
-    setNotifications((prev) => {
-      const existingIndex = prev.findIndex((n) => n.id === fields.id);
-      const createdAt = existingIndex !== -1 ? prev[existingIndex]!.createdAt : Date.now();
-      const entry: AppNotification = { ...fields, kind: 'progress', createdAt };
-      if (existingIndex === -1) return [entry, ...prev];
-      const next = [...prev];
-      next[existingIndex] = entry;
-      return next;
-    });
-  }, []);
-
-  const upsertProgress = useCallback(
-    (id: string, title: string, current: number, total: number, done = false, detail?: string, action?: AppNotification['action']) =>
-      upsert({ id, title, detail, progress: { current, total, done }, action }),
-    [upsert],
+  const notifications = useMemo<AppNotification[]>(
+    () =>
+      items.map(({ actionLabel, ...rest }) => ({
+        ...rest,
+        action: actionLabel ? { label: actionLabel, onPress: () => runNotificationAction(rest.id) } : undefined,
+      })),
+    [items],
   );
 
-  const dismiss = useCallback((id: string) => {
-    setNotifications((prev) => prev.filter((n) => n.id !== id));
-  }, []);
-
-  const clear = useCallback(() => setNotifications([]), []);
+  const addError = useCallback((title: string, detail?: string) => dispatch(addErrorThunk(title, detail)), [dispatch]);
+  const upsert = useCallback((entry: Omit<AppNotification, 'kind' | 'createdAt'>) => dispatch(upsertNotification(entry)), [dispatch]);
+  const upsertProgress = useCallback(
+    (id: string, title: string, current: number, total: number, done = false, detail?: string, action?: AppNotification['action']) =>
+      dispatch(upsertNotification({ id, title, detail, progress: { current, total, done }, action })),
+    [dispatch],
+  );
+  const dismiss = useCallback((id: string) => dispatch(dismissNotification(id)), [dispatch]);
+  const clear = useCallback(() => dispatch(clearAllNotifications()), [dispatch]);
 
   return useMemo(
     () => ({ notifications, addError, upsertProgress, upsert, dismiss, clear }),

@@ -822,7 +822,7 @@ function AppContent() {
       browseDeviceStorage,
     });
 
-  useTaskNotifications(notificationCenter);
+  useTaskNotifications();
 
   useOpenPlaylistMetadataScan({ fileAccess, libraryStore, resizer: coverArtResizer, screen });
 

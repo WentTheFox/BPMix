@@ -7,6 +7,8 @@
  * as it progresses rather than appended fresh each time.
  */
 export interface AppNotification {
+  // Mirrors @bpmix/core's NotificationEntry, except `action` carries the live
+  // callback (the slice itself only stores its label) - see useNotificationCenter.
   id: string;
   kind: 'error' | 'progress';
   /** Short, human-readable summary - what the bell's collapsed list shows. */
