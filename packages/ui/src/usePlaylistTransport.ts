@@ -1,4 +1,4 @@
-import type { LoopMode, PlaybackState, PlaylistPlayer, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '@bpmix/core';
+import type { CoarsePlayback, LoopMode, PlaybackState, PlaylistPlayer, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '@bpmix/core';
 import { useCallback, useRef } from 'react';
 import { useDoublePressHandler } from './useDoublePressHandler';
 
@@ -15,7 +15,8 @@ const MAX_CONSECUTIVE_MISSING_SKIPS = 50;
 
 export interface PlaylistTransportInput {
   playlistPlayer: PlaylistPlayer;
-  playerState: PlaylistPlayerState;
+  /** The store's coarse playback mirror - which transport actions are meaningful (is something audible, the loop/shuffle mode to cycle from). */
+  playback: CoarsePlayback;
   persistPlaybackPatch: (patch: Partial<PlaybackState>, options?: { debounceMs?: number }) => void;
   /** Caller-owned throttle guard (see usePlaylistTransport's own doc for why this stays outside the hook). */
   transportActionAllowed: () => boolean;
@@ -60,7 +61,7 @@ export interface PlaylistTransport {
  * shared code even though this hook consumes its result.
  */
 export function usePlaylistTransport(input: PlaylistTransportInput): PlaylistTransport {
-  const { playlistPlayer, playerState, persistPlaybackPatch, transportActionAllowed, setPlayerState, setError, isTrackMissing } = input;
+  const { playlistPlayer, playback, persistPlaybackPatch, transportActionAllowed, setPlayerState, setError, isTrackMissing } = input;
   // A ref, not a dep on goNext/goPrevious's useCallback, since isTrackMissing
   // closes over App.tsx's missingFileIds state (changes over the session)
   // while those callbacks intentionally keep a narrow dep array (see their
@@ -116,7 +117,7 @@ export function usePlaylistTransport(input: PlaylistTransportInput): PlaylistTra
     // genuinely playing (see TrackPlayerState.isAudible's doc), and this
     // should still pause that instead of falling through to play() just
     // because status itself isn't literally 'playing' right now.
-    if (playerState.track.isAudible) {
+    if (playback.isAudible) {
       playlistPlayer.pause();
       // Captures the exact stop point immediately rather than waiting on the
       // next throttled poll-tick persist, which no longer fires once paused.
@@ -128,7 +129,7 @@ export function usePlaylistTransport(input: PlaylistTransportInput): PlaylistTra
     // See playFromTrack's comment above for why playlistPlayer/
     // transportActionAllowed/setPlayerState are omitted here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playerState.track.isAudible, persistPlaybackPatch]);
+  }, [playback.isAudible, persistPlaybackPatch]);
 
   const seekTo = useCallback(
     (positionSeconds: number) => {
@@ -211,22 +212,22 @@ export function usePlaylistTransport(input: PlaylistTransportInput): PlaylistTra
   );
 
   const cycleLoopMode = useCallback(() => {
-    const nextMode = LOOP_MODE_CYCLE[(LOOP_MODE_CYCLE.indexOf(playerState.loopMode) + 1) % LOOP_MODE_CYCLE.length]!;
+    const nextMode = LOOP_MODE_CYCLE[(LOOP_MODE_CYCLE.indexOf(playback.loopMode) + 1) % LOOP_MODE_CYCLE.length]!;
     playlistPlayer.setLoopMode(nextMode);
     setPlayerState(playlistPlayer.getState());
     persistPlaybackPatch({ loopMode: nextMode });
     // See playFromTrack's comment above for why playlistPlayer/setPlayerState are omitted here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playerState.loopMode, persistPlaybackPatch]);
+  }, [playback.loopMode, persistPlaybackPatch]);
 
   const toggleShuffle = useCallback(() => {
-    const nextEnabled = !playerState.shuffleEnabled;
+    const nextEnabled = !playback.shuffleEnabled;
     playlistPlayer.setShuffle(nextEnabled);
     setPlayerState(playlistPlayer.getState());
     persistPlaybackPatch({ shuffleEnabled: nextEnabled, shuffleOrder: playlistPlayer.getShuffleOrder() });
     // See playFromTrack's comment above for why playlistPlayer/setPlayerState are omitted here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playerState.shuffleEnabled, persistPlaybackPatch]);
+  }, [playback.shuffleEnabled, persistPlaybackPatch]);
 
   return {
     playFromTrack,

@@ -4,7 +4,7 @@ import type { Services } from '../services';
 import { fakeLivePlayback, idlePlayerState } from '../testing';
 import { LivePlayback } from './livePlayback';
 import { coarsePlaybackEqual, toCoarsePlayback } from './playbackSlice';
-import { startPlaybackTicker } from './playbackTicker';
+import { isPlaybackActive, startPlaybackTicker } from './playbackTicker';
 
 const playing = (positionSeconds: number, over = {}) =>
   idlePlayerState({
@@ -96,24 +96,96 @@ describe('startPlaybackTicker', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  it('publishes, then drives the preload scheduler, then reports the tick, every interval', () => {
+  const withStatus = (status: 'playing' | 'paused' | 'idle' | 'loading', pendingIncoming = null as null | { positionSeconds: number; durationSeconds: number; fadeDurationSeconds: number }) =>
+    idlePlayerState({ currentFileId: 'a', track: { status, isAudible: status === 'playing', positionSeconds: 1, durationSeconds: 100, pendingIncoming } });
+
+  function setup(initial = idlePlayerState()) {
+    const fake = fakeLivePlayback(initial);
+    const preload = vi.fn();
+    const onTick = vi.fn();
+    const stop = startPlaybackTicker({ livePlayback: fake.live, playlistPlayer: { checkPreload: preload }, onTick });
+    return { ...fake, preload, onTick, stop };
+  }
+
+  it('is active only while playing, loading, or crossfading', () => {
+    expect(isPlaybackActive(withStatus('playing'))).toBe(true);
+    expect(isPlaybackActive(withStatus('loading'))).toBe(true);
+    expect(isPlaybackActive(withStatus('paused', { positionSeconds: 0, durationSeconds: 9, fadeDurationSeconds: 1 }))).toBe(true);
+    expect(isPlaybackActive(withStatus('paused'))).toBe(false);
+    expect(isPlaybackActive(withStatus('idle'))).toBe(false);
+  });
+
+  it('does not run at all while idle or paused', () => {
+    const { live, preload, onTick } = setup(withStatus('paused'));
+    vi.advanceTimersByTime(5000);
+    expect(preload).not.toHaveBeenCalled();
+    expect(onTick).not.toHaveBeenCalled();
+    expect(live.getSnapshot().track.status).toBe('paused');
+  });
+
+  it('starts when a published state is active, and each tick publishes, then preloads, then reports', () => {
     const order: string[] = [];
-    const { live } = setup();
-    const publish = vi.spyOn(live, 'publish').mockImplementation(() => {
-      order.push('publish');
-      return idlePlayerState();
-    });
-    const stop = startPlaybackTicker({
-      livePlayback: live,
+    const fake = fakeLivePlayback();
+    const publish = vi.spyOn(fake.live, 'publish');
+    startPlaybackTicker({
+      livePlayback: fake.live,
       playlistPlayer: { checkPreload: () => void order.push('preload') },
       onTick: () => void order.push('tick'),
     });
+    fake.setState(withStatus('playing'));
+    fake.live.publish(); // the command's own publish starts the ticker
+    publish.mockClear();
     vi.advanceTimersByTime(200);
-    expect(order).toEqual(['publish', 'preload', 'tick']);
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(['preload', 'tick']);
     vi.advanceTimersByTime(400);
-    expect(publish).toHaveBeenCalledTimes(3);
-    stop();
-    vi.advanceTimersByTime(1000);
-    expect(publish).toHaveBeenCalledTimes(3);
+    expect(order).toHaveLength(6);
+  });
+
+  it('stops on the first tick that finds the player inactive, and restarts on the next active publish', () => {
+    const s = setup();
+    s.setState(withStatus('playing'));
+    s.live.publish();
+    vi.advanceTimersByTime(200);
+    expect(s.onTick).toHaveBeenCalledTimes(1);
+
+    s.setState(withStatus('paused'));
+    vi.advanceTimersByTime(200); // this tick sees paused, publishes it, and stops
+    expect(s.onTick).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(2000);
+    expect(s.onTick).toHaveBeenCalledTimes(2);
+
+    s.setState(withStatus('playing'));
+    s.live.publish();
+    vi.advanceTimersByTime(400);
+    expect(s.onTick).toHaveBeenCalledTimes(4);
+  });
+
+  it('keeps ticking through a decode, so its asynchronous completion is noticed', () => {
+    const s = setup();
+    s.setState(withStatus('loading'));
+    s.live.publish();
+    vi.advanceTimersByTime(600);
+    expect(s.onTick).toHaveBeenCalledTimes(3);
+    s.setState(withStatus('idle')); // decode failed
+    vi.advanceTimersByTime(200);
+    vi.advanceTimersByTime(2000);
+    expect(s.onTick).toHaveBeenCalledTimes(4);
+    expect(s.live.getSnapshot().track.status).toBe('idle');
+  });
+
+  it('starts immediately if the player is already active when it is started', () => {
+    const s = setup(withStatus('playing'));
+    vi.advanceTimersByTime(200);
+    expect(s.onTick).toHaveBeenCalledTimes(1);
+  });
+
+  it('stop() cancels a running ticker and detaches from the live state', () => {
+    const s = setup(withStatus('playing'));
+    s.stop();
+    vi.advanceTimersByTime(2000);
+    s.live.publish();
+    vi.advanceTimersByTime(2000);
+    expect(s.onTick).not.toHaveBeenCalled();
   });
 });

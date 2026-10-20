@@ -12,6 +12,7 @@ import {
   createStore,
   playerAdvanced,
   LivePlayback,
+  persistPositionIfDue,
   startPlaybackTicker,
   selectPlayingContext,
   fileFoundReported,
@@ -39,9 +40,7 @@ import {
   LibraryScreen,
   LocateMissingFileScreen,
   LyricsFolderSection,
-  MiniPlayerBar,
   MultiPaneLayout,
-  NowPlayingScreen,
   PlayerControlsRow,
   RestoringScreen,
   ScreenLayer,
@@ -53,7 +52,6 @@ import {
   ExternalConnectionsScreen,
   useDiscordPresence,
   useLastFmConnection,
-  useLastFmScrobbling,
   useLibraryRootActions,
   useOpenPlaylistMetadataScan,
   useMemoryUsageLogging,
@@ -68,7 +66,10 @@ import {
   useThemeColors,
   useAppDispatch,
   useAppSelector,
-  useLivePlayerState,
+  LiveMiniPlayerBar,
+  LiveNowPlayingScreen,
+  LivePlaybackProvider,
+  ScrobbleBridge,
   useLibrary,
   useNavigation,
   usePlaylistScreen,
@@ -78,6 +79,7 @@ import {
 } from '@bpmix/ui';
 import { mdiSubtitles } from '@mdi/js';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Linking, Pressable, StatusBar, StyleSheet, Text, View } from 'react-native';
 import {
   SafeAreaProvider,
@@ -96,7 +98,7 @@ import {
   toRelativeDisplay,
 } from './src/adapters/fileAccess';
 import { createLibraryStore, setPriorityFileId } from './src/adapters/libraryStore';
-import { useMediaSessionNotification } from './src/adapters/mediaSessionNotification';
+import { MediaSessionBridge } from './src/MediaSessionBridge';
 import { MemoryOverlay } from './src/debug/MemoryOverlay';
 
 // The overlay's 500ms poll + up to 120 re-rendered bars was noticeably
@@ -206,6 +208,14 @@ const store = createStore({
   now: Date.now,
 });
 
+// Polls the player only while something is active (see startPlaybackTicker) - a service, not a
+// component effect, so nothing in React owns it or re-renders for it.
+const stopPlaybackTicker = startPlaybackTicker({
+  livePlayback,
+  playlistPlayer,
+  onTick: (state) => store.dispatch(persistPositionIfDue(state)),
+});
+
 /** fileId is the track a decode/playback error actually happened for, when known - see PlaylistPlayer's onError doc. Routed to the notification bell, not the error banner - see NotificationBell's doc for why. */
 function reportPlaybackError(error: unknown, fileId?: string): void {
   store.dispatch(addError(fileId ? `Couldn't play "${fileId.split('/').pop()}"` : 'Playback error', errorMessage(error)));
@@ -223,6 +233,7 @@ function reportPlaybackError(error: unknown, fileId?: string): void {
 declare const module: { hot?: { dispose: (cb: () => void) => void } } | undefined;
 if (typeof module !== 'undefined' && module?.hot) {
   module.hot.dispose(() => {
+    stopPlaybackTicker();
     playlistPlayer.pause();
   });
 }
@@ -230,20 +241,21 @@ if (typeof module !== 'undefined' && module?.hot) {
 function App() {
   return (
     <StoreProvider store={store}>
-      <SafeAreaProvider>
-        <AppContent />
-      </SafeAreaProvider>
+      <LivePlaybackProvider value={livePlayback}>
+        <SafeAreaProvider>
+          <AppContent />
+        </SafeAreaProvider>
+      </LivePlaybackProvider>
     </StoreProvider>
   );
 }
 
-// AppContent rerenders on every ~200ms playback poll tick (see playerState's
-// own comment below) - a plain <StatusBar> inlined straight into its render
-// output would re-invoke the native setStyle call that often even though
-// barStyle itself only ever changes on a theme switch, confirmed on-device
-// as a StatusBarModule call every single tick. Memoized so React skips
-// re-rendering (and re-touching the native module) unless barStyle actually
-// changed.
+// AppContent used to rerender on every ~200ms playback poll tick, and a plain
+// <StatusBar> inlined into its render output re-invoked the native setStyle
+// call that often even though barStyle only ever changes on a theme switch
+// (confirmed on-device as a StatusBarModule call every single tick). It no
+// longer rerenders per tick, but this stays memoized so React still skips
+// re-touching the native module unless barStyle actually changed.
 const AppStatusBar = memo(function AppStatusBarInner({ barStyle }: { barStyle: 'light-content' | 'dark-content' }) {
   return <StatusBar barStyle={barStyle} />;
 });
@@ -342,7 +354,10 @@ function AppContent() {
     removeTracks,
     addPendingTrackToPlaylist,
   } = usePlaylistScreen();
-  const playerState = useLivePlayerState(livePlayback);
+  // The coarse mirror only - it changes when something meaningful does (track, play/pause, modes),
+  // not every tick. The fast-moving values (position, crossfade progress) are read by the few leaf
+  // components that draw them (see useFastDisplay), so this root doesn't re-render at 5Hz.
+  const playback = useAppSelector((state) => state.playback.coarse);
   // Cold-start restore (usePlaybackPersistence) loads the last-played track
   // and decodes it without starting playback, landing it in status
   // 'paused' - identical to a track the user actually played and then
@@ -356,7 +371,7 @@ function AppContent() {
   // distinguishes "merely restored" from "actually played this session".
   const hasStartedPlayback = useAppSelector((state) => state.playback.hasStartedPlayback);
 
-  useMemoryUsageLogging(playerState.track.status !== 'idle');
+  useMemoryUsageLogging(playback.status !== 'idle');
 
   // Same close-priority order as the web app (see useBackNavigation's doc) -
   // Settings, then Now Playing, then Playlist back to Library, then (nothing
@@ -420,7 +435,7 @@ function AppContent() {
   // Loading lives in the refreshLibrary thunk (see @bpmix/core's store/library).
   const refresh = useCallback(() => dispatch(refreshLibrary()), [dispatch]);
 
-  const { isRestoring, persistPlaybackPatch, persistPositionIfDue, notifyUserTookOver } = usePlaybackPersistence();
+  const { isRestoring, persistPlaybackPatch, notifyUserTookOver } = usePlaybackPersistence();
 
   // Routes BPMix's launcher shortcuts (AndroidManifest.xml's intent-filter +
   // res/xml/shortcuts.xml, both "bpmix://<path>") to the matching screen -
@@ -463,12 +478,6 @@ function AppContent() {
       cancelled = true;
     };
   }, [isRestoring, applyDeepLink]);
-
-  // Stage 6 lookahead (checkPreload) reuses this tick instead of a second timer.
-  useEffect(
-    () => startPlaybackTicker({ livePlayback, playlistPlayer, onTick: persistPositionIfDue }),
-    [persistPositionIfDue],
-  );
 
   // Double-click/double-tap invocation guarding (e.g. against opening two
   // concurrent native folder-picker prompts, observed on Windows to leave
@@ -549,7 +558,7 @@ function AppContent() {
   // sibling handleShowUnplaylisted. Mirrors whatever's actually playing, or
   // the live shuffle order instead if shuffle is on - reads
   // playlistPlayer.getShuffleOrder() directly rather than gating on
-  // playerState.shuffleEnabled, which would still read stale (pre-toggle)
+  // playback.shuffleEnabled, which would still read stale (pre-toggle)
   // when handleToggleShuffle calls this synchronously right after toggling.
   const persistOpenedPlaylist = (playlist: PlaylistRecord, rootId: string) =>
     persistPlaybackPatch({ openedPlaylistId: playlist.id, openedRootId: rootId });
@@ -567,7 +576,7 @@ function AppContent() {
     toggleShuffle: toggleShuffleRaw,
   } = usePlaylistTransport({
     playlistPlayer,
-    playerState,
+    playback,
     persistPlaybackPatch,
     transportActionAllowed,
     setPlayerState,
@@ -577,7 +586,7 @@ function AppContent() {
 
   // See apps/web/src/App.tsx's identical handleToggleShuffle for why.
   const handleToggleShuffle = () => {
-    const wasEnabled = playerState.shuffleEnabled;
+    const wasEnabled = playback.shuffleEnabled;
     toggleShuffleRaw();
     if (!wasEnabled && playingContext && screen.kind === 'playlist' && screen.playlist.id === playingContext.playlist.id) {
       handleShowNowPlaying();
@@ -620,20 +629,15 @@ function AppContent() {
   // queue to reorder. No web analogue (no such queue there), so this stays
   // outside useCrossfadePlaybackDisplay.
   useEffect(() => {
-    setPriorityFileId(playerState.currentFileId);
-  }, [playerState.currentFileId]);
+    setPriorityFileId(playback.currentFileId);
+  }, [playback.currentFileId]);
 
   const {
     outgoingTrack,
     incomingTrack,
     outgoingCoverArt,
     incomingCoverArt,
-    outgoingGain,
-    incomingGain,
-    outgoingProgress,
     isLoadingTrack,
-    displayPositionSeconds,
-    displayDurationSeconds,
     currentTurnsPerSecond,
     settledCurrentMetadata,
     settledNextTrack,
@@ -643,59 +647,72 @@ function AppContent() {
     currentArtist,
   } = useCrossfadePlaybackDisplay({
     playlistPlayer,
-    playerState,
+    playback,
     activeTracksById: playingContext?.tracksById ?? NO_TRACKS,
     libraryStore,
-    crossfadeSeconds: settings.crossfadeSeconds,
   });
   // Only pendingIncoming's presence matters at the JSX call sites below
   // (deciding lyricsTrackKey/onSeekTo), not its fields - those all flow
   // through the hook's own outgoing/incoming derivation above.
-  const pendingIncoming = playerState.track.pendingIncoming;
+  const pendingIncoming = playback.pendingCrossfadeFileIds != null;
 
-  useMediaSessionNotification(
-    playerState.currentFileId && hasStartedPlayback
-      ? {
-          title: currentName,
-          artist: currentArtist,
-          album: settledCurrentMetadata?.album ?? null,
-          artworkUri: outgoingCoverArt,
-          isPlaying: playerState.track.status === 'playing',
-          positionSeconds: displayPositionSeconds,
-          durationSeconds: displayDurationSeconds,
-        }
-      : null,
-    {
-      onPlayPause: togglePause,
-      onNext: () => void goNext(),
-      onPrevious: () => void goPrevious(),
-      onSeekTo: seekTo,
-    },
-  );
-
+  // Headless bridges: they subscribe to the live player state themselves (for the position), so the
+  // per-tick re-render stays inside them. Kept mounted across every return below - a scrobbler that
+  // remounted would lose its accumulated listen time.
   const lastFm = useLastFmConnection(settings, updateSettings);
-  useLastFmScrobbling(
-    libraryStore,
-    settings,
-    playerState.currentFileId && hasStartedPlayback
-      ? {
-          fileId: playerState.currentFileId,
-          title: currentName,
-          artist: currentArtist ?? 'Unknown artist',
-          album: settledCurrentMetadata?.album ?? null,
-          durationSeconds: displayDurationSeconds,
+  const playbackBridges = (
+    <>
+      <MediaSessionBridge
+        crossfadeSeconds={settings.crossfadeSeconds}
+        info={
+          playback.currentFileId && hasStartedPlayback
+            ? {
+                title: currentName,
+                artist: currentArtist,
+                album: settledCurrentMetadata?.album ?? null,
+                artworkUri: outgoingCoverArt,
+                isPlaying: playback.status === 'playing',
+              }
+            : null
         }
-      : null,
-    playerState.track.status === 'playing',
-    displayPositionSeconds,
+        callbacks={{
+          onPlayPause: togglePause,
+          onNext: () => void goNext(),
+          onPrevious: () => void goPrevious(),
+          onSeekTo: seekTo,
+        }}
+      />
+      <ScrobbleBridge
+        libraryStore={libraryStore}
+        settings={settings}
+        crossfadeSeconds={settings.crossfadeSeconds}
+        isPlaying={playback.status === 'playing'}
+        info={
+          playback.currentFileId && hasStartedPlayback
+            ? {
+                fileId: playback.currentFileId,
+                title: currentName,
+                artist: currentArtist ?? 'Unknown artist',
+                album: settledCurrentMetadata?.album ?? null,
+              }
+            : null
+        }
+      />
+    </>
+  );
+  const withBridges = (screen: ReactNode) => (
+    <>
+      {playbackBridges}
+      {screen}
+    </>
   );
 
   useDiscordPresence(
     discordPresenceBridge,
     DEFAULT_DISCORD_APPLICATION_ID,
     settings.discordRichPresenceEnabled,
-    playerState.currentFileId && hasStartedPlayback && playerState.track.status === 'playing'
-      ? { fileId: playerState.currentFileId, title: currentName, artist: currentArtist ?? 'Unknown artist', albumArtUrl: outgoingCoverArt }
+    playback.currentFileId && hasStartedPlayback && playback.status === 'playing'
+      ? { fileId: playback.currentFileId, title: currentName, artist: currentArtist ?? 'Unknown artist', albumArtUrl: outgoingCoverArt }
       : null,
   );
 
@@ -706,14 +723,13 @@ function AppContent() {
   // buttons, which are meaningless (and already no-ops at the player level)
   // with no track loaded.
   const miniPlayerBar = (
-    <MiniPlayerBar
+    <LiveMiniPlayerBar
       colors={colors}
       title={currentName || 'Nothing playing'}
       artist={currentArtist}
       artUri={outgoingCoverArt}
-      isPlaying={playerState.track.status === 'playing'}
-      positionSeconds={displayPositionSeconds}
-      durationSeconds={displayDurationSeconds}
+      isPlaying={playback.status === 'playing'}
+      crossfadeSeconds={settings.crossfadeSeconds}
       volume={volume}
       onChangeVolume={handleVolumeChange}
       onPress={() => {
@@ -723,7 +739,7 @@ function AppContent() {
       onPlayPause={togglePause}
       onNext={handleNextPress}
       onPrevious={handlePreviousPress}
-      disabled={!playerState.currentFileId}
+      disabled={!playback.currentFileId}
     />
   );
 
@@ -731,7 +747,7 @@ function AppContent() {
   // across every screen's header (see that doc), so this has to tolerate
   // "" when nothing's currently loaded (useHasLyrics can't be called
   // conditionally - it just caches "" to false, harmlessly).
-  const currentTrackHasLyrics = useHasLyrics(libraryStore, playerState.currentFileId ?? '');
+  const currentTrackHasLyrics = useHasLyrics(libraryStore, playback.currentFileId ?? '');
 
   // Reachable from every screen's header (see headerActionsEl below), not
   // just Now Playing - selecting either action force-opens Now Playing
@@ -741,7 +757,7 @@ function AppContent() {
   // rather than opening invisibly behind the screen the user happened to
   // be on.
   const lyricsMenu =
-    playerState.currentFileId && currentTrackHasLyrics
+    playback.currentFileId && currentTrackHasLyrics
       ? {
           onOpenEditor: () => {
             openLyricsEditorFromMenu();
@@ -774,7 +790,8 @@ function AppContent() {
   // just needs a friendly title and disabled transport buttons rather than
   // any real restructuring.
   const nowPlayingContent = (
-      <NowPlayingScreen
+      <LiveNowPlayingScreen
+        crossfadeSeconds={settings.crossfadeSeconds}
         colors={colors}
         onClose={
           tier === 'narrow'
@@ -789,14 +806,9 @@ function AppContent() {
         lyricsTrackKey={(pendingIncoming ? incomingTrack?.fileId : outgoingTrack?.fileId) ?? null}
         lyricsEnabled={settings.lyricsEnabled}
         currentArtUri={outgoingCoverArt}
-        currentGain={outgoingGain}
-        currentProgress={outgoingProgress}
         currentTurnsPerSecond={currentTurnsPerSecond}
         nextArtUri={incomingCoverArt}
-        nextGain={incomingGain}
         isLoading={isLoadingTrack}
-        positionSeconds={displayPositionSeconds}
-        durationSeconds={displayDurationSeconds}
         // Disabled mid-crossfade: seekTo() still only affects the actual
         // (outgoing) source, which no longer matches what the bar is showing
         // (the incoming track's position/duration) - a tap here would compute
@@ -813,18 +825,18 @@ function AppContent() {
         controls={
           <PlayerControlsRow
             colors={colors}
-            loopMode={playerState.loopMode}
+            loopMode={playback.loopMode}
             onCycleLoop={cycleLoopMode}
-            shuffleEnabled={playerState.shuffleEnabled}
+            shuffleEnabled={playback.shuffleEnabled}
             onToggleShuffle={handleToggleShuffle}
             volume={volume}
             onChangeVolume={handleVolumeChange}
             showVolumeButton={settings.showVolumeButtonOnNowPlaying}
-            isPlaying={playerState.track.status === 'playing'}
+            isPlaying={playback.status === 'playing'}
             onTogglePlayPause={togglePause}
             onPrevious={handlePreviousPress}
             onNext={handleNextPress}
-            disabled={!playerState.currentFileId}
+            disabled={!playback.currentFileId}
           />
         }
       />
@@ -910,7 +922,7 @@ function AppContent() {
   // which reads as a flash/flicker rather than landing directly on the
   // right screen.
   if (isRestoring) {
-    return (
+    return withBridges(
       <>
         <AppStatusBar barStyle={statusBarStyle} />
         <RestoringScreen
@@ -931,7 +943,7 @@ function AppContent() {
   const isAddingFolder = busyRootId !== null && !rootsWithLibrary.some(({ root }) => root.id === busyRootId);
 
   if (rootBrowserRequest) {
-    return (
+    return withBridges(
       <>
         <AppStatusBar barStyle={statusBarStyle} />
         <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom, paddingLeft: insets.left, paddingRight: insets.right, backgroundColor: colors.background }]}>
@@ -956,7 +968,7 @@ function AppContent() {
   }
 
   if (missingTrackRelocation.locateTarget) {
-    return (
+    return withBridges(
       <>
         <AppStatusBar barStyle={statusBarStyle} />
         <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom, paddingLeft: insets.left, paddingRight: insets.right, backgroundColor: colors.background }]}>
@@ -975,7 +987,7 @@ function AppContent() {
 
   if (createPlaylistRootId) {
     const root = grantedRoots.find((r) => r.id === createPlaylistRootId);
-    return (
+    return withBridges(
       <>
         <AppStatusBar barStyle={statusBarStyle} />
         <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom, paddingLeft: insets.left, paddingRight: insets.right, backgroundColor: colors.background }]}>
@@ -999,7 +1011,7 @@ function AppContent() {
   }
 
   if (createPlaylistTarget) {
-    return (
+    return withBridges(
       <>
         <AppStatusBar barStyle={statusBarStyle} />
         <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom, paddingLeft: insets.left, paddingRight: insets.right, backgroundColor: colors.background }]}>
@@ -1067,9 +1079,9 @@ function AppContent() {
         <TrackList
           trackFileIds={screen.playlist.trackFileIds}
           tracksById={screen.tracksById}
-          currentFileId={playerState.currentFileId}
-          isPlaying={playerState.track.status === 'playing'}
-          isLoading={playerState.isLoadingForPlayback}
+          currentFileId={playback.currentFileId}
+          isPlaying={playback.status === 'playing'}
+          isLoading={playback.isLoadingForPlayback}
           textColor={colors.text}
           colors={colors}
           onPressTrack={handlePressTrack}
@@ -1107,7 +1119,7 @@ function AppContent() {
         nowPlayingRootId={playingContext?.root.id ?? null}
         onShowNowPlaying={playingContext ? handleShowNowPlaying : undefined}
         nowPlayingPlaylistId={playingContext?.playlist.id ?? null}
-        nowPlayingIsShuffled={playerState.shuffleEnabled}
+        nowPlayingIsShuffled={playback.shuffleEnabled}
         onSelectPlaylist={(root, playlist, tracksById) => openPlaylist({ root, playlist, tracksById }, { onOpened: persistOpenedPlaylist })}
         error={error}
         errorAction={
@@ -1148,7 +1160,7 @@ function AppContent() {
     />
   );
 
-  return (
+  return withBridges(
     <>
       <AppStatusBar barStyle={statusBarStyle} />
       <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom, paddingLeft: insets.left, paddingRight: insets.right, backgroundColor: colors.background }]}>

@@ -1,13 +1,10 @@
 import {
-  computeTransitionPlan,
-  equalPowerGain,
   formatTrackTitle,
   isMetadataCurrent,
-  realTimeForOutgoingPosition,
   trackDisplayName,
+  type CoarsePlayback,
   type LibraryStore,
   type PlaylistPlayer,
-  type PlaylistPlayerState,
   type TrackMetadata,
   type TrackRecord,
 } from '@bpmix/core';
@@ -19,11 +16,11 @@ import { useTrackMetadata } from './useTrackMetadata';
 
 export interface CrossfadePlaybackDisplayInput {
   playlistPlayer: PlaylistPlayer;
-  playerState: PlaylistPlayerState;
+  /** The store's coarse playback mirror - changes only on meaningful events, so this hook (and the root calling it) isn't re-run every tick. The per-tick values come from useFastDisplay. */
+  playback: CoarsePlayback;
   /** The playing playlist's tracks (the store's playing context), looked up by fileId. */
   activeTracksById: ReadonlyMap<string, TrackRecord>;
   libraryStore: LibraryStore;
-  crossfadeSeconds: number;
 }
 
 export interface CrossfadePlaybackDisplay {
@@ -33,13 +30,8 @@ export interface CrossfadePlaybackDisplay {
   incomingTrack: TrackRecord | undefined;
   outgoingCoverArt: string | null;
   incomingCoverArt: string | null;
-  outgoingGain: number;
-  incomingGain: number;
-  outgoingProgress: number;
   isLoadingTrack: boolean;
   isPlaying: boolean;
-  displayPositionSeconds: number;
-  displayDurationSeconds: number;
   currentTurnsPerSecond: number;
   settledCurrentTrack: TrackRecord | undefined;
   settledCurrentMetadata: TrackMetadata | null;
@@ -83,14 +75,14 @@ function useSettledKey(key: string | null): string | null {
  * Pure derivation of everything the now-playing/crossfade UI needs from
  * playback state - shared verbatim between apps/mobile/App.tsx and
  * apps/web/src/App.tsx, which computed this identically before this
- * extraction. Reads only playerState/activeTracksById/libraryStore/
- * crossfadeSeconds - no platform API calls, so this stays a plain (non
+ * extraction. Reads only the coarse playback mirror/activeTracksById/
+ * libraryStore - no platform API calls, so this stays a plain (non
  * `.web.ts`-split) shared hook.
  */
 export function useCrossfadePlaybackDisplay(input: CrossfadePlaybackDisplayInput): CrossfadePlaybackDisplay {
-  const { playlistPlayer, playerState, activeTracksById, libraryStore, crossfadeSeconds } = input;
+  const { playlistPlayer, playback, activeTracksById, libraryStore } = input;
 
-  const nowPlayingTrack = playerState.currentFileId ? activeTracksById.get(playerState.currentFileId) : undefined;
+  const nowPlayingTrack = playback.currentFileId ? activeTracksById.get(playback.currentFileId) : undefined;
 
   // Debug view: preview of the crossfade into whatever's queued up next,
   // computed from the same TransitionPlan/visualization data real playback
@@ -102,7 +94,7 @@ export function useCrossfadePlaybackDisplay(input: CrossfadePlaybackDisplayInput
   const [nextFileId, setNextFileId] = useState<string | null>(null);
   useEffect(() => {
     setNextFileId(playlistPlayer.getNextFileId());
-  }, [playlistPlayer, playerState.position, playerState.loopMode, playerState.shuffleEnabled, playerState.totalTracks]);
+  }, [playlistPlayer, playback.position, playback.loopMode, playback.shuffleEnabled, playback.totalTracks]);
   const nextTrack = nextFileId ? activeTracksById.get(nextFileId) : undefined;
 
   // A crossfade already in flight (natural end-of-track OR a manual skip's
@@ -114,45 +106,21 @@ export function useCrossfadePlaybackDisplay(input: CrossfadePlaybackDisplayInput
   // completes (the bar climbing toward the OUTGOING track's duration for
   // the whole fade, then snapping to a small fraction of the usually much
   // longer incoming track's duration).
-  const pendingIncoming = playerState.track.pendingIncoming;
+  const isCrossfading = playback.pendingCrossfadeFileIds != null;
   // Explicit rather than inferred from currentFileId/nextFileId - see
   // PlaylistPlayerState.pendingCrossfadeFileIds' doc for why those two
   // don't reliably mean "outgoing"/"incoming" on their own (a manual skip
   // advances position/currentFileId to the target immediately, unlike the
   // natural end-of-track crossfade, which only does that once it completes).
-  const pendingCrossfadeFileIds = playerState.pendingCrossfadeFileIds;
+  const pendingCrossfadeFileIds = playback.pendingCrossfadeFileIds;
   const pendingOutgoingTrack = pendingCrossfadeFileIds ? activeTracksById.get(pendingCrossfadeFileIds.outgoing) : undefined;
   const pendingIncomingTrack = pendingCrossfadeFileIds ? activeTracksById.get(pendingCrossfadeFileIds.incoming) : undefined;
-
-  const transitionPlan = (() => {
-    if (pendingIncoming) {
-      // A crossfade is genuinely happening right now - reflect its real
-      // duration (a manual skip's fadeDurationSeconds is much shorter than
-      // the natural end-of-track default below), not a static preview of
-      // a future one.
-      return { fadeStartSeconds: 0, fadeDurationSeconds: pendingIncoming.fadeDurationSeconds, incomingStartSeconds: 0 };
-    }
-    if (playerState.track.durationSeconds <= 0) return null;
-    return computeTransitionPlan(playerState.track.durationSeconds, crossfadeSeconds);
-  })();
-
-  // The preview's timeline is relative to the fade start (t=0). While a
-  // crossfade is actually in flight, pendingIncoming.positionSeconds IS
-  // that elapsed time directly (incomingStartSeconds is always 0, rate is
-  // always 1 this round) - no need for realTimeForOutgoingPosition's
-  // fadeStartSeconds-relative math, which only applies to the *preview* of
-  // a future natural-end crossfade computed from the static default plan.
-  const crossfadeProgressSeconds = pendingIncoming
-    ? pendingIncoming.positionSeconds
-    : transitionPlan
-      ? realTimeForOutgoingPosition(transitionPlan, playerState.track.positionSeconds)
-      : null;
 
   // isLoadingForPlayback, not the raw status==='loading' - the latter is
   // also true for the on-launch restore's silent, non-autoplaying decode
   // (see PlaylistPlayerState.isLoadingForPlayback's doc), which shouldn't
   // show a loading bar for a track that isn't actually about to play.
-  const isLoadingTrack = playerState.isLoadingForPlayback;
+  const isLoadingTrack = playback.isLoadingForPlayback;
 
   const outgoingTrack = pendingOutgoingTrack ?? nowPlayingTrack;
   const incomingTrack = pendingIncomingTrack ?? nextTrack;
@@ -160,43 +128,7 @@ export function useCrossfadePlaybackDisplay(input: CrossfadePlaybackDisplayInput
   const incomingTrackMetadata = useTrackMetadata(libraryStore, incomingTrack?.fileId ?? null);
   const outgoingCoverArt = useCoverArt(libraryStore, outgoingTrack?.fileId ?? null, isMetadataCurrent(outgoingTrackMetadata));
   const incomingCoverArt = useCoverArt(libraryStore, incomingTrack?.fileId ?? null, isMetadataCurrent(incomingTrackMetadata));
-  // Same equalPowerGain() call SourceNode.rampGainCurve uses for the real
-  // audio fade, sampled at the current progress instead of over a curve -
-  // this is what makes the art dissolve at exactly the rate the audio
-  // itself fades (see CrossfadeArt's doc).
-  const fadeDurationSeconds = transitionPlan?.fadeDurationSeconds ?? 0;
-  const crossfadeFraction =
-    crossfadeProgressSeconds == null
-      ? null
-      : fadeDurationSeconds > 0
-        ? crossfadeProgressSeconds / fadeDurationSeconds
-        : crossfadeProgressSeconds >= 0
-          ? 1
-          : 0;
-  // Feeds CrossfadeArt's spin *speed* (not opacity) - see its doc for why.
-  // A crossfade only ever runs while actually playing, so pendingIncoming
-  // already implies isPlaying - this only matters for the paused case,
-  // where the record shouldn't keep spinning: crossfadeFraction isn't
-  // actually null then (it's some out-of-range value from
-  // realTimeForOutgoingPosition, which equalPowerGain clamps close to 1/0
-  // on its own), so the "not playing" override has to apply after that
-  // computation, not just to its null-fallback branch.
-  const isPlaying = pendingIncoming ? true : playerState.track.status === 'playing';
-  const outgoingGain = isPlaying
-    ? crossfadeFraction == null
-      ? 1
-      : equalPowerGain(crossfadeFraction, true, fadeDurationSeconds)
-    : 0;
-  const incomingGain = crossfadeFraction == null ? 0 : equalPowerGain(crossfadeFraction, false, fadeDurationSeconds);
-  const displayPositionSeconds = pendingIncoming ? pendingIncoming.positionSeconds : playerState.track.positionSeconds;
-  const displayDurationSeconds = pendingIncoming ? pendingIncoming.durationSeconds : playerState.track.durationSeconds;
-  // Feeds CrossfadeArt's tonearm needle position - the outgoing track's own
-  // position/duration regardless of any pending crossfade (it keeps
-  // playing/advancing independently of the incoming preview; the tonearm
-  // itself sweeps back to the edge on its own once a crossfade starts, see
-  // CrossfadeArtProps.nextGain's doc, so this doesn't need an "incoming"
-  // counterpart any more).
-  const outgoingProgress = playerState.track.durationSeconds > 0 ? playerState.track.positionSeconds / playerState.track.durationSeconds : 0;
+  const isPlaying = isCrossfading ? true : playback.status === 'playing';
   // Feeds CrossfadeArt's disc spin (a real turns-per-second rate, not a
   // per-tick progress retarget - see CrossfadeArtProps.currentTurnsPerSecond's
   // doc): spins at a placeholder rate as soon as a track starts loading
@@ -208,8 +140,8 @@ export function useCrossfadePlaybackDisplay(input: CrossfadePlaybackDisplayInput
     ? LOADING_TURNS_PER_SECOND
     : !isPlaying
       ? 0
-      : playerState.track.durationSeconds > 0
-        ? TURNS_PER_SONG / playerState.track.durationSeconds
+      : playback.durationSeconds > 0
+        ? TURNS_PER_SONG / playback.durationSeconds
         : 0;
 
   // Title/"up next" text only actually changes CROSSFADE_ART_TRANSITION_MS
@@ -231,7 +163,7 @@ export function useCrossfadePlaybackDisplay(input: CrossfadePlaybackDisplayInput
 
   // Falls back to outgoingTrack (the *unsettled* current track record - see
   // its own doc), then a generic "Loading…" placeholder, rather than ever
-  // falling all the way to the raw playerState.currentFileId - on web
+  // falling all the way to the raw playback.currentFileId - on web
   // that's an internal composite routing key (scheme + root uuid +
   // relativePath, see fileAccess.composite.ts), never meant for display,
   // confirmed on-device as a literal "local::<uuid>:..." string flashing
@@ -241,14 +173,14 @@ export function useCrossfadePlaybackDisplay(input: CrossfadePlaybackDisplayInput
     ? formatTrackTitle(settledCurrentMetadata, settledCurrentTrack)
     : outgoingTrack
       ? formatTrackTitle(null, outgoingTrack)
-      : playerState.currentFileId
+      : playback.currentFileId
         ? 'Loading…'
         : null;
   const currentName = settledCurrentTrack
     ? settledCurrentMetadata?.title || trackDisplayName(settledCurrentTrack)
     : outgoingTrack
       ? trackDisplayName(outgoingTrack)
-      : playerState.currentFileId
+      : playback.currentFileId
         ? 'Loading…'
         : '';
   const currentArtist = settledCurrentMetadata?.artists.join(', ') || null;
@@ -260,13 +192,8 @@ export function useCrossfadePlaybackDisplay(input: CrossfadePlaybackDisplayInput
     incomingTrack,
     outgoingCoverArt,
     incomingCoverArt,
-    outgoingGain,
-    incomingGain,
-    outgoingProgress,
     isLoadingTrack,
     isPlaying,
-    displayPositionSeconds,
-    displayDurationSeconds,
     currentTurnsPerSecond,
     settledCurrentTrack,
     settledCurrentMetadata,

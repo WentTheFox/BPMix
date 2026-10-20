@@ -63,6 +63,7 @@ export * from './store/library/types';
 export * from './store/navigation/navigationSlice';
 export * from './store/persistence/persistenceSlice';
 export * from './store/persistence/persistenceThunks';
+export * from './store/playback/fastDisplay';
 export * from './store/playback/livePlayback';
 export * from './store/playback/playbackSlice';
 export * from './store/playback/playbackTicker';

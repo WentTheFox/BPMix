@@ -1,5 +1,5 @@
-import { persistPositionIfDue, playbackPatched, restorePlayback, userTookOver } from '@bpmix/core';
-import type { PlaybackState, PlaylistPlayerState, RootWithLibrary } from '@bpmix/core';
+import { playbackPatched, restorePlayback, userTookOver } from '@bpmix/core';
+import type { PlaybackState, RootWithLibrary } from '@bpmix/core';
 import { useCallback, useEffect } from 'react';
 import { useAppDispatch, useAppSelector } from './store/hooks';
 
@@ -20,8 +20,6 @@ export interface PlaybackPersistence {
    * slider's drag) into one - the merged state updates immediately either way.
    */
   persistPlaybackPatch: (patch: Partial<PlaybackState>, options?: { debounceMs?: number }) => void;
-  /** Persists the position at most every few seconds; call on every ticker tick. */
-  persistPositionIfDue: (state: PlaylistPlayerState) => void;
   /**
    * Call from every manual transport action as soon as the user does anything
    * that starts/changes playback. The startup restore is a slow chain that
@@ -54,8 +52,7 @@ export function usePlaybackPersistence(): PlaybackPersistence {
     (patch: Partial<PlaybackState>, options?: { debounceMs?: number }) => void dispatch(playbackPatched({ patch, debounceMs: options?.debounceMs })),
     [dispatch],
   );
-  const persistPosition = useCallback((state: PlaylistPlayerState) => dispatch(persistPositionIfDue(state)), [dispatch]);
   const notifyUserTookOver = useCallback(() => void dispatch(userTookOver()), [dispatch]);
 
-  return { isRestoring, persistPlaybackPatch, persistPositionIfDue: persistPosition, notifyUserTookOver };
+  return { isRestoring, persistPlaybackPatch, notifyUserTookOver };
 }
