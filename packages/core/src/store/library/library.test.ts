@@ -30,6 +30,7 @@ import {
   selectRootsWithLibrary,
 } from './librarySlice';
 import { playingContextSet } from '../navigation/navigationSlice';
+import { playbackStateRead } from '../persistence/persistenceSlice';
 import { refreshLibrary } from './refreshLibrary';
 
 const track = (fileId: string, over: Partial<TrackRecord> = {}) => ({ fileId, rootId: 'r1', relativePath: `${fileId}.mp3`, ...over }) as unknown as TrackRecord;
@@ -55,23 +56,26 @@ function setup(opts: Setup = {}) {
     getLyricsScopes: vi.fn(async () => opts.scopes ?? []),
     getSetting: vi.fn(async (key: string) => opts.settings?.[key] ?? null),
     putSetting: vi.fn(async () => {}),
+    putPlaybackState: vi.fn(async () => {}),
   };
   const playlistPlayer = {
     getState: vi.fn(() => ({ currentFileId: 'a' })),
     getNextFileId: vi.fn(() => 'b'),
     getCurrentPlaylistId: vi.fn(() => opts.currentPlaylistId ?? null),
     reconcilePlaylist: vi.fn(),
+    getShuffleOrder: vi.fn(() => ['s1', 's2']),
   };
+  const { live } = fakeLivePlayback();
   const services = {
     fileAccess,
     backgroundFileAccess: fileAccess,
     libraryStore,
     playlistPlayer,
-    livePlayback: fakeLivePlayback().live,
+    livePlayback: live,
     coverArtResizer: {},
     alwaysRescanRoot: opts.alwaysRescan ?? (() => false),
   } as unknown as Services;
-  return { store: createStore(services), fileAccess, libraryStore, playlistPlayer };
+  return { store: createStore(services), fileAccess, libraryStore, playlistPlayer, live };
 }
 
 beforeEach(() => vi.clearAllMocks());
@@ -173,21 +177,26 @@ describe('refreshLibrary', () => {
     expect(mocks.matchLibraryLyricsQueued).not.toHaveBeenCalled();
     expect(none.store.getState().library.matchedLyricsCount).toBeNull();
 
-    const steps: string[] = [];
     const withScopes = setup({ scopes: [{ rootId: 'r1', relativePath: '' }], settings: { lyricsMatchedCount: '7' } });
-    await withScopes.store.dispatch(refreshLibrary({ onStep: (s) => steps.push(s) }));
-    expect(steps).toEqual(['listingFolders', 'scanningLibrary', 'scanningLyrics']);
+    await withScopes.store.dispatch(refreshLibrary());
+    expect(withScopes.store.getState().restore).toMatchObject({
+      currentStep: 'scanningLyrics',
+      completedSteps: ['listingFolders', 'scanningLibrary'],
+      hasLyricsScopes: true,
+    });
     expect(withScopes.store.getState().library.matchedLyricsCount).toBe(7);
     const tracksArg = (mocks.matchLibraryLyricsQueued.mock.calls[0] as unknown as [unknown, unknown, unknown, TrackRecord[]])[3];
     expect(tracksArg.map((t) => t.fileId)).toEqual(['a']);
   });
 
   it('reconciles the now-playing playlist against the fresh scan', async () => {
-    const onNowPlayingReconciled = vi.fn();
-    const { store, playlistPlayer } = setup({ currentPlaylistId: 'p1' });
-    await store.dispatch(refreshLibrary({ onNowPlayingReconciled }));
+    const { store, playlistPlayer, live } = setup({ currentPlaylistId: 'p1' });
+    store.dispatch(playbackStateRead(null));
+    const publish = vi.spyOn(live, 'publish');
+    await store.dispatch(refreshLibrary());
     expect(playlistPlayer.reconcilePlaylist).toHaveBeenCalledWith(['a']);
-    expect(onNowPlayingReconciled).toHaveBeenCalledTimes(1);
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(store.getState().persistence.state.shuffleOrder).toEqual(['s1', 's2']);
   });
 
   it('refreshes the playing context (what the player resolves tracks through) from the fresh scan, but only for the playlist that is playing', async () => {

@@ -1,4 +1,4 @@
-import { libraryErrorSet, lyricsScopesLoaded, selectMissingFileIds, selectRootsWithLibrary } from '@bpmix/core';
+import { libraryErrorSet, selectMissingFileIds, selectRootsWithLibrary } from '@bpmix/core';
 import type { GrantedRoot, LyricsScope, RootWithLibrary } from '@bpmix/core';
 import { useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
@@ -14,7 +14,6 @@ export interface LibraryView {
   error: string | null;
   missingFileIds: ReadonlySet<string>;
   setError: (message: string | null) => void;
-  setLyricsScopes: (scopes: LyricsScope[]) => void;
 }
 
 /**
@@ -34,7 +33,6 @@ export function useLibrary(): LibraryView {
   const actions = useMemo(
     () => ({
       setError: (message: string | null) => dispatch(libraryErrorSet(message)),
-      setLyricsScopes: (scopes: LyricsScope[]) => dispatch(lyricsScopesLoaded(scopes)),
     }),
     [dispatch],
   );

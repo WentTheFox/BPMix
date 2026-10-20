@@ -7,6 +7,8 @@ import { LYRICS_MATCHED_COUNT_SETTING_KEY, matchLibraryLyricsQueued } from '../.
 import { scanLibraryMetadataQueued } from '../../metadata/scanLibraryMetadata';
 import { logLibraryAction } from '../../playback/playbackLog';
 import { playingContextRefreshed } from '../navigation/navigationSlice';
+import { playbackPatched } from '../persistence/persistenceSlice';
+import { lyricsScopesKnown, restoreStepAdvanced } from '../restore/restoreSlice';
 import type { RootState } from '../rootReducer';
 import type { Services } from '../services';
 import {
@@ -20,22 +22,6 @@ import {
   rootsLoadFailed,
 } from './librarySlice';
 import type { LibraryRootData, RootWithLibrary } from './types';
-
-/** The coarse phases RestoringScreen's checklist shows while this runs. */
-export type RefreshStep = 'listingFolders' | 'scanningLibrary' | 'scanningLyrics';
-
-/**
- * Hooks for the parts of a refresh that still belong to React/App state (the
- * restore checklist, the playback bridge) - they move into the store with
- * the restore and playback slices.
- */
-export interface RefreshCallbacks {
-  onStep?: (step: RefreshStep) => void;
-  /** Called as soon as the configured lyrics scopes are known. */
-  onLyricsScopesKnown?: (hasScopes: boolean) => void;
-  /** The now-playing playlist was found in the fresh scan and the player's running order reconciled to it. */
-  onNowPlayingReconciled?: () => void;
-}
 
 type AppThunk<R> = ThunkAction<R, RootState, Services, UnknownAction>;
 
@@ -54,9 +40,9 @@ const realTracks = (roots: RootWithLibrary[]) => roots.flatMap(({ tracksById }) 
  * after restore) with no user gesture behind it, so it must never trigger a
  * permission prompt.
  */
-export function refreshLibrary(callbacks: RefreshCallbacks = {}): AppThunk<Promise<RootWithLibrary[]>> {
-  return async (dispatch, getState, { fileAccess, backgroundFileAccess, libraryStore, playlistPlayer, coverArtResizer, alwaysRescanRoot }) => {
-    callbacks.onStep?.('listingFolders');
+export function refreshLibrary(): AppThunk<Promise<RootWithLibrary[]>> {
+  return async (dispatch, getState, { fileAccess, backgroundFileAccess, libraryStore, playlistPlayer, livePlayback, coverArtResizer, alwaysRescanRoot }) => {
+    dispatch(restoreStepAdvanced('listingFolders'));
     let roots;
     try {
       roots = await fileAccess.listGrantedRoots();
@@ -84,7 +70,7 @@ export function refreshLibrary(callbacks: RefreshCallbacks = {}): AppThunk<Promi
         });
     }
 
-    callbacks.onStep?.('scanningLibrary');
+    dispatch(restoreStepAdvanced('scanningLibrary'));
 
     // Each root is isolated in its own try/catch - one bad root (a
     // moved/deleted folder, a native file-access error) used to reject the
@@ -142,7 +128,7 @@ export function refreshLibrary(callbacks: RefreshCallbacks = {}): AppThunk<Promi
     // LyricsScope's doc), so just walk each configured scope for .lrc files.
     const scopes = await libraryStore.getLyricsScopes();
     dispatch(lyricsScopesLoaded(scopes));
-    callbacks.onLyricsScopesKnown?.(scopes.length > 0);
+    dispatch(lyricsScopesKnown(scopes.length > 0));
 
     const getPriorityFileIds = () => {
       const state = playlistPlayer.getState();
@@ -154,7 +140,7 @@ export function refreshLibrary(callbacks: RefreshCallbacks = {}): AppThunk<Promi
     // overwritten). Recomputed on every refresh rather than cached, since a
     // scope's contents can change between scans.
     if (scopes.length > 0) {
-      callbacks.onStep?.('scanningLyrics');
+      dispatch(restoreStepAdvanced('scanningLyrics'));
       // Optimistic starting display: last launch's exact final count, so a
       // library that hasn't changed since (the common case) never visibly
       // moves; the pass below only ticks it down on an anomaly, then snaps to
@@ -212,7 +198,8 @@ export function refreshLibrary(callbacks: RefreshCallbacks = {}): AppThunk<Promi
         if (nowPlayingPlaylist) {
           playlistPlayer.reconcilePlaylist(nowPlayingPlaylist.trackFileIds);
           dispatch(playingContextRefreshed({ playlist: nowPlayingPlaylist, tracks: [...tracksById.values()] }));
-          callbacks.onNowPlayingReconciled?.();
+          livePlayback.publish();
+          dispatch(playbackPatched({ patch: { shuffleOrder: playlistPlayer.getShuffleOrder() } }));
           break;
         }
       }

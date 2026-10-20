@@ -7,7 +7,7 @@ export interface RestoringScreenProps {
   colors: Colors;
   /** Safe-area top inset (mobile only; web has none). */
   paddingTop?: number;
-  completedSteps: Set<RestoringStepKey>;
+  completedSteps: ReadonlySet<RestoringStepKey>;
   currentStep: RestoringStepKey | null;
   /** Hides the "Scanning lyrics" row entirely for a user with no lyrics scopes configured, rather than showing a row that can never complete. */
   hasLyricsScopes: boolean;

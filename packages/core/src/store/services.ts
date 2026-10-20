@@ -2,7 +2,7 @@ import type { AppUpdateNativeBridge } from '../appUpdate/nativeBridge';
 import type { AudioEngine } from '../audio-engine/types';
 import type { DiscordPresenceBridge } from '../discord/richPresence';
 import type { FileAccess } from '../file-access/types';
-import type { LibraryStore } from '../library-store/types';
+import type { LibraryStore, PlaybackState } from '../library-store/types';
 import type { CoverArtResizer } from '../metadata/coverArtResizer';
 import type { PlaylistPlayer } from '../playback/playlistPlayer';
 import type { LivePlayback } from './playback/livePlayback';
@@ -29,6 +29,13 @@ export interface Services {
   libraryStore: LibraryStore;
   audioEngine: AudioEngine;
   playlistPlayer: PlaylistPlayer;
+  /**
+   * The persisted playback state fetch, kicked off at module load - the earliest
+   * it can start, well before any component mounts - and shared by
+   * playlistPlayer.awaitInitialVolume() and the startup restore, so there's one
+   * fetch of it, not two racing each other.
+   */
+  initialPlaybackState: Promise<PlaybackState | null>;
   /** The player's full live state; the store mirrors its coarse fields (see playbackSlice). */
   livePlayback: LivePlayback;
   coverArtResizer: CoverArtResizer;

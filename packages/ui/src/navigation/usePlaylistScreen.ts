@@ -5,8 +5,6 @@ import {
   libraryScreenOpened,
   moveOpenPlaylistTracks,
   openPlaylist,
-  playbackRestored,
-  playingContextSet,
   playingContextSetFromScreen,
   removeOpenPlaylistTracks,
   selectPlayingContext,
@@ -37,9 +35,6 @@ export interface PlaylistScreenActions {
   openPlaylist: (loaded: LoadedPlaylist, callbacks?: OpenedCallbacks) => void;
   /** A track started playing from the open playlist: make that the playing one. */
   markOpenPlaylistPlaying: () => void;
-  /** Applies a startup restore (see usePlaybackPersistence's onRestoreScreen). */
-  restore: (opened: LoadedPlaylist | null, nowPlayingOpen: boolean, playing: LoadedPlaylist) => void;
-  setPlayingContext: (loaded: LoadedPlaylist | null) => void;
   setEditingPlaylistFile: (target: { root: GrantedRoot; playlist: PlaylistRecord } | null) => void;
   setAddToPlaylistTrack: (track: TrackRecord | null) => void;
   showNowPlaying: (callbacks?: OpenedCallbacks) => void;
@@ -69,15 +64,6 @@ export function usePlaylistScreen(): PlaylistScreenView & PlaylistScreenActions 
       openLibrary: () => dispatch(libraryScreenOpened()),
       openPlaylist: ({ root, playlist, tracksById }, callbacks) => dispatch(openPlaylist(toPlaylistContext(root, playlist, tracksById), callbacks)),
       markOpenPlaylistPlaying: () => dispatch(playingContextSetFromScreen()),
-      restore: (opened, nowPlayingOpen, playing) =>
-        dispatch(
-          playbackRestored({
-            opened: opened && toPlaylistContext(opened.root, opened.playlist, opened.tracksById),
-            nowPlayingOpen,
-            playing: toPlaylistContext(playing.root, playing.playlist, playing.tracksById),
-          }),
-        ),
-      setPlayingContext: (loaded) => dispatch(playingContextSet(loaded && toPlaylistContext(loaded.root, loaded.playlist, loaded.tracksById))),
       setEditingPlaylistFile: (target) => dispatch(editingPlaylistFileSet(target)),
       setAddToPlaylistTrack: (track) => dispatch(addToPlaylistTrackSet(track)),
       showNowPlaying: (callbacks) => dispatch(showNowPlaying(callbacks)),

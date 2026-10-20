@@ -11,6 +11,6 @@ describe('createStore', () => {
     const seen = await store.dispatch((_dispatch, _getState, extra) => extra.now());
 
     expect(seen).toBe(42);
-    expect(Object.keys(store.getState())).toEqual(['settings', 'notifications', 'navigation', 'library', 'playback']);
+    expect(Object.keys(store.getState())).toEqual(['settings', 'notifications', 'navigation', 'library', 'playback', 'persistence', 'restore']);
   });
 });

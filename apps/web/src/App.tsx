@@ -3,6 +3,7 @@ import {
   createBackgroundFileAccess,
   addError,
   createStore,
+  playerAdvanced,
   LivePlayback,
   startPlaybackTicker,
   selectPlayingContext,
@@ -13,7 +14,6 @@ import {
   ensureTrackAnalyzed,
   errorMessage,
   formatTrackTitle,
-  logLibraryAction,
   PlaylistPlayer,
   scanLibraryMetadataQueued,
   trackDisplayName,
@@ -119,13 +119,6 @@ function trackToFileRef(track: TrackRecord): FileRef {
 
 /** Stand-in when nothing's playing yet, so lookups don't need a null check. */
 const NO_TRACKS: ReadonlyMap<string, TrackRecord> = new Map();
-// Bridged in on mount, same pattern as the other bridges - lets PlaylistPlayer push
-// an immediate re-render right when position changes outside a manual UI
-// action (a crossfade completing, or a natural end auto-advancing), instead
-// of the "now playing" display waiting on the next ~200ms poll tick to
-// notice (see PlaylistPlayer's onAdvance doc).
-let notifyAdvance: () => void = () => {};
-
 const playlistPlayer = new PlaylistPlayer(
   audioEngine,
   (fileId) => {
@@ -139,7 +132,9 @@ const playlistPlayer = new PlaylistPlayer(
     onError: (error, fileId) => reportPlaybackError(error, fileId),
     resolveGain: async (fileId) =>
       store.getState().settings.values.volumeNormalizationEnabled ? ((await libraryStore.getAnalysis(fileId))?.normalizationGain ?? 1) : 1,
-    onAdvance: () => notifyAdvance(),
+    // Pushes an immediate re-render and persists where it landed when position changes
+    // outside a manual UI action (a crossfade completing, a natural end auto-advancing).
+    onAdvance: () => store.dispatch(playerAdvanced()),
     crossfadeSeconds: DEFAULT_CROSSFADE_SECONDS,
     // Just-in-time analysis (Stage 4): a track already needed a decode for
     // playback/preload, so analyzing it here is free - no separate eager
@@ -167,6 +162,7 @@ const store = createStore({
   audioEngine,
   playlistPlayer,
   livePlayback,
+  initialPlaybackState: initialPlaybackStatePromise,
   coverArtResizer,
   appUpdateBridge: null,
   discordPresenceBridge: null,
@@ -242,7 +238,6 @@ function AppContent() {
     error,
     missingFileIds,
     setError,
-    setLyricsScopes,
   } = useLibrary();
   const dispatch = useAppDispatch();
   // Everything that used to be a one-shot setError(errorMessage(err)) string
@@ -313,7 +308,7 @@ function AppContent() {
   }, []);
   // Drives RestoringScreen's checklist - see refresh()'s and
   // usePlaybackPersistence's onStepChange updates below.
-  const { completedSteps, currentStep, hasLyricsScopes, advanceStep, setHasLyricsScopes } = useRestoringProgress();
+  const { completedSteps, currentStep, hasLyricsScopes } = useRestoringProgress();
   // The open playlist screen, the playing playlist, and the edit/add-to-
   // playlist targets live in the store's navigation slice - see
   // usePlaylistScreen. Opening/closing doesn't persist "last opened" itself;
@@ -327,8 +322,6 @@ function AppContent() {
     openLibrary,
     openPlaylist,
     markOpenPlaylistPlaying,
-    restore: restorePlaylistScreen,
-    setPlayingContext,
     setEditingPlaylistFile,
     setAddToPlaylistTrack,
     showNowPlaying,
@@ -392,72 +385,10 @@ function AppContent() {
     return true;
   };
 
-  // Loading lives in the refreshLibrary thunk (see @bpmix/core's
-  // store/library); the callbacks bridge what this component still owns: the
-  // restore checklist, and the playback state/persistence that a reconciled
-  // now-playing playlist feeds. Only `dispatch` as a dep (stable) - depending
-  // on the callbacks would recreate refresh, and so retrigger
-  // usePlaybackPersistence's restore effect (which depends on it).
-  const refresh = useCallback(
-    () =>
-      dispatch(
-        refreshLibrary({
-          onStep: advanceStep,
-          onLyricsScopesKnown: setHasLyricsScopes,
-          onNowPlayingReconciled: () => {
-            setPlayerState(playlistPlayer.getState());
-            persistPlaybackPatch({ shuffleOrder: playlistPlayer.getShuffleOrder() });
-          },
-        }),
-      ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [dispatch],
-  );
+  // Loading lives in the refreshLibrary thunk (see @bpmix/core's store/library).
+  const refresh = useCallback(() => dispatch(refreshLibrary()), [dispatch]);
 
-  const { isRestoring, persistPlaybackPatch, persistPositionIfDue, notifyUserTookOver } = usePlaybackPersistence({
-    fileAccess,
-    backgroundFileAccess,
-    libraryStore,
-    playlistPlayer,
-    initialPlaybackStatePromise,
-    refresh,
-    setPlayerState,
-    setPlayingContext,
-    onRestoreScreen: restorePlaylistScreen,
-    onError: (err) => {
-      setError(errorMessage(err));
-      logLibraryAction('playbackPersistence:failed', { error: String(err) });
-    },
-    onStepChange: advanceStep,
-    onLyricsScopesKnown: (scopes) => {
-      setLyricsScopes(scopes);
-      setHasLyricsScopes(scopes.length > 0);
-    },
-  });
-
-  useEffect(() => {
-    notifyAdvance = () => {
-      const state = playlistPlayer.getState();
-      setPlayerState(state);
-      // Covers every advance not already handled at its own call site: a
-      // crossfade completing and a track ending naturally both change
-      // currentFileId without going through goNext/goPrevious.
-      if (state.currentFileId) {
-        // Also re-persists shuffleOrder here, not just on the shuffle toggle
-        // itself - maybeReshuffleForLoopContinuation can silently regenerate
-        // it mid-playback (loop='all' wrapping past the last track), and
-        // this fires on every advance regardless of what triggered it.
-        persistPlaybackPatch({
-          currentTrackFileId: state.currentFileId,
-          positionSeconds: state.track.positionSeconds,
-          shuffleOrder: playlistPlayer.getShuffleOrder(),
-        });
-      }
-    };
-    return () => {
-      notifyAdvance = () => {};
-    };
-  }, [persistPlaybackPatch]);
+  const { isRestoring, persistPlaybackPatch, persistPositionIfDue, notifyUserTookOver } = usePlaybackPersistence();
 
   // Stage 6 lookahead (checkPreload) reuses this tick instead of a second timer.
   useEffect(

@@ -3,6 +3,7 @@ import type { TypedStartListening, UnknownAction } from '@reduxjs/toolkit';
 import type { Dispatch } from '@reduxjs/toolkit';
 import type { RootState } from './rootReducer';
 import type { Services } from './services';
+import { playbackPatched } from './persistence/persistenceSlice';
 import { settingsLoaded, settingsUpdated } from './settings/settingsSlice';
 import { serializeSettingsPatch } from './settings/settingsStorage';
 
@@ -23,6 +24,20 @@ export function createAppListenerMiddleware(services: Services) {
       for (const [key, value] of serializeSettingsPatch(action.payload)) {
         void extra.libraryStore.putSetting(key, value);
       }
+    },
+  });
+
+  // Writes the merged playback state. A debounced patch delays only the write
+  // (coalescing e.g. a volume drag's burst); any newer patch cancels a pending
+  // delayed write first, and its own write carries the full merged state, so
+  // nothing is lost.
+  startListening({
+    actionCreator: playbackPatched,
+    effect: async (action, api) => {
+      api.cancelActiveListeners();
+      if (!api.getState().persistence.ready) return;
+      if (action.payload.debounceMs) await api.delay(action.payload.debounceMs);
+      await api.extra.libraryStore.putPlaybackState(api.getState().persistence.state);
     },
   });
 
