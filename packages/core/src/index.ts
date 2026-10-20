@@ -52,6 +52,7 @@ export * from './crossfade/computeTransitionPlan';
 export * from './crossfade/computeCrossfadeVisualization';
 export * from './crossfade/equalPowerGain';
 export * from './discord/richPresence';
+export * from './scrobble/connectionStatus';
 export * from './scrobble/lastfm';
 export * from './scrobble/scrobbleTracker';
 export * from './scrobble/scrobbleQueue';

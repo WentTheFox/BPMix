@@ -1,10 +1,11 @@
-import { buildAuthUrl, buildWebAuthUrl, getAuthToken, getSession, LastFmError } from '@bpmix/core';
-import type { LastFmCredentials } from '@bpmix/core';
+import { buildAuthUrl, buildWebAuthUrl, deriveLastFmStatus, getAuthToken, getSession, LastFmError } from '@bpmix/core';
+import type { LastFmAttemptStatus, LastFmConnectionStatus, LastFmCredentials } from '@bpmix/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Linking, Platform } from 'react-native';
 import type { AppSettings } from '../settings/types';
 
-export type LastFmConnectionStatus = 'disconnected' | 'requestingToken' | 'awaitingAuthorization' | 'confirming' | 'connected';
+// Defined in @bpmix/core with deriveLastFmStatus; re-exported so existing imports keep working.
+export type { LastFmConnectionStatus };
 
 /**
  * A verified Android App Link (AndroidManifest.xml's autoVerify intent-
@@ -59,7 +60,10 @@ export interface UseLastFmConnectionResult {
  *   confirmAuthorized() themselves.
  */
 export function useLastFmConnection(settings: AppSettings, onUpdateSettings: (patch: Partial<AppSettings>) => void): UseLastFmConnectionResult {
-  const [status, setStatus] = useState<LastFmConnectionStatus>(settings.lastFmSessionKey ? 'connected' : 'disconnected');
+  // Only the in-flight attempt is local state; the resting status is derived from the stored session
+  // key (see deriveLastFmStatus for why it can't be initialised from it once at mount).
+  const [attempt, setAttempt] = useState<LastFmAttemptStatus>('idle');
+  const status = deriveLastFmStatus(attempt, settings.lastFmSessionKey);
   const [pendingToken, setPendingToken] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -74,16 +78,16 @@ export function useLastFmConnection(settings: AppSettings, onUpdateSettings: (pa
       const credentials = activeCredentialsRef.current;
       if (!credentials) return;
       setErrorMessage(null);
-      setStatus('confirming');
+      setAttempt('confirming');
       void (async () => {
         try {
           const session = await getSession(credentials, token);
           activeCredentialsRef.current = null;
           onUpdateSettings({ lastFmSessionKey: session.sessionKey, lastFmUsername: session.username });
-          setStatus('connected');
+          setAttempt('idle');
         } catch (err) {
           setErrorMessage(err instanceof LastFmError ? err.message : 'Could not reach Last.fm.');
-          setStatus('disconnected');
+          setAttempt('idle');
         }
       })();
     },
@@ -115,23 +119,23 @@ export function useLastFmConnection(settings: AppSettings, onUpdateSettings: (pa
     setErrorMessage(null);
 
     if (Platform.OS === 'android') {
-      setStatus('awaitingAuthorization');
+      setAttempt('awaitingAuthorization');
       void Linking.openURL(buildWebAuthUrl(credentials, ANDROID_CALLBACK_URL));
       return;
     }
 
     // Windows fallback - desktop-app flow, manual confirmAuthorized() below.
-    setStatus('requestingToken');
+    setAttempt('requestingToken');
     void (async () => {
       try {
         const token = await getAuthToken(credentials);
         setPendingToken(token);
-        setStatus('awaitingAuthorization');
+        setAttempt('awaitingAuthorization');
         await Linking.openURL(buildAuthUrl(credentials, token));
       } catch (err) {
         setErrorMessage(err instanceof LastFmError ? err.message : 'Could not reach Last.fm.');
         activeCredentialsRef.current = null;
-        setStatus('disconnected');
+        setAttempt('idle');
       }
     })();
   }, [settings.lastFmApiKey, settings.lastFmApiSecret]);
@@ -148,21 +152,21 @@ export function useLastFmConnection(settings: AppSettings, onUpdateSettings: (pa
     const credentials = activeCredentialsRef.current;
     if (!credentials) return;
     setErrorMessage(null);
-    setStatus('confirming');
+    setAttempt('confirming');
     void (async () => {
       try {
         const session = await getSession(credentials, pendingToken);
         activeCredentialsRef.current = null;
         setPendingToken(null);
         onUpdateSettings({ lastFmSessionKey: session.sessionKey, lastFmUsername: session.username });
-        setStatus('connected');
+        setAttempt('idle');
       } catch (err) {
         if (err instanceof LastFmError && err.code === 14) {
           setErrorMessage('Not approved yet - approve BPMix in the browser tab, then try again.');
         } else {
           setErrorMessage(err instanceof LastFmError ? err.message : 'Could not reach Last.fm.');
         }
-        setStatus('awaitingAuthorization');
+        setAttempt('awaitingAuthorization');
       }
     })();
   }, [pendingToken, onUpdateSettings]);
@@ -171,7 +175,7 @@ export function useLastFmConnection(settings: AppSettings, onUpdateSettings: (pa
     activeCredentialsRef.current = null;
     setPendingToken(null);
     setErrorMessage(null);
-    setStatus('disconnected');
+    setAttempt('idle');
     onUpdateSettings({ lastFmSessionKey: null, lastFmUsername: null });
   }, [onUpdateSettings]);
 

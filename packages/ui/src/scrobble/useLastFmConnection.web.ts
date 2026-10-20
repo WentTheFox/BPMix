@@ -1,8 +1,8 @@
-import { buildWebAuthUrl, getSession, LastFmError } from '@bpmix/core';
-import type { LastFmCredentials } from '@bpmix/core';
+import { buildWebAuthUrl, deriveLastFmStatus, getSession, LastFmError } from '@bpmix/core';
+import type { LastFmAttemptStatus, LastFmCredentials } from '@bpmix/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AppSettings } from '../settings/types';
-import type { LastFmConnectionStatus, UseLastFmConnectionResult } from './useLastFmConnection';
+import type { UseLastFmConnectionResult } from './useLastFmConnection';
 
 /**
  * Web implementation - see useLastFmConnection.ts's doc for why this is a
@@ -18,7 +18,10 @@ import type { LastFmConnectionStatus, UseLastFmConnectionResult } from './useLas
  * closed the popup without approving anything - there's no event for that.
  */
 export function useLastFmConnection(settings: AppSettings, onUpdateSettings: (patch: Partial<AppSettings>) => void): UseLastFmConnectionResult {
-  const [status, setStatus] = useState<LastFmConnectionStatus>(settings.lastFmSessionKey ? 'connected' : 'disconnected');
+  // Only the in-flight attempt is local state; the resting status is derived from the stored session
+  // key (see deriveLastFmStatus for why it can't be initialised from it once at mount).
+  const [attempt, setAttempt] = useState<LastFmAttemptStatus>('idle');
+  const status = deriveLastFmStatus(attempt, settings.lastFmSessionKey);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const activeCredentialsRef = useRef<LastFmCredentials | null>(null);
@@ -29,16 +32,16 @@ export function useLastFmConnection(settings: AppSettings, onUpdateSettings: (pa
       const credentials = activeCredentialsRef.current;
       if (!credentials) return;
       setErrorMessage(null);
-      setStatus('confirming');
+      setAttempt('confirming');
       void (async () => {
         try {
           const session = await getSession(credentials, token);
           activeCredentialsRef.current = null;
           onUpdateSettings({ lastFmSessionKey: session.sessionKey, lastFmUsername: session.username });
-          setStatus('connected');
+          setAttempt('idle');
         } catch (err) {
           setErrorMessage(err instanceof LastFmError ? err.message : 'Could not reach Last.fm.');
-          setStatus('disconnected');
+          setAttempt('idle');
         }
       })();
     },
@@ -78,7 +81,7 @@ export function useLastFmConnection(settings: AppSettings, onUpdateSettings: (pa
       activeCredentialsRef.current = null;
       return;
     }
-    setStatus('awaitingAuthorization');
+    setAttempt('awaitingAuthorization');
     if (popupPollRef.current) clearInterval(popupPollRef.current);
     popupPollRef.current = setInterval(() => {
       if (!popup.closed) return;
@@ -87,14 +90,14 @@ export function useLastFmConnection(settings: AppSettings, onUpdateSettings: (pa
       // No-op if a message already moved status past this (see
       // finishWithToken) - only resets an actually-abandoned attempt (the
       // user closed the popup without approving).
-      setStatus((current) => (current === 'awaitingAuthorization' ? 'disconnected' : current));
+      setAttempt((current) => (current === 'awaitingAuthorization' ? 'idle' : current));
     }, 500);
   }, [settings.lastFmApiKey, settings.lastFmApiSecret]);
 
   const disconnect = useCallback(() => {
     activeCredentialsRef.current = null;
     setErrorMessage(null);
-    setStatus('disconnected');
+    setAttempt('idle');
     onUpdateSettings({ lastFmSessionKey: null, lastFmUsername: null });
   }, [onUpdateSettings]);
 
