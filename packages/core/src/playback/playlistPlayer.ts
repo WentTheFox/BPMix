@@ -149,6 +149,13 @@ export class PlaylistPlayer {
   private pendingCrossfadeFileIds: { outgoing: string; incoming: string } | null = null;
   /** See decodeDeduped's doc. */
   private decodingByFileId = new Map<string, Promise<DecodedAudio>>();
+  /**
+   * Resolved as soon as the real persisted volume is known - see
+   * awaitInitialVolume's own doc. Defaults to an already-resolved promise
+   * so a caller that never calls awaitInitialVolume (e.g. a test harness)
+   * sees playAt() behave exactly as before, with no added delay.
+   */
+  private initialVolumeReady: Promise<void> = Promise.resolve();
 
   constructor(
     engine: AudioEngine,
@@ -373,6 +380,35 @@ export class PlaylistPlayer {
   /** Sets the user-facing master volume [0,1] (e.g. a UI slider) - independent of per-track normalization gain (resolveGain), applies immediately. */
   setVolume(value: number): void {
     this.trackPlayer.setVolume(value);
+  }
+
+  /**
+   * Makes playAt() block on `promise` resolving (and applying its result
+   * via setVolume) before computing or applying any gain for that call -
+   * call this once, as early as possible (e.g. right after constructing
+   * this player, before any component has even mounted), with a promise
+   * that resolves to the real persisted volume.
+   *
+   * This exists because masterVolume otherwise defaults to a fixed
+   * constant (see TrackPlayer's own field) until something explicitly
+   * corrects it - loading that correction asynchronously, after the fact
+   * (a React effect calling setVolume once the real value is fetched), left
+   * a real window where the first track of a session could start audible
+   * at the wrong volume and audibly jump once the correction landed
+   * (confirmed live as a loud/quiet/normal fluctuation at playback start,
+   * worsened when more than one such correction raced). Gating playAt()
+   * itself on this promise closes that window for good, for every caller
+   * of playAt (UI, media-session/lock-screen controls, anything) rather
+   * than relying on no caller ever running before some other, separately-
+   * timed fetch resolves. Only the very first playAt() call actually waits
+   * on anything real - `initialVolumeReady` is a single promise shared by
+   * every call, so once it resolves once, every later playAt() sees an
+   * already-settled promise and proceeds with no added delay.
+   */
+  awaitInitialVolume(promise: Promise<number>): void {
+    this.initialVolumeReady = promise.then((volume) => {
+      this.setVolume(volume);
+    });
   }
 
   getVolume(): number {
@@ -803,9 +839,20 @@ export class PlaylistPlayer {
       // A track the preload scheduler already finished decoding skips
       // straight to loadDecoded() - no redundant decodeFile() round trip,
       // and effectively instant since there's nothing left to await there.
+      // initialVolumeReady rides along in the same Promise.all rather than
+      // a separate serial await before this one - see its own doc. Almost
+      // always already resolved by the time any real playAt() call reaches
+      // here, so it adds no measurable delay; on the rare first playAt() of
+      // a session that beats it, decode/gain resolution are normally the
+      // slower of the three anyway, so this still adds no *extra* delay in
+      // practice - it only matters on the (rarer still) occasion the volume
+      // fetch is the slowest of the three, where it's exactly the delay
+      // needed to guarantee setGain()/play() below never run with a
+      // not-yet-corrected default volume.
       const [decoded, gain] = await Promise.all([
         preloaded ? Promise.resolve(preloaded) : this.decodeDeduped(fileId),
         this.resolveGainFor(fileId),
+        this.initialVolumeReady,
       ]);
       if (token !== this.playToken) {
         logPlayback('playAt:superseded', { fileId, position });

@@ -43,6 +43,24 @@ interface UsePlaybackPersistenceOptions {
   libraryStore: LibraryStore;
   playlistPlayer: PlaylistPlayer;
   /**
+   * The SAME promise passed to `playlistPlayer.awaitInitialVolume(...)` at
+   * module level (see its own doc) - this hook awaits it here too rather
+   * than issuing its own separate `libraryStore.getPlaybackState()` call,
+   * so there's only ever one fetch of the persisted state, not two
+   * independently-timed ones. Two separate fetches used to be exactly this
+   * bug: each one calling playlistPlayer.setVolume() with no ordering
+   * guarantee between them produced an audible loud/quiet/normal
+   * fluctuation at playback start. Sharing the one promise - started as
+   * early as possible, at module load, before any component mounts - both
+   * closes that race and lets playAt() itself (via awaitInitialVolume)
+   * guarantee the real volume is applied before the very first track of a
+   * session ever becomes audible, regardless of what triggers that first
+   * play (this hook's own restore never autoplays, but a user tapping
+   * Play, or an external media-session command, both go through playAt()
+   * too).
+   */
+  initialPlaybackStatePromise: Promise<PlaybackState | null>;
+  /**
    * Same shape as each app's own library refresh - populates the rest of
    * the app's state (every other granted root, the full-library lyrics
    * auto-match pass, ID3 metadata) once restore no longer needs to wait on
@@ -99,6 +117,7 @@ export function usePlaybackPersistence({
   backgroundFileAccess = fileAccess,
   libraryStore,
   playlistPlayer,
+  initialPlaybackStatePromise,
   refresh,
   setPlayerState,
   setActiveTracksById,
@@ -216,21 +235,19 @@ export function usePlaybackPersistence({
     let cancelled = false;
     (async () => {
       onStepChange?.('listingFolders');
-      const stored = await libraryStore.getPlaybackState();
+      // See initialPlaybackStatePromise's own doc - this is the SAME fetch
+      // playlistPlayer.awaitInitialVolume() (called at module level,
+      // earlier than this effect can possibly run) is also awaiting, not a
+      // second one.
+      const stored = await initialPlaybackStatePromise;
       onStepChange?.('restoringPlayback');
       if (cancelled) return;
       if (stored) playbackStateRef.current = stored;
-      // Applied here - as early as possible in restore, and unconditionally
-      // whenever real persisted state exists, not gated behind successfully
-      // resolving a resumable playlist/track below - rather than left to
-      // useVolumeControl's own separate getPlaybackState() read. That read
-      // raced against this one with no ordering guarantee: playlistPlayer's
-      // own field default (not the user's real saved volume) was briefly
-      // live gain whenever useVolumeControl's fetch happened to resolve
-      // after playback had already started, confirmed live as an audible
-      // "starts loud, drops a moment later" jump on launch. Idempotent if
-      // useVolumeControl's own read lands after this and sets the same
-      // value again - harmless, not a second audible jump.
+      // Idempotent with the module-level awaitInitialVolume's own
+      // setVolume call on the same resolved value - this one exists so
+      // useVolumeControl's displayed value (gated on this hook's own
+      // isRestoring, not on the module-level promise directly) picks up
+      // the real volume too, not just playlistPlayer's internal gain.
       if (stored) playlistPlayer.setVolume(stored.volume);
       // From here on, playbackStateRef holds the real persisted state (or a
       // legitimate "nothing was ever saved" default) - safe for
@@ -422,8 +439,9 @@ export function usePlaybackPersistence({
     return () => {
       cancelled = true;
     };
-    // Intentionally run once on mount - refresh/playlistPlayer/setters are
-    // stable module-level or memoized references in both callers.
+    // Intentionally run once on mount - refresh/playlistPlayer/setters/
+    // initialPlaybackStatePromise are stable module-level or memoized
+    // references in both callers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refresh]);
 

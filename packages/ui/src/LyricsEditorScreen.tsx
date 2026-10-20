@@ -69,6 +69,14 @@ export function LyricsEditorScreen({ colors, lines, positionSeconds, durationSec
     onComplete(entries);
   };
 
+  // Sync mode's whole premise is tapping through real lines against live
+  // playback - with zero entries it has nothing to advance through, and its
+  // own cursor/finished math (cursor 0 >= entries.length 0) reads that as
+  // "already done", rendering a nonsensical "All lines synced" for a file
+  // that was never even loaded. Disabled rather than hidden, same reasoning
+  // as Save being disabled-not-hidden elsewhere in this screen.
+  const syncDisabled = entries.length === 0;
+
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
@@ -76,11 +84,16 @@ export function LyricsEditorScreen({ colors, lines, positionSeconds, durationSec
           <IconLabel path={mdiClose} text="Cancel" color={colors.text} iconSize={18} textStyle={styles.headerText} />
         </Pressable>
         <View style={styles.modeSwitch}>
-          {(['edit', 'sync'] as const).map((m) => (
-            <Pressable key={m} onPress={() => setMode(m)} disabled={saving} style={[styles.modeButton, mode === m && { backgroundColor: withAlpha(colors.accent, 0.15) }]}>
-              <Text style={[styles.modeButtonText, { color: mode === m ? colors.accent : colors.subtleText }]}>{m === 'edit' ? 'Edit' : 'Sync'}</Text>
-            </Pressable>
-          ))}
+          {(['edit', 'sync'] as const).map((m) => {
+            const disabled = saving || (m === 'sync' && syncDisabled);
+            return (
+              <Pressable key={m} onPress={() => setMode(m)} disabled={disabled} style={[styles.modeButton, mode === m && { backgroundColor: withAlpha(colors.accent, 0.15) }]}>
+                <Text style={[styles.modeButtonText, { color: disabled ? colors.subtleText : mode === m ? colors.accent : colors.subtleText, opacity: disabled ? 0.5 : 1 }]}>
+                  {m === 'edit' ? 'Edit' : 'Sync'}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
         <Pressable onPress={attemptSave} hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }} disabled={saving || !hasChanges}>
           <IconLabel path={mdiCheck} text="Save" color={hasChanges ? colors.accent : colors.subtleText} iconSize={18} textStyle={styles.headerText} />

@@ -38,7 +38,6 @@ import {
   LibraryScreen,
   LocateMissingFileScreen,
   LyricsFolderSection,
-  LyricsMenu,
   MiniPlayerBar,
   MultiPaneLayout,
   NowPlayingScreen,
@@ -108,6 +107,13 @@ const DEFAULT_CROSSFADE_SECONDS = 8;
 
 const fileAccess = createFileAccess();
 const libraryStore = createLibraryStore();
+// Kicked off immediately at module load - the earliest this can possibly
+// start, well before any component mounts - and shared by both
+// playlistPlayer.awaitInitialVolume() below and usePlaybackPersistence's
+// own restore effect (see that hook's initialPlaybackStatePromise doc) so
+// there's only ever one fetch of the persisted state, not two
+// independently-timed ones racing each other.
+const initialPlaybackStatePromise = libraryStore.getPlaybackState();
 const audioEngine = createAudioEngine(fileAccess);
 const coverArtResizer = createCoverArtResizer();
 // Never offers an update in a debug build (__DEV__) - checkForUpdate
@@ -181,6 +187,15 @@ const playlistPlayer = new PlaylistPlayer(
     },
   },
 );
+// See PlaylistPlayer.awaitInitialVolume's own doc - guarantees the real
+// persisted volume is applied before the first playAt() of this session
+// ever becomes audible, for every possible trigger (UI, media-session/
+// lock-screen controls), not just whichever one happens to run after
+// usePlaybackPersistence's own React effect gets around to it. 0.25
+// matches both TrackPlayer's own masterVolume field default and
+// usePlaybackPersistence's playbackStateRef default - "nothing was ever
+// persisted" should produce the same volume either way.
+playlistPlayer.awaitInitialVolume(initialPlaybackStatePromise.then((stored) => stored?.volume ?? 0.25));
 
 // playlistPlayer/audioEngine are module-level singletons, but the native
 // AudioContext they wrap isn't torn down just because a Fast Refresh reload
@@ -233,11 +248,11 @@ function AppContent() {
   const statusBarStyle = settings.themeMode === 'dark' || settings.themeMode === 'amoled' ? 'light-content' : 'dark-content';
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [externalConnectionsOpen, setExternalConnectionsOpen] = useState(false);
-  // All three lifted up here rather than left inside LyricsSection - the
-  // trigger (the lyrics icon in headerActionsEl, next to the settings gear)
-  // lives in the global header, a sibling of NowPlayingScreen/LyricsSection,
-  // not a descendant of either - see HeaderActions/LyricsMenu's own docs.
-  const [lyricsMenuOpen, setLyricsMenuOpen] = useState(false);
+  // Both lifted up here rather than left inside LyricsSection - the trigger
+  // (the lyrics menu in headerActionsEl, next to the settings gear) lives in
+  // the global header, a sibling of NowPlayingScreen/LyricsSection, not a
+  // descendant of either - see HeaderActions's own doc. The dropdown's own
+  // open/closed state lives inside IconMenuButton itself now, not here.
   const [lyricsEditorOpen, setLyricsEditorOpen] = useState(false);
   const [lyricsPickerOpen, setLyricsPickerOpen] = useState(false);
   const [rootsWithLibrary, setRootsWithLibrary] = useState<RootWithLibrary[]>([]);
@@ -628,6 +643,7 @@ function AppContent() {
     fileAccess,
     libraryStore,
     playlistPlayer,
+    initialPlaybackStatePromise,
     refresh,
     setPlayerState,
     setActiveTracksById: (tracksById) => {
@@ -877,7 +893,7 @@ function AppContent() {
     [screen, missingTrackRelocation, playFromTrack, missingFileIds, notificationCenter.addError],
   );
 
-  const { volume, handleVolumeChange } = useVolumeControl({ playlistPlayer, libraryStore, persistPlaybackPatch });
+  const { volume, handleVolumeChange } = useVolumeControl({ playlistPlayer, persistPlaybackPatch, isRestoring });
   const appUpdate = useAppUpdateCheck({ currentVersion: BUILD_VERSION, bridge: appUpdateBridge });
 
   // Keeps the now-playing track's own metadata/lyrics-assignment/cover-art
@@ -1000,17 +1016,33 @@ function AppContent() {
   // conditionally - it just caches "" to false, harmlessly).
   const currentTrackHasLyrics = useHasLyrics(libraryStore, playerState.currentFileId ?? '');
 
+  // Reachable from every screen's header (see headerActionsEl below), not
+  // just Now Playing - selecting either action force-opens Now Playing
+  // itself too (nowPlayingScreen's own `&&` requires nowPlayingScreenOpen
+  // on the narrow tier; medium/wide's docked pane renders regardless), so
+  // the editor/picker it opens inside LyricsSection is actually visible
+  // rather than opening invisibly behind the screen the user happened to
+  // be on.
+  const lyricsMenu =
+    playerState.currentFileId && currentTrackHasLyrics
+      ? {
+          onOpenEditor: () => {
+            setLyricsEditorOpen(true);
+            setNowPlayingScreenOpen(true);
+            persistPlaybackPatch({ nowPlayingOpen: true });
+          },
+          onChangeFile: () => {
+            setLyricsPickerOpen(true);
+            setNowPlayingScreenOpen(true);
+            persistPlaybackPatch({ nowPlayingOpen: true });
+          },
+        }
+      : undefined;
+
   // Identical at every call site (Now Playing's headerRight, the
   // playlist screen's HeaderRow right slot, and the library screen's
   // headerRight) - hoisted once rather than reconstructed per site.
-  const headerActionsEl = (
-    <HeaderActions
-      colors={colors}
-      center={notificationCenter}
-      onOpenSettings={() => setSettingsOpen(true)}
-      onOpenLyricsMenu={playerState.currentFileId && currentTrackHasLyrics ? () => setLyricsMenuOpen(true) : undefined}
-    />
-  );
+  const headerActionsEl = <HeaderActions colors={colors} center={notificationCenter} onOpenSettings={() => setSettingsOpen(true)} lyricsMenu={lyricsMenu} />;
   // Side-by-side tiers show several panes at once, each with its own header
   // - only the docked Now Playing pane (rightmost, so the window's top-right
   // corner) carries the settings/notification buttons there, instead of one
@@ -1472,32 +1504,6 @@ function AppContent() {
       />
   );
 
-  // Reachable from every screen's header (see headerActionsEl above), not
-  // just Now Playing - selecting either action also force-opens Now
-  // Playing itself on the narrow tier (nowPlayingScreen's own `&&` already
-  // requires nowPlayingScreenOpen; medium/wide's docked pane renders
-  // regardless), so the editor/picker it opens inside LyricsSection is
-  // actually visible rather than opening invisibly behind the screen the
-  // user happened to be on.
-  const lyricsMenu = lyricsMenuOpen && (
-    <LyricsMenu
-      colors={colors}
-      onOpenEditor={() => {
-        setLyricsMenuOpen(false);
-        setLyricsEditorOpen(true);
-        setNowPlayingScreenOpen(true);
-        persistPlaybackPatch({ nowPlayingOpen: true });
-      }}
-      onChangeFile={() => {
-        setLyricsMenuOpen(false);
-        setLyricsPickerOpen(true);
-        setNowPlayingScreenOpen(true);
-        persistPlaybackPatch({ nowPlayingOpen: true });
-      }}
-      onCancel={() => setLyricsMenuOpen(false)}
-    />
-  );
-
   const missingFileDialog = missingTrackRelocation.explainTarget && (
     <ConfirmDialog
       colors={colors}
@@ -1530,7 +1536,6 @@ function AppContent() {
         {editPlaylistFileScreen}
         {missingFileDialog}
         {addToPlaylistDialog}
-        {lyricsMenu}
       </View>
     </>
   );

@@ -2,6 +2,7 @@ import { mdiAlertCircle, mdiBellOutline, mdiChevronDown, mdiChevronUp, mdiClose,
 import { useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Icon } from '../Icon';
+import { IconMenuButton } from '../IconMenuButton';
 import type { Colors } from '../theme';
 import { withAlpha } from '../theme';
 import type { AppNotification } from './types';
@@ -104,25 +105,23 @@ function NotificationRow({
 }
 
 /**
- * Plain bell icon (no button chrome/background) + dropdown panel anchored
- * beneath it - meant to sit inline in a HeaderRow's right slot on every
- * screen (library title row, playlist/now-playing back rows), not float as
- * a self-positioned overlay - a fixed-position bell used to sit on top of
- * whatever content happened to be underneath it regardless of which screen
- * was showing. This is the single persistent place errors and
- * background-operation status land, instead of a one-shot inline banner
- * whose text was often a raw, uncontextualized browser/native error string
- * (e.g. "A requested file or directory could not be found at the time an
- * operation was processed") that vanished the moment something else called
- * setError again. Notifications stay in the list (newest first) until
- * dismissed - both apps should route their PlaylistPlayer/usePlaybackPersistence
- * onError callbacks and any long-running scan's onProgress callback through
- * the same NotificationCenter (see useNotificationCenter) rather than a
- * plain error string, so this can't drift into a second, differently-shaped
+ * Bell icon + dropdown panel anchored beneath it, via the shared
+ * IconMenuButton (see its own doc for the anchoring and why it matters) -
+ * meant to sit inline in a HeaderRow's right slot on every screen (library
+ * title row, playlist/now-playing back rows). This is the single
+ * persistent place errors and background-operation status land, instead
+ * of a one-shot inline banner whose text was often a raw,
+ * uncontextualized browser/native error string (e.g. "A requested file or
+ * directory could not be found at the time an operation was processed")
+ * that vanished the moment something else called setError again.
+ * Notifications stay in the list (newest first) until dismissed - both
+ * apps should route their PlaylistPlayer/usePlaybackPersistence onError
+ * callbacks and any long-running scan's onProgress callback through the
+ * same NotificationCenter (see useNotificationCenter) rather than a plain
+ * error string, so this can't drift into a second, differently-shaped
  * error surface per platform.
  */
 export function NotificationBell({ colors, center }: NotificationBellProps) {
-  const [open, setOpen] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   const toggleExpand = (id: string) => {
@@ -141,17 +140,20 @@ export function NotificationBell({ colors, center }: NotificationBellProps) {
   const hasActionable = center.notifications.some((n) => n.kind === 'error');
 
   return (
-    <View style={styles.container}>
-      <Pressable style={styles.bellButton} onPress={() => setOpen((o) => !o)} hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}>
-        <Icon path={mdiBellOutline} size={22} color={colors.text} />
-        {count > 0 && (
+    <IconMenuButton
+      colors={colors}
+      icon={mdiBellOutline}
+      panelWidth={320}
+      badge={
+        count > 0 && (
           <View style={[styles.badge, { backgroundColor: hasActionable ? '#dc2626' : '#6b7280' }]}>
             <Text style={styles.badgeText}>{count > 99 ? '99+' : count}</Text>
           </View>
-        )}
-      </Pressable>
-      {open && (
-        <View style={[styles.panel, { backgroundColor: colors.background, borderColor: withAlpha(colors.text, 0.15) }]}>
+        )
+      }
+    >
+      {(close) => (
+        <>
           <View style={styles.panelHeader}>
             <Text style={[styles.panelTitle, { color: colors.text }]}>Notifications</Text>
             <View style={styles.panelHeaderActions}>
@@ -160,8 +162,8 @@ export function NotificationBell({ colors, center }: NotificationBellProps) {
                   <Text style={[styles.clearAll, { color: colors.accent }]}>Clear all</Text>
                 </Pressable>
               )}
-              {/* The bell itself toggles open/closed too, but that wasn't obvious - an explicit close button is the clear, discoverable way out of the panel. */}
-              <Pressable onPress={() => setOpen(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              {/* The icon itself toggles open/closed too, but that wasn't obvious - an explicit close button is the clear, discoverable way out of the panel. */}
+              <Pressable onPress={close} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                 <Icon path={mdiClose} size={18} color={colors.subtleText} />
               </Pressable>
             </View>
@@ -184,24 +186,13 @@ export function NotificationBell({ colors, center }: NotificationBellProps) {
               )}
             />
           )}
-        </View>
+        </>
       )}
-    </View>
+    </IconMenuButton>
   );
 }
 
 const styles = StyleSheet.create({
-  // position:'relative' (not absolute) - this whole component sits inline
-  // in a HeaderRow's right slot; only the dropdown panel below needs to
-  // escape normal layout flow (so opening it doesn't push the header
-  // taller), anchored to this container.
-  container: {
-    position: 'relative',
-    zIndex: 20,
-  },
-  bellButton: {
-    padding: 2,
-  },
   // Bottom-left, not top-right - the bell sits flush against the screen's
   // right edge in every HeaderRow it's used in, so a top-right badge (which
   // needs to overflow past the icon's own top-right corner to read clearly)
@@ -221,31 +212,6 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 9,
     fontWeight: '700',
-  },
-  panel: {
-    position: 'absolute',
-    // The real fix for this panel floating above sibling screen content
-    // (TrackList, LibraryScreen's list) lives on HeaderRow's own style, not
-    // here - see its doc. This still needs its own z-index higher than the
-    // rest of HeaderRow's contents so the panel clears the bell/back-button
-    // row it's anchored to, but it was never the thing standing between this
-    // panel and the content below the header.
-    zIndex: 20,
-    top: '100%',
-    right: 0,
-    marginTop: 8,
-    width: 320,
-    maxHeight: 420,
-    // Without this, maxHeight isn't a real clip boundary on a plain View
-    // (default overflow is 'visible') - an expanded long notification could
-    // grow the panel straight past it, taking the list's own scrollbar/tail
-    // off-screen with it since there's no ancestor scroll region to bring it
-    // back into view. This makes maxHeight the hard limit it looks like,
-    // leaving `list`'s own maxHeight (below) as the actual scrollable area.
-    overflow: 'hidden',
-    borderRadius: 12,
-    borderWidth: 1,
-    padding: 8,
   },
   panelHeader: {
     flexDirection: 'row',

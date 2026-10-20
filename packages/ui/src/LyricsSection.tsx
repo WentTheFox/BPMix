@@ -161,6 +161,23 @@ export function LyricsSection({
   if (!trackFileId) return null;
 
   if (editorOpen) {
+    // useAssignedLyrics is async - the menu that opens this (see
+    // HeaderActions/LyricsMenu) can fire before it's resolved, especially
+    // since selecting "Lyrics editor" also force-opens Now Playing in the
+    // same tick (see each App.tsx's lyricsMenu), so LyricsSection itself is
+    // often freshly mounted right as this branch is first reached. Without
+    // this guard, LyricsEditorScreen opened with `rows` still `[]` (lyrics
+    // not loaded yet), which isn't just a cosmetic empty list - Sync mode
+    // reads an empty entries array as "every line already timed" (cursor
+    // 0 >= length 0) and renders "All lines synced" for a file that was
+    // never even loaded, let alone synced.
+    if (lyrics === undefined) {
+      return (
+        <View style={[styles.container, styles.placeholderContainer]}>
+          <ActivityIndicator color={colors.subtleText} />
+        </View>
+      );
+    }
     return (
       <View style={styles.container}>
         <LyricsEditorScreen

@@ -32,7 +32,6 @@ import {
   LibraryScreen,
   LocateMissingFileScreen,
   LyricsFolderSection,
-  LyricsMenu,
   MiniPlayerBar,
   MultiPaneLayout,
   NowPlayingScreen,
@@ -101,6 +100,9 @@ const fileAccess = createCompositeFileAccess();
 // at all: requestPermission() can't be called off a non-gesture code path.
 const backgroundFileAccess = createBackgroundFileAccess(fileAccess);
 const libraryStore = createLibraryStore();
+// See apps/mobile/App.tsx's identical initialPlaybackStatePromise for why
+// this is kicked off here, at module load, rather than inside a hook.
+const initialPlaybackStatePromise = libraryStore.getPlaybackState();
 const coverArtResizer = createCoverArtResizer();
 const audioEngine = createAudioEngine(fileAccess);
 
@@ -160,6 +162,8 @@ const playlistPlayer = new PlaylistPlayer(
     },
   },
 );
+// See apps/mobile/App.tsx's identical call for why.
+playlistPlayer.awaitInitialVolume(initialPlaybackStatePromise.then((stored) => stored?.volume ?? 0.25));
 
 // playlistPlayer/audioEngine are module-level singletons, but the browser's
 // AudioContext they wrap isn't torn down just because a Vite HMR reload
@@ -184,9 +188,8 @@ function App() {
   const tier = useViewportTier();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [externalConnectionsOpen, setExternalConnectionsOpen] = useState(false);
-  // See apps/mobile/App.tsx's identical trio for why these are lifted up
+  // See apps/mobile/App.tsx's identical pair for why these are lifted up
   // here rather than left inside LyricsSection.
-  const [lyricsMenuOpen, setLyricsMenuOpen] = useState(false);
   const [lyricsEditorOpen, setLyricsEditorOpen] = useState(false);
   const [lyricsPickerOpen, setLyricsPickerOpen] = useState(false);
   const [rootsWithLibrary, setRootsWithLibrary] = useState<RootWithLibrary[]>([]);
@@ -654,6 +657,7 @@ function App() {
     backgroundFileAccess,
     libraryStore,
     playlistPlayer,
+    initialPlaybackStatePromise,
     refresh,
     setPlayerState,
     setActiveTracksById: (tracksById) => {
@@ -879,7 +883,7 @@ function App() {
     [screen, missingTrackRelocation, playFromTrack, missingFileIds, notificationCenter.addError],
   );
 
-  const { volume, handleVolumeChange } = useVolumeControl({ playlistPlayer, libraryStore, persistPlaybackPatch });
+  const { volume, handleVolumeChange } = useVolumeControl({ playlistPlayer, persistPlaybackPatch, isRestoring });
 
   const {
     outgoingTrack,
@@ -978,17 +982,28 @@ function App() {
   // See apps/mobile/App.tsx's identical currentTrackHasLyrics for why.
   const currentTrackHasLyrics = useHasLyrics(libraryStore, playerState.currentFileId ?? '');
 
+  // See apps/mobile/App.tsx's identical lyricsMenu for why both actions
+  // also force-open Now Playing.
+  const lyricsMenu =
+    playerState.currentFileId && currentTrackHasLyrics
+      ? {
+          onOpenEditor: () => {
+            setLyricsEditorOpen(true);
+            setNowPlayingScreenOpen(true);
+            persistPlaybackPatch({ nowPlayingOpen: true });
+          },
+          onChangeFile: () => {
+            setLyricsPickerOpen(true);
+            setNowPlayingScreenOpen(true);
+            persistPlaybackPatch({ nowPlayingOpen: true });
+          },
+        }
+      : undefined;
+
   // Identical at every call site (Now Playing's headerRight, the
   // playlist screen's HeaderRow right slot, and the library screen's
   // headerRight) - hoisted once rather than reconstructed per site.
-  const headerActionsEl = (
-    <HeaderActions
-      colors={colors}
-      center={notificationCenter}
-      onOpenSettings={() => setSettingsOpen(true)}
-      onOpenLyricsMenu={playerState.currentFileId && currentTrackHasLyrics ? () => setLyricsMenuOpen(true) : undefined}
-    />
-  );
+  const headerActionsEl = <HeaderActions colors={colors} center={notificationCenter} onOpenSettings={() => setSettingsOpen(true)} lyricsMenu={lyricsMenu} />;
   // Side-by-side tiers show several panes at once, each with its own header
   // - only the docked Now Playing pane (rightmost, so the window's top-right
   // corner) carries the settings/notification buttons there, instead of one
@@ -1463,28 +1478,6 @@ function App() {
     />
   );
 
-  // See apps/mobile/App.tsx's identical lyricsMenu for why both actions
-  // also force-open Now Playing (nowPlayingScreen's own `&&` requires
-  // nowPlayingScreenOpen on the narrow tier; the wide/medium branch below
-  // renders nowPlayingContent as an always-visible docked pane regardless).
-  const lyricsMenu = lyricsMenuOpen && (
-    <LyricsMenu
-      colors={colors}
-      onOpenEditor={() => {
-        setLyricsMenuOpen(false);
-        setLyricsEditorOpen(true);
-        setNowPlayingScreenOpen(true);
-        persistPlaybackPatch({ nowPlayingOpen: true });
-      }}
-      onChangeFile={() => {
-        setLyricsMenuOpen(false);
-        setLyricsPickerOpen(true);
-        setNowPlayingScreenOpen(true);
-        persistPlaybackPatch({ nowPlayingOpen: true });
-      }}
-      onCancel={() => setLyricsMenuOpen(false)}
-    />
-  );
 
   if (tier === 'narrow') {
     return (
@@ -1497,7 +1490,6 @@ function App() {
         {editPlaylistFileScreen}
         {missingFileDialog}
         {addToPlaylistDialog}
-        {lyricsMenu}
       </View>
     );
   }
@@ -1513,7 +1505,6 @@ function App() {
       {editPlaylistFileScreen}
       {missingFileDialog}
       {addToPlaylistDialog}
-      {lyricsMenu}
     </View>
   );
 }

@@ -1,11 +1,24 @@
-import type { LibraryStore, PlaybackState, PlaylistPlayer } from '@bpmix/core';
-import { useCallback, useEffect, useState } from 'react';
+import type { PlaybackState, PlaylistPlayer } from '@bpmix/core';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { RAPID_PLAYBACK_PATCH_DEBOUNCE_MS } from './usePlaybackPersistence';
 
 export interface VolumeControlInput {
   playlistPlayer: PlaylistPlayer;
-  libraryStore: LibraryStore;
   persistPlaybackPatch: (patch: Partial<PlaybackState>, options?: { debounceMs?: number }) => void;
+  /**
+   * usePlaybackPersistence's own `isRestoring` - its restore effect is the
+   * sole writer of the real persisted volume onto playlistPlayer (via its
+   * own setVolume(stored.volume) call, applied as early as possible in
+   * restore - see that effect's own doc), and only flips isRestoring false
+   * once that write has already landed. This hook used to independently
+   * re-fetch libraryStore.getPlaybackState() and call setVolume itself, a
+   * second, uncoordinated write racing the first - two separate async
+   * writes landing at different moments produced an audible loud-then-
+   * quiet-then-normal fluctuation at playback start, confirmed live. Now
+   * this hook only ever READS playlistPlayer's volume back out for display
+   * once restore is done, never writes it itself.
+   */
+  isRestoring: boolean;
 }
 
 export interface VolumeControl {
@@ -22,27 +35,19 @@ export interface VolumeControl {
  * janking the drag itself.
  */
 export function useVolumeControl(input: VolumeControlInput): VolumeControl {
-  const { playlistPlayer, libraryStore, persistPlaybackPatch } = input;
+  const { playlistPlayer, persistPlaybackPatch, isRestoring } = input;
 
-  // usePlaybackPersistence's own restore effect already calls
-  // playlistPlayer.setVolume(stored.volume) as early as possible (see its
-  // own doc for why that, not this, is the fix for a real "starts loud,
-  // drops a moment later" launch bug this independent fetch used to cause
-  // on its own) - the setVolume call below is accordingly usually a no-op
-  // repeat of the same value by the time it resolves. Still needed on its
-  // own merits: this hook's `volume` (what the UI actually displays) has
-  // no other way to pick up the real persisted value, since React state
-  // set elsewhere doesn't propagate here.
   const [volume, setVolumeState] = useState(() => playlistPlayer.getVolume());
+  // Fires once, exactly on the isRestoring true->false transition (not on
+  // every render while it's already false) - see isRestoring's own doc for
+  // why that moment, specifically, is when playlistPlayer's volume field
+  // first reflects the real persisted value rather than TrackPlayer's
+  // hardcoded masterVolume default.
+  const wasRestoringRef = useRef(isRestoring);
   useEffect(() => {
-    libraryStore.getPlaybackState().then((stored) => {
-      if (stored) {
-        playlistPlayer.setVolume(stored.volume);
-        setVolumeState(stored.volume);
-      }
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (wasRestoringRef.current && !isRestoring) setVolumeState(playlistPlayer.getVolume());
+    wasRestoringRef.current = isRestoring;
+  }, [isRestoring, playlistPlayer]);
 
   const handleVolumeChange = useCallback(
     (value: number) => {
