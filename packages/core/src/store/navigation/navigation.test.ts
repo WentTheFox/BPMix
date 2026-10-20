@@ -25,6 +25,12 @@ describe('navigation slice', () => {
       lyricsPickerOpen: false,
       createPlaylistRootId: null,
       createPlaylistTarget: null,
+      screen: { kind: 'library' },
+      playingContext: null,
+      editingPlaylistFile: null,
+      addToPlaylistTrack: null,
+      isFindingUnplaylisted: false,
+      unplaylistedRequestId: 0,
     });
   });
 

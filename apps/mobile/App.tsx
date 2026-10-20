@@ -4,9 +4,8 @@
  * @format
  */
 
-import type { FileRef, GrantedRoot, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '@bpmix/core';
+import type { FileRef, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '@bpmix/core';
 import {
-  addTracksToPlaylist,
   BUILD_VERSION,
   DEFAULT_DISCORD_APPLICATION_ID,
   addError,
@@ -17,12 +16,9 @@ import {
   DEFAULT_CROSSFADE_SECONDS,
   ensureTrackAnalyzed,
   errorMessage,
-  findUnplaylistedTracksQueued,
   formatTrackTitle,
   logLibraryAction,
-  movePlaylistTracks,
   PlaylistPlayer,
-  removePlaylistTracks,
   scanLibraryMetadataQueued,
   trackDisplayName,
 } from '@bpmix/core';
@@ -70,6 +66,7 @@ import {
   useAppDispatch,
   useLibrary,
   useNavigation,
+  usePlaylistScreen,
   useViewportTier,
   useVolumeControl,
   StoreProvider,
@@ -230,10 +227,6 @@ if (typeof module !== 'undefined' && module?.hot) {
   });
 }
 
-type Screen =
-  | { kind: 'library' }
-  | { kind: 'playlist'; root: GrantedRoot; playlist: PlaylistRecord; tracksById: Map<string, TrackRecord> };
-
 function App() {
   return (
     <StoreProvider store={store}>
@@ -316,8 +309,6 @@ function AppContent() {
     storageRootDisplayName: string;
     resolve: (relativePath: string | null) => void;
   } | null>(null);
-  /** See apps/web/src/App.tsx's identical field for why this is declared up here, ahead of this component's early returns. */
-  const [addToPlaylistTrack, setAddToPlaylistTrack] = useState<TrackRecord | null>(null);
   // Everything that used to be a one-shot setError(errorMessage(err)) string
   // (playback/decode failures specifically) now goes here instead - see
   // NotificationBell's doc for why a raw error string as the *entire*
@@ -331,29 +322,28 @@ function AppContent() {
   // Drives RestoringScreen's checklist - see refresh()'s and
   // usePlaybackPersistence's onStepChange updates below.
   const { completedSteps, currentStep, hasLyricsScopes, advanceStep, setHasLyricsScopes } = useRestoringProgress();
-  const [screen, setScreen] = useState<Screen>({ kind: 'library' });
-  // True while handleShowUnplaylisted's real directory walk is still in
-  // flight for whatever's currently on screen - drives the "Finding…"
-  // notice at the top of the Unplaylisted playlist screen (see its render
-  // below), now that the screen itself opens immediately instead of
-  // waiting for the walk to finish.
-  const [isFindingUnplaylisted, setIsFindingUnplaylisted] = useState(false);
-  // Guards handleShowUnplaylisted's async result against a stale request
-  // landing after the user has already navigated elsewhere (closed the
-  // screen, or reopened a different root's Unplaylisted) - only the
-  // latest request's result is applied.
-  const unplaylistedRequestRef = useRef(0);
-  // Drives the "Edit raw" overlay (see EditPlaylistFileScreen) - set from
-  // TrackList's onEditRaw, only ever for a real, file-backed playlist.
-  const [editingPlaylistFile, setEditingPlaylistFile] = useState<{ root: GrantedRoot; playlist: PlaylistRecord } | null>(null);
-  // Which real playlist is actually playing right now - see
-  // apps/web/src/App.tsx's identical state for why this is separate from
-  // `screen` (the user may navigate back to Library while a track keeps
-  // playing) and why it's also restored from PlaybackState on relaunch,
-  // not just set on a manual track tap.
-  const [playingContext, setPlayingContext] = useState<{ root: GrantedRoot; playlist: PlaylistRecord; tracksById: Map<string, TrackRecord> } | null>(
-    null,
-  );
+  // The open playlist screen, the playing playlist, and the edit/add-to-
+  // playlist targets live in the store's navigation slice - see
+  // usePlaylistScreen. Opening/closing doesn't persist "last opened" itself;
+  // the call sites do (persistOpenedPlaylist below).
+  const {
+    screen,
+    playingContext,
+    editingPlaylistFile,
+    addToPlaylistTrack,
+    isFindingUnplaylisted,
+    openLibrary,
+    openPlaylist,
+    markOpenPlaylistPlaying,
+    restore: restorePlaylistScreen,
+    setEditingPlaylistFile,
+    setAddToPlaylistTrack,
+    showNowPlaying,
+    showUnplaylisted,
+    moveTracks,
+    removeTracks,
+    addPendingTrackToPlaylist,
+  } = usePlaylistScreen();
   const [playerState, setPlayerState] = useState<PlaylistPlayerState>(playlistPlayer.getState());
   // Cold-start restore (usePlaybackPersistence) loads the last-played track
   // and decodes it without starting playback, landing it in status
@@ -388,7 +378,7 @@ function AppContent() {
         persistPlaybackPatch({ nowPlayingOpen: false });
       },
       closePlaylist: () => {
-        setScreen({ kind: 'library' });
+        openLibrary();
         persistPlaybackPatch({ openedPlaylistId: null, openedRootId: null });
       },
     },
@@ -473,11 +463,7 @@ function AppContent() {
     setActiveTracksById: (tracksById) => {
       activeTracksById = tracksById;
     },
-    onRestoreScreen: (opened, nowPlayingOpen, playing) => {
-      if (opened) setScreen({ kind: 'playlist', root: opened.root, playlist: opened.playlist, tracksById: opened.tracksById });
-      if (nowPlayingOpen) setNowPlayingOpen(true);
-      setPlayingContext(playing);
-    },
+    onRestoreScreen: restorePlaylistScreen,
     onError: (err) => {
       setError(errorMessage(err));
       logLibraryAction('playbackPersistence:failed', { error: String(err) });
@@ -499,14 +485,14 @@ function AppContent() {
   const applyDeepLink = useCallback((url: string) => {
     const path = url.replace(/^bpmix:\/\//, '').split(/[/?#]/)[0];
     if (path === 'library') {
-      setScreen({ kind: 'library' });
+      openLibrary();
       setNowPlayingOpen(false);
       closeSettings();
     } else if (path === 'now-playing') {
       setNowPlayingOpen(true);
       closeSettings();
     }
-  }, [setNowPlayingOpen, closeSettings]);
+  }, [setNowPlayingOpen, closeSettings, openLibrary]);
 
   useEffect(() => {
     // Warm start: the app is already running (singleTask launchMode reuses
@@ -646,20 +632,9 @@ function AppContent() {
   // playlistPlayer.getShuffleOrder() directly rather than gating on
   // playerState.shuffleEnabled, which would still read stale (pre-toggle)
   // when handleToggleShuffle calls this synchronously right after toggling.
-  const handleShowNowPlaying = () => {
-    if (!playingContext) return;
-    const { root, playlist: playingPlaylist, tracksById } = playingContext;
-    const trackFileIds = playlistPlayer.getShuffleOrder() ?? playingPlaylist.trackFileIds;
-    const playlist: PlaylistRecord = {
-      id: `virtual:${root.id}:now-playing`,
-      rootId: root.id,
-      fileId: `virtual:${root.id}:now-playing`,
-      name: 'Now Playing',
-      trackFileIds,
-    };
-    setScreen({ kind: 'playlist', root, playlist, tracksById });
-    persistPlaybackPatch({ openedPlaylistId: playlist.id, openedRootId: root.id });
-  };
+  const persistOpenedPlaylist = (playlist: PlaylistRecord, rootId: string) =>
+    persistPlaybackPatch({ openedPlaylistId: playlist.id, openedRootId: rootId });
+  const handleShowNowPlaying = () => showNowPlaying({ onOpened: persistOpenedPlaylist });
 
   const {
     playFromTrack,
@@ -707,14 +682,14 @@ function AppContent() {
         // this reports the same error again immediately instead of trying.
         notificationCenter.addError(`Couldn't play "${trackDisplayName(t)}"`, 'This file failed to open earlier this session - it may still be syncing.');
       } else {
-        setPlayingContext({ root: screen.root, playlist: screen.playlist, tracksById: screen.tracksById });
+        markOpenPlaylistPlaying();
         void playFromTrack(screen.playlist, screen.tracksById, t);
       }
     },
     // notificationCenter.addError specifically - see the reportError effect's
     // identical note on why the whole notificationCenter object isn't a safe dep here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [screen, missingTrackRelocation, playFromTrack, missingFileIds, notificationCenter.addError],
+    [screen, missingTrackRelocation, playFromTrack, missingFileIds, markOpenPlaylistPlaying, notificationCenter.addError],
   );
 
   const { volume, handleVolumeChange } = useVolumeControl({ playlistPlayer, persistPlaybackPatch, isRestoring });
@@ -1131,7 +1106,7 @@ function AppContent() {
   // useBackNavigation's closePlaylist action above - see
   // apps/web/src/App.tsx's identical helper.
   const closePlaylistScreen = () => {
-    setScreen({ kind: 'library' });
+    openLibrary();
     persistPlaybackPatch({ openedPlaylistId: null, openedRootId: null });
   };
 
@@ -1140,35 +1115,7 @@ function AppContent() {
   // apps/web/src/App.tsx's identical helper for why (the individual
   // tracks themselves DO get persisted; only the playlist grouping is
   // recomputed fresh every time).
-  const handleShowUnplaylisted = async (rootId: string) => {
-    // Already viewing this root's Unplaylisted screen - re-walking the
-    // whole root on every tap (findUnplaylistedTracksQueued is a real
-    // directory walk, not a cached lookup) just re-shows "Finding…" for no
-    // reason; nothing about the currently-open screen changes from this.
-    if (screen.kind === 'playlist' && screen.playlist.id === `virtual:${rootId}:unplaylisted`) return;
-    const root = grantedRoots.find((r) => r.id === rootId);
-    if (!root) return;
-    const playlistId = `virtual:${rootId}:unplaylisted`;
-    // Opens the screen immediately, empty, with isFindingUnplaylisted
-    // driving a "Finding…" notice (see its render below) while the real
-    // walk runs in the background - previously this awaited the whole walk
-    // before navigating at all, which could leave the user staring at the
-    // Library screen for a while on a large root with no feedback other
-    // than the Unplaylisted row's own small label swap.
-    setScreen({ kind: 'playlist', root, playlist: { id: playlistId, rootId, fileId: playlistId, name: 'Songs not in a playlist', trackFileIds: [] }, tracksById: new Map() });
-    persistPlaybackPatch({ openedPlaylistId: playlistId, openedRootId: root.id });
-    const requestId = ++unplaylistedRequestRef.current;
-    setIsFindingUnplaylisted(true);
-    try {
-      const tracks = await findUnplaylistedTracksQueued(fileAccess, libraryStore, rootId, root.displayName, { resizer: coverArtResizer });
-      if (unplaylistedRequestRef.current !== requestId) return;
-      const playlist: PlaylistRecord = { id: playlistId, rootId, fileId: playlistId, name: 'Songs not in a playlist', trackFileIds: tracks.map((t) => t.fileId) };
-      const tracksById = new Map(tracks.map((t) => [t.fileId, t]));
-      setScreen((prev) => (prev.kind === 'playlist' && prev.playlist.id === playlistId ? { ...prev, playlist, tracksById } : prev));
-    } finally {
-      if (unplaylistedRequestRef.current === requestId) setIsFindingUnplaylisted(false);
-    }
-  };
+  const handleShowUnplaylisted = (rootId: string) => showUnplaylisted(rootId, { onOpened: persistOpenedPlaylist });
 
   // See apps/web/src/App.tsx's identical block for why this is scoped to
   // just the Unplaylisted virtual playlist.
@@ -1185,17 +1132,7 @@ function AppContent() {
         playlists={rootsWithLibrary.find((r) => r.root.id === screen.root.id)?.playlists ?? []}
         trackLabel={trackDisplayName(addToPlaylistTrack)}
         onCancel={() => setAddToPlaylistTrack(null)}
-        onSelect={async (playlist, position) => {
-          const track = addToPlaylistTrack;
-          try {
-            await addTracksToPlaylist(fileAccess, screen.root.id, playlist, [track], position);
-            setScreen((prev) => (prev.kind === 'playlist' ? { ...prev, playlist: { ...prev.playlist, trackFileIds: prev.playlist.trackFileIds.filter((id) => id !== track.fileId) } } : prev));
-            setAddToPlaylistTrack(null);
-            void rescan(screen.root.id);
-          } catch (err) {
-            notificationCenter.addError(`Couldn't add "${trackDisplayName(track)}" to "${playlist.name}"`, errorMessage(err));
-          }
-        }}
+        onSelect={(playlist, position) => addPendingTrackToPlaylist(playlist, position, rescan)}
       />
     ) : null;
 
@@ -1224,52 +1161,12 @@ function AppContent() {
           onAddToPlaylist={isUnplaylistedScreen ? setAddToPlaylistTrack : undefined}
           onMoveTracks={
             isRealPlaylistScreen
-              ? async (movingFileIds, anchorFileId, position) => {
-                  const playlistId = screen.playlist.id;
-                  try {
-                    await movePlaylistTracks(fileAccess, screen.root.id, screen.playlist, screen.tracksById, movingFileIds, anchorFileId, position);
-                    // Patches the open screen's own order immediately rather
-                    // than waiting on rescan() below - nothing today
-                    // reconciles the currently-OPEN screen against a rescan's
-                    // result (only PlaylistPlayer's own now-playing order
-                    // gets that treatment, see refresh()'s reconcilePlaylist
-                    // call), so without this the reorder looked like it did
-                    // nothing until the playlist was closed and reopened,
-                    // despite the .m3u8 itself already being correct.
-                    setScreen((prev) => {
-                      if (prev.kind !== 'playlist' || prev.playlist.id !== playlistId) return prev;
-                      const moving = new Set(movingFileIds);
-                      const remaining = prev.playlist.trackFileIds.filter((id) => !moving.has(id));
-                      const anchorIndex = remaining.indexOf(anchorFileId);
-                      if (anchorIndex === -1) return prev;
-                      const insertAt = position === 'before' ? anchorIndex : anchorIndex + 1;
-                      const trackFileIds = [...remaining.slice(0, insertAt), ...movingFileIds, ...remaining.slice(insertAt)];
-                      return { ...prev, playlist: { ...prev.playlist, trackFileIds } };
-                    });
-                    void rescan(screen.root.id);
-                  } catch (err) {
-                    notificationCenter.addError(`Couldn't reorder "${screen.playlist.name}"`, errorMessage(err));
-                  }
-                }
+              ? (movingFileIds, anchorFileId, position) => moveTracks(movingFileIds, anchorFileId, position, rescan)
               : undefined
           }
           onRemoveTracks={
             isRealPlaylistScreen
-              ? async (fileIds) => {
-                  const playlistId = screen.playlist.id;
-                  try {
-                    await removePlaylistTracks(fileAccess, screen.root.id, screen.playlist, screen.tracksById, fileIds);
-                    // Same immediate-patch reasoning as onMoveTracks above.
-                    setScreen((prev) => {
-                      if (prev.kind !== 'playlist' || prev.playlist.id !== playlistId) return prev;
-                      const removing = new Set(fileIds);
-                      return { ...prev, playlist: { ...prev.playlist, trackFileIds: prev.playlist.trackFileIds.filter((id) => !removing.has(id)) } };
-                    });
-                    void rescan(screen.root.id);
-                  } catch (err) {
-                    notificationCenter.addError(`Couldn't remove tracks from "${screen.playlist.name}"`, errorMessage(err));
-                  }
-                }
+              ? (fileIds) => removeTracks(fileIds, rescan)
               : undefined
           }
           onEditRaw={isRealPlaylistScreen ? () => setEditingPlaylistFile({ root: screen.root, playlist: screen.playlist }) : undefined}
@@ -1293,10 +1190,7 @@ function AppContent() {
         onShowNowPlaying={playingContext ? handleShowNowPlaying : undefined}
         nowPlayingPlaylistId={playingContext?.playlist.id ?? null}
         nowPlayingIsShuffled={playerState.shuffleEnabled}
-        onSelectPlaylist={(root, playlist, tracksById) => {
-          setScreen({ kind: 'playlist', root, playlist, tracksById });
-          persistPlaybackPatch({ openedPlaylistId: playlist.id, openedRootId: root.id });
-        }}
+        onSelectPlaylist={(root, playlist, tracksById) => openPlaylist({ root, playlist, tracksById }, { onOpened: persistOpenedPlaylist })}
         error={error}
         errorAction={
           needsAllFilesAccess && (

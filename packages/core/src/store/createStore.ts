@@ -4,6 +4,9 @@ import { rootReducer } from './rootReducer';
 import type { RootState } from './rootReducer';
 import type { Services } from './services';
 
+/** Slices holding whole scanned libraries / open playlists: plain data straight from LibraryStore, too big to walk on every dispatch. */
+const LARGE_STATE_PATHS = ['library.roots', 'navigation.screen', 'navigation.playingContext'];
+
 /**
  * Builds the app's single store. Services are the thunk and listener
  * `extraArgument`, so nothing in state or reducers touches I/O.
@@ -19,11 +22,8 @@ export function createStore(services: Services) {
     middleware: (getDefaultMiddleware) =>
       getDefaultMiddleware({
         thunk: { extraArgument: services },
-        // The scanned library can be tens of thousands of records; walking it
-        // on every dispatch is real cost, and it's plain data straight from
-        // LibraryStore anyway.
-        serializableCheck: { ignoredPaths: ['library.roots'] },
-        immutableCheck: { ignoredPaths: ['library.roots'] },
+        serializableCheck: { ignoredPaths: LARGE_STATE_PATHS },
+        immutableCheck: { ignoredPaths: LARGE_STATE_PATHS },
       }).prepend(listenerMiddleware.middleware),
   });
 }

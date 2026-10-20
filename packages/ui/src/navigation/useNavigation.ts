@@ -16,6 +16,12 @@ import type { CreatePlaylistTarget, NavigationState } from '@bpmix/core';
 import { useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 
+/** The overlay/modal part of NavigationState - the open playlist screen has its own view, see usePlaylistScreen. */
+export type OverlayState = Pick<
+  NavigationState,
+  'settingsOpen' | 'externalConnectionsOpen' | 'nowPlayingOpen' | 'lyricsEditorOpen' | 'lyricsPickerOpen' | 'createPlaylistRootId' | 'createPlaylistTarget'
+>;
+
 export interface NavigationActions {
   openSettings: () => void;
   closeSettings: () => void;
@@ -36,9 +42,10 @@ export interface NavigationActions {
  * flow) as state plus stable action dispatchers, shared by both apps. The
  * actions never change identity, so they're safe in effect deps.
  */
-export function useNavigation(): NavigationState & NavigationActions {
+export function useNavigation(): OverlayState & NavigationActions {
   const dispatch = useAppDispatch();
-  const state = useAppSelector((s) => s.navigation);
+  const { settingsOpen, externalConnectionsOpen, nowPlayingOpen, lyricsEditorOpen, lyricsPickerOpen, createPlaylistRootId, createPlaylistTarget } =
+    useAppSelector((s) => s.navigation);
   const actions = useMemo<NavigationActions>(
     () => ({
       openSettings: () => dispatch(settingsOpened()),
@@ -56,5 +63,17 @@ export function useNavigation(): NavigationState & NavigationActions {
     }),
     [dispatch],
   );
-  return useMemo(() => ({ ...state, ...actions }), [state, actions]);
+  return useMemo(
+    () => ({
+      settingsOpen,
+      externalConnectionsOpen,
+      nowPlayingOpen,
+      lyricsEditorOpen,
+      lyricsPickerOpen,
+      createPlaylistRootId,
+      createPlaylistTarget,
+      ...actions,
+    }),
+    [settingsOpen, externalConnectionsOpen, nowPlayingOpen, lyricsEditorOpen, lyricsPickerOpen, createPlaylistRootId, createPlaylistTarget, actions],
+  );
 }

@@ -61,6 +61,7 @@ export * from './store/library/librarySlice';
 export * from './store/library/refreshLibrary';
 export * from './store/library/types';
 export * from './store/navigation/navigationSlice';
+export * from './store/navigation/playlistThunks';
 export * from './store/notifications/notificationsSlice';
 export * from './store/notifications/notificationsThunks';
 export * from './store/notifications/notificationActions';

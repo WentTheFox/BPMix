@@ -35,6 +35,7 @@ export * from './library/useLibrary';
 export * from './navigation/backNavigation';
 export * from './navigation/useBackNavigation';
 export * from './navigation/useNavigation';
+export * from './navigation/usePlaylistScreen';
 export * from './notifications/NotificationBell';
 export * from './notifications/types';
 export * from './notifications/useNotificationCenter';
