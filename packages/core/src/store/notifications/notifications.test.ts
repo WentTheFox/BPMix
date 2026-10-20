@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TaskInfo } from '../../tasks/taskQueue';
 import { createStore } from '../createStore';
 import type { Services } from '../services';
+import { fakeLivePlayback } from '../testing';
 import { runNotificationAction, clearNotificationActions } from './notificationActions';
 import { addError, clearAllNotifications, dismissNotification, upsertNotification } from './notificationsThunks';
 import { DONE_AUTO_DISMISS_MS, syncTaskNotifications } from './syncTaskNotifications';
@@ -9,7 +10,7 @@ import type { TaskSource } from './syncTaskNotifications';
 
 let clock = 1000;
 function makeStore() {
-  return createStore({ now: () => clock } as unknown as Services);
+  return createStore({ now: () => clock, livePlayback: fakeLivePlayback().live } as unknown as Services);
 }
 const items = (store: ReturnType<typeof makeStore>) => store.getState().notifications.items;
 

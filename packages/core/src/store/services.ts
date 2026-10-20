@@ -5,6 +5,7 @@ import type { FileAccess } from '../file-access/types';
 import type { LibraryStore } from '../library-store/types';
 import type { CoverArtResizer } from '../metadata/coverArtResizer';
 import type { PlaylistPlayer } from '../playback/playlistPlayer';
+import type { LivePlayback } from './playback/livePlayback';
 
 /**
  * Everything with a side effect that thunks and listeners may reach. Passed
@@ -28,6 +29,8 @@ export interface Services {
   libraryStore: LibraryStore;
   audioEngine: AudioEngine;
   playlistPlayer: PlaylistPlayer;
+  /** The player's full live state; the store mirrors its coarse fields (see playbackSlice). */
+  livePlayback: LivePlayback;
   coverArtResizer: CoverArtResizer;
   appUpdateBridge: AppUpdateNativeBridge | null;
   discordPresenceBridge: DiscordPresenceBridge | null;

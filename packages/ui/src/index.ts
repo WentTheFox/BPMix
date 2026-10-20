@@ -33,6 +33,7 @@ export * from './MiniPlayerBar';
 export * from './MultiPaneLayout';
 export * from './library/useLibrary';
 export * from './navigation/backNavigation';
+export * from './playback/useLivePlayerState';
 export * from './navigation/useBackNavigation';
 export * from './navigation/useNavigation';
 export * from './navigation/usePlaylistScreen';

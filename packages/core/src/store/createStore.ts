@@ -1,5 +1,6 @@
 import { configureStore } from '@reduxjs/toolkit';
 import { createAppListenerMiddleware } from './listeners';
+import { coarsePlaybackEqual, playbackSynced, toCoarsePlayback } from './playback/playbackSlice';
 import { rootReducer } from './rootReducer';
 import type { RootState } from './rootReducer';
 import type { Services } from './services';
@@ -17,7 +18,7 @@ const LARGE_STATE_PATHS = ['library.roots', 'navigation.screen', 'navigation.pla
  */
 export function createStore(services: Services) {
   const listenerMiddleware = createAppListenerMiddleware(services);
-  return configureStore({
+  const store = configureStore({
     reducer: rootReducer,
     middleware: (getDefaultMiddleware) =>
       getDefaultMiddleware({
@@ -26,6 +27,13 @@ export function createStore(services: Services) {
         immutableCheck: { ignoredPaths: LARGE_STATE_PATHS },
       }).prepend(listenerMiddleware.middleware),
   });
+  // Mirror the player's coarse state into the store - only when it actually
+  // changed, so the 5Hz position ticks never touch redux.
+  services.livePlayback.subscribe((state) => {
+    const coarse = toCoarsePlayback(state);
+    if (!coarsePlaybackEqual(coarse, store.getState().playback.coarse)) store.dispatch(playbackSynced(coarse));
+  });
+  return store;
 }
 
 export type AppStore = ReturnType<typeof createStore>;

@@ -18,6 +18,7 @@ vi.mock('../../library-scan/findUnplaylistedTracks', () => ({ findUnplaylistedTr
 import { createStore } from '../createStore';
 import { grantedRootsLoaded } from '../library/librarySlice';
 import type { Services } from '../services';
+import { fakeLivePlayback } from '../testing';
 import {
   addToPlaylistTrackSet,
   openPlaylistTracksMoved,
@@ -47,7 +48,7 @@ const context = (id = 'p1', ids = ['a', 'b', 'c', 'd']) => ({ root, playlist: pl
 
 function makeStore(shuffleOrder: string[] | null = null) {
   const playlistPlayer = { getShuffleOrder: vi.fn(() => shuffleOrder) };
-  const services = { fileAccess: {}, backgroundFileAccess: {}, libraryStore: {}, coverArtResizer: {}, playlistPlayer, now: () => 1 } as unknown as Services;
+  const services = { fileAccess: {}, backgroundFileAccess: {}, libraryStore: {}, coverArtResizer: {}, playlistPlayer, livePlayback: fakeLivePlayback().live, now: () => 1 } as unknown as Services;
   return createStore(services);
 }
 const nav = (store: ReturnType<typeof makeStore>) => store.getState().navigation;

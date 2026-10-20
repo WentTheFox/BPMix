@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createStore } from '../createStore';
 import type { Services } from '../services';
+import { fakeLivePlayback } from '../testing';
 import { settingsUpdated } from './settingsSlice';
 import { loadSettings, resetSettings } from './settingsThunks';
 import {
@@ -20,7 +21,7 @@ function makeStore(initial: Record<string, string> = {}) {
     }),
   };
   const playlistPlayer = { setCrossfadeSeconds: vi.fn() };
-  const store = createStore({ libraryStore, playlistPlayer } as unknown as Services);
+  const store = createStore({ libraryStore, playlistPlayer, livePlayback: fakeLivePlayback().live } as unknown as Services);
   return { store, libraryStore, db, playlistPlayer };
 }
 

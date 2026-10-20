@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createStore } from '../createStore';
 import type { Services } from '../services';
+import { fakeLivePlayback } from '../testing';
 import {
   createPlaylistEnded,
   createPlaylistFolderChosen,
@@ -13,7 +14,7 @@ import {
   settingsOpened,
 } from './navigationSlice';
 
-const makeStore = () => createStore({} as unknown as Services);
+const makeStore = () => createStore({ livePlayback: fakeLivePlayback().live } as unknown as Services);
 
 describe('navigation slice', () => {
   it('starts with everything closed', () => {

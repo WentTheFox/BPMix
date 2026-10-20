@@ -10,6 +10,8 @@ import {
   DEFAULT_DISCORD_APPLICATION_ID,
   addError,
   createStore,
+  LivePlayback,
+  startPlaybackTicker,
   selectPlayingContext,
   fileFoundReported,
   fileMissingReported,
@@ -65,6 +67,8 @@ import {
   useRestoringProgress,
   useThemeColors,
   useAppDispatch,
+  useAppSelector,
+  useLivePlayerState,
   useLibrary,
   useNavigation,
   usePlaylistScreen,
@@ -182,6 +186,11 @@ const playlistPlayer = new PlaylistPlayer(
 // persisted" should produce the same volume either way.
 playlistPlayer.awaitInitialVolume(initialPlaybackStatePromise.then((stored) => stored?.volume ?? 0.25));
 
+// The player's full live state - what the UI reads (position and all) - and the
+// one way to refresh it after something changed the player.
+const livePlayback = new LivePlayback(playlistPlayer);
+const setPlayerState = (state: PlaylistPlayerState) => livePlayback.publish(state);
+
 // The app's single redux store. Slices migrate into it one feature at a time
 // (see the store migration plan); services is what thunks/listeners may
 // reach for side effects, so reducers themselves stay pure.
@@ -190,6 +199,7 @@ const store = createStore({
   libraryStore,
   audioEngine,
   playlistPlayer,
+  livePlayback,
   coverArtResizer,
   appUpdateBridge,
   discordPresenceBridge,
@@ -339,7 +349,7 @@ function AppContent() {
     removeTracks,
     addPendingTrackToPlaylist,
   } = usePlaylistScreen();
-  const [playerState, setPlayerState] = useState<PlaylistPlayerState>(playlistPlayer.getState());
+  const playerState = useLivePlayerState(livePlayback);
   // Cold-start restore (usePlaybackPersistence) loads the last-played track
   // and decodes it without starting playback, landing it in status
   // 'paused' - identical to a track the user actually played and then
@@ -351,10 +361,7 @@ function AppContent() {
   // actually played. Latching true the first time real playback starts
   // (and never back to false - a later pause should still show controls)
   // distinguishes "merely restored" from "actually played this session".
-  const [hasStartedPlayback, setHasStartedPlayback] = useState(false);
-  useEffect(() => {
-    if (playerState.track.status === 'playing') setHasStartedPlayback(true);
-  }, [playerState.track.status]);
+  const hasStartedPlayback = useAppSelector((state) => state.playback.hasStartedPlayback);
 
   useMemoryUsageLogging(playerState.track.status !== 'idle');
 
@@ -525,15 +532,11 @@ function AppContent() {
     };
   }, [persistPlaybackPatch]);
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const state = playlistPlayer.getState();
-      setPlayerState(state);
-      playlistPlayer.checkPreload(); // Stage 6 lookahead - reuses this poll instead of a second timer
-      persistPositionIfDue(state);
-    }, 200);
-    return () => clearInterval(interval);
-  }, [persistPositionIfDue]);
+  // Stage 6 lookahead (checkPreload) reuses this tick instead of a second timer.
+  useEffect(
+    () => startPlaybackTicker({ livePlayback, playlistPlayer, onTick: persistPositionIfDue }),
+    [persistPositionIfDue],
+  );
 
   // Double-click/double-tap invocation guarding (e.g. against opening two
   // concurrent native folder-picker prompts, observed on Windows to leave

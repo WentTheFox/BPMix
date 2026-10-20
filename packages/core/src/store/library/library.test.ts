@@ -19,6 +19,7 @@ vi.mock('../../lyrics/matchLibraryLyrics', async (importOriginal) => ({
 
 import { createStore } from '../createStore';
 import type { Services } from '../services';
+import { fakeLivePlayback } from '../testing';
 import {
   fileFoundReported,
   fileMissingReported,
@@ -66,6 +67,7 @@ function setup(opts: Setup = {}) {
     backgroundFileAccess: fileAccess,
     libraryStore,
     playlistPlayer,
+    livePlayback: fakeLivePlayback().live,
     coverArtResizer: {},
     alwaysRescanRoot: opts.alwaysRescan ?? (() => false),
   } as unknown as Services;
