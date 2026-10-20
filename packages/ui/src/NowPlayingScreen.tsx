@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { BackButton } from './BackButton';
 import { CrossfadeArt } from './CrossfadeArt';
+import { formatSeconds } from './formatSeconds';
 import { HeaderRow } from './HeaderRow';
 import { LoadingBar } from './LoadingBar';
 import { LyricsSection } from './LyricsSection';
@@ -15,14 +16,6 @@ import type { Colors } from './theme';
 // whole row's width to itself now, so there's no reason to keep it sized
 // for sharing space with a second one.
 const ART_SIZE = 190;
-
-function formatSeconds(seconds: number): string {
-  if (!Number.isFinite(seconds)) return '0:00';
-  const total = Math.max(0, Math.round(seconds));
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
 
 export interface NowPlayingScreenProps {
   colors: Colors;
@@ -66,6 +59,11 @@ export interface NowPlayingScreenProps {
   lyricsScopes: LyricsScope[];
   /** Rendered right-aligned in the same row as the back button - the NotificationBell, so it sits inline rather than floating over content below it. */
   headerRight?: ReactNode;
+  /** Controlled lyrics-editor/picker open state - lifted up to App.tsx since the trigger (the lyrics icon next to Settings - see HeaderActions/LyricsMenu) lives in the global header, a sibling of this whole screen, not a descendant of it. Threaded straight through to LyricsSection's own identically-named props. */
+  lyricsEditorOpen: boolean;
+  onLyricsEditorOpenChange: (open: boolean) => void;
+  lyricsPickerOpen: boolean;
+  onLyricsPickerOpenChange: (open: boolean) => void;
 }
 
 /**
@@ -98,6 +96,10 @@ export function NowPlayingScreen({
   libraryStore,
   lyricsScopes,
   headerRight,
+  lyricsEditorOpen,
+  onLyricsEditorOpenChange,
+  lyricsPickerOpen,
+  onLyricsPickerOpenChange,
 }: NowPlayingScreenProps) {
   // Live position while dragging the seek bar, mirrored here so the disc's
   // rotation and the position text can both track the drag in real time -
@@ -190,8 +192,13 @@ export function NowPlayingScreen({
               lyricsScopes={lyricsScopes}
               trackFileId={lyricsTrackKey}
               positionSeconds={displayPositionSeconds}
+              durationSeconds={durationSeconds}
               onSeekTo={onSeekTo}
               onSyncActiveChange={setLyricsSyncActive}
+              editorOpen={lyricsEditorOpen}
+              onEditorOpenChange={onLyricsEditorOpenChange}
+              pickerOpen={lyricsPickerOpen}
+              onPickerOpenChange={onLyricsPickerOpenChange}
             />
           </View>
         )}

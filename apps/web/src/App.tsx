@@ -32,6 +32,7 @@ import {
   LibraryScreen,
   LocateMissingFileScreen,
   LyricsFolderSection,
+  LyricsMenu,
   MiniPlayerBar,
   MultiPaneLayout,
   NowPlayingScreen,
@@ -52,6 +53,7 @@ import {
   useNotificationCenter,
   useTaskNotifications,
   useBackNavigation,
+  useHasLyrics,
   usePlaybackPersistence,
   usePlaylistTransport,
   useRestoringProgress,
@@ -182,6 +184,11 @@ function App() {
   const tier = useViewportTier();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [externalConnectionsOpen, setExternalConnectionsOpen] = useState(false);
+  // See apps/mobile/App.tsx's identical trio for why these are lifted up
+  // here rather than left inside LyricsSection.
+  const [lyricsMenuOpen, setLyricsMenuOpen] = useState(false);
+  const [lyricsEditorOpen, setLyricsEditorOpen] = useState(false);
+  const [lyricsPickerOpen, setLyricsPickerOpen] = useState(false);
   const [rootsWithLibrary, setRootsWithLibrary] = useState<RootWithLibrary[]>([]);
   // True until refresh()'s first pass resolves rootsWithLibrary at least
   // once - refresh() itself is fire-and-forget from usePlaybackPersistence
@@ -968,10 +975,20 @@ function App() {
     />
   );
 
+  // See apps/mobile/App.tsx's identical currentTrackHasLyrics for why.
+  const currentTrackHasLyrics = useHasLyrics(libraryStore, playerState.currentFileId ?? '');
+
   // Identical at every call site (Now Playing's headerRight, the
   // playlist screen's HeaderRow right slot, and the library screen's
   // headerRight) - hoisted once rather than reconstructed per site.
-  const headerActionsEl = <HeaderActions colors={colors} center={notificationCenter} onOpenSettings={() => setSettingsOpen(true)} />;
+  const headerActionsEl = (
+    <HeaderActions
+      colors={colors}
+      center={notificationCenter}
+      onOpenSettings={() => setSettingsOpen(true)}
+      onOpenLyricsMenu={playerState.currentFileId && currentTrackHasLyrics ? () => setLyricsMenuOpen(true) : undefined}
+    />
+  );
   // Side-by-side tiers show several panes at once, each with its own header
   // - only the docked Now Playing pane (rightmost, so the window's top-right
   // corner) carries the settings/notification buttons there, instead of one
@@ -1021,6 +1038,10 @@ function App() {
         libraryStore={libraryStore}
         lyricsScopes={lyricsScopes}
         headerRight={headerActionsEl}
+        lyricsEditorOpen={lyricsEditorOpen}
+        onLyricsEditorOpenChange={setLyricsEditorOpen}
+        lyricsPickerOpen={lyricsPickerOpen}
+        onLyricsPickerOpenChange={setLyricsPickerOpen}
         controls={
           <PlayerControlsRow
             colors={colors}
@@ -1442,6 +1463,29 @@ function App() {
     />
   );
 
+  // See apps/mobile/App.tsx's identical lyricsMenu for why both actions
+  // also force-open Now Playing (nowPlayingScreen's own `&&` requires
+  // nowPlayingScreenOpen on the narrow tier; the wide/medium branch below
+  // renders nowPlayingContent as an always-visible docked pane regardless).
+  const lyricsMenu = lyricsMenuOpen && (
+    <LyricsMenu
+      colors={colors}
+      onOpenEditor={() => {
+        setLyricsMenuOpen(false);
+        setLyricsEditorOpen(true);
+        setNowPlayingScreenOpen(true);
+        persistPlaybackPatch({ nowPlayingOpen: true });
+      }}
+      onChangeFile={() => {
+        setLyricsMenuOpen(false);
+        setLyricsPickerOpen(true);
+        setNowPlayingScreenOpen(true);
+        persistPlaybackPatch({ nowPlayingOpen: true });
+      }}
+      onCancel={() => setLyricsMenuOpen(false)}
+    />
+  );
+
   if (tier === 'narrow') {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -1453,6 +1497,7 @@ function App() {
         {editPlaylistFileScreen}
         {missingFileDialog}
         {addToPlaylistDialog}
+        {lyricsMenu}
       </View>
     );
   }
@@ -1468,6 +1513,7 @@ function App() {
       {editPlaylistFileScreen}
       {missingFileDialog}
       {addToPlaylistDialog}
+      {lyricsMenu}
     </View>
   );
 }

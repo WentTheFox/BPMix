@@ -67,12 +67,25 @@ export function parseLrc(content: string): ParsedLyrics {
     return { synced: false, tags, lines };
   }
 
-  lines.sort((a, b) => a.timeSeconds! - b.timeSeconds!);
+  // A null timeSeconds (a line with no [mm:ss.xx] tag of its own, mixed in
+  // with others that do - formatLrc's own doc says this is an expected,
+  // supported shape, not just a synced-vs-unsynced binary) used to sort as
+  // if its time were 0 (`null - number` coerces null to 0 in a plain
+  // subtraction), teleporting it to the very front of the list regardless
+  // of where it actually belonged - confirmed live: a mostly-synced file
+  // whose last line had no timestamp came back with that line sorted to
+  // the top on every subsequent read, reading as "mangled"/"off-by-one"
+  // even though the file on disk was still in its original, correct order.
+  // Infinity instead treats "no timestamp yet" as "sorts after everything
+  // that has one", which keeps the common case (a trailing untimed line)
+  // exactly where it visually belongs; Array.prototype.sort's stability
+  // keeps multiple untimed lines in their original relative order too.
+  lines.sort((a, b) => (a.timeSeconds ?? Infinity) - (b.timeSeconds ?? Infinity));
   return { synced: true, tags, lines };
 }
 
-/** `83.4` -> `"01:23.40"` - the [mm:ss.xx] timestamp format parseLrc's TIMESTAMP_TAG regex above reads back. */
-function formatTimestamp(totalSeconds: number): string {
+/** `83.4` -> `"01:23.40"` - the [mm:ss.xx] timestamp format parseLrc's TIMESTAMP_TAG regex above reads back. Exported for LyricsEditScreen's own per-line timestamp display - same format, no reason to duplicate it. */
+export function formatTimestamp(totalSeconds: number): string {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds - minutes * 60;
   return `${String(minutes).padStart(2, '0')}:${seconds.toFixed(2).padStart(5, '0')}`;

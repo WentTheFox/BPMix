@@ -1,7 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import type { DirectoryEntry, FileAccess, FileRef, GrantedRoot } from '../file-access/types';
+import type { LibraryStore } from '../library-store/types';
 import type { LyricsScope } from '../library-store/types';
 import { loadAssignedLyrics, resolveAssignedLyricsFile, scanAllLyricsScopes } from './loadAssignedLyrics';
+
+/** A minimal in-memory LibraryStore - just enough of the interface for getLyricsFileIndex's getSetting/putSetting plus whatever getLyricsAssignment a given test needs. */
+function fakeStore(getLyricsAssignment: () => Promise<string | null>): LibraryStore {
+  const settings = new Map<string, string>();
+  return {
+    getLyricsAssignment,
+    getSetting: async (key: string) => settings.get(key) ?? null,
+    putSetting: async (key: string, value: string) => void settings.set(key, value),
+  } as never as LibraryStore;
+}
 
 /** In-memory FileAccess over a flat { relativePath: content } map, scoped to one rootId. */
 class FakeFileAccess implements FileAccess {
@@ -55,19 +66,19 @@ describe('scanAllLyricsScopes', () => {
 describe('loadAssignedLyrics', () => {
   it('returns null when the track has no assignment', async () => {
     const fileAccess = new FakeFileAccess('root', {});
-    const result = await loadAssignedLyrics(fileAccess, { getLyricsAssignment: async () => null } as never, [SCOPE], 'track-1');
+    const result = await loadAssignedLyrics(fileAccess, fakeStore(async () => null), [SCOPE], 'track-1');
     expect(result).toBeNull();
   });
 
   it('returns null when the assigned file can no longer be found (e.g. its scope was removed)', async () => {
     const fileAccess = new FakeFileAccess('root', {});
-    const result = await loadAssignedLyrics(fileAccess, { getLyricsAssignment: async () => 'missing.lrc' } as never, [SCOPE], 'track-1');
+    const result = await loadAssignedLyrics(fileAccess, fakeStore(async () => 'missing.lrc'), [SCOPE], 'track-1');
     expect(result).toBeNull();
   });
 
   it('resolves the assigned fileId to its FileRef and parses its content', async () => {
     const fileAccess = new FakeFileAccess('root', { 'Track One.lrc': LRC_CONTENT });
-    const result = await loadAssignedLyrics(fileAccess, { getLyricsAssignment: async () => 'Track One.lrc' } as never, [SCOPE], 'track-1');
+    const result = await loadAssignedLyrics(fileAccess, fakeStore(async () => 'Track One.lrc'), [SCOPE], 'track-1');
     expect(result).toEqual({ synced: true, tags: {}, lines: [{ timeSeconds: 1, text: 'Hello' }, { timeSeconds: 2, text: 'World' }] });
   });
 
@@ -76,7 +87,7 @@ describe('loadAssignedLyrics', () => {
       'Track One.lrc': LRC_CONTENT,
       'Track One.en.lrc': '[00:01.10]Bonjour\n[00:02.10]Monde',
     });
-    const result = await loadAssignedLyrics(fileAccess, { getLyricsAssignment: async () => 'Track One.lrc' } as never, [SCOPE], 'track-1');
+    const result = await loadAssignedLyrics(fileAccess, fakeStore(async () => 'Track One.lrc'), [SCOPE], 'track-1');
     expect(result?.lines).toEqual([
       { timeSeconds: 1, text: 'Hello', translation: 'Bonjour' },
       { timeSeconds: 2, text: 'World', translation: 'Monde' },
@@ -88,7 +99,7 @@ describe('loadAssignedLyrics', () => {
       'Track One.lrc': LRC_CONTENT,
       'Track Two.en.lrc': '[00:01.00]Nope',
     });
-    const result = await loadAssignedLyrics(fileAccess, { getLyricsAssignment: async () => 'Track One.lrc' } as never, [SCOPE], 'track-1');
+    const result = await loadAssignedLyrics(fileAccess, fakeStore(async () => 'Track One.lrc'), [SCOPE], 'track-1');
     expect(result).toEqual({ synced: true, tags: {}, lines: [{ timeSeconds: 1, text: 'Hello' }, { timeSeconds: 2, text: 'World' }] });
   });
 });
@@ -96,13 +107,13 @@ describe('loadAssignedLyrics', () => {
 describe('resolveAssignedLyricsFile', () => {
   it('returns null when the track has no assignment', async () => {
     const fileAccess = new FakeFileAccess('root', {});
-    const result = await resolveAssignedLyricsFile(fileAccess, { getLyricsAssignment: async () => null } as never, [SCOPE], 'track-1');
+    const result = await resolveAssignedLyricsFile(fileAccess, fakeStore(async () => null), [SCOPE], 'track-1');
     expect(result).toBeNull();
   });
 
   it('returns the rootId alongside the resolved FileRef', async () => {
     const fileAccess = new FakeFileAccess('root', { 'Track One.lrc': LRC_CONTENT });
-    const result = await resolveAssignedLyricsFile(fileAccess, { getLyricsAssignment: async () => 'Track One.lrc' } as never, [SCOPE], 'track-1');
+    const result = await resolveAssignedLyricsFile(fileAccess, fakeStore(async () => 'Track One.lrc'), [SCOPE], 'track-1');
     expect(result).toEqual({ rootId: 'root', file: { id: 'Track One.lrc', name: 'Track One.lrc', relativePath: 'Track One.lrc', sizeBytes: 0, lastModifiedMs: 0 } });
   });
 });

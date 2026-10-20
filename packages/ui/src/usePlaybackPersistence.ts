@@ -220,6 +220,18 @@ export function usePlaybackPersistence({
       onStepChange?.('restoringPlayback');
       if (cancelled) return;
       if (stored) playbackStateRef.current = stored;
+      // Applied here - as early as possible in restore, and unconditionally
+      // whenever real persisted state exists, not gated behind successfully
+      // resolving a resumable playlist/track below - rather than left to
+      // useVolumeControl's own separate getPlaybackState() read. That read
+      // raced against this one with no ordering guarantee: playlistPlayer's
+      // own field default (not the user's real saved volume) was briefly
+      // live gain whenever useVolumeControl's fetch happened to resolve
+      // after playback had already started, confirmed live as an audible
+      // "starts loud, drops a moment later" jump on launch. Idempotent if
+      // useVolumeControl's own read lands after this and sets the same
+      // value again - harmless, not a second audible jump.
+      if (stored) playlistPlayer.setVolume(stored.volume);
       // From here on, playbackStateRef holds the real persisted state (or a
       // legitimate "nothing was ever saved" default) - safe for
       // persistPlaybackPatch to merge onto and write back. Before this

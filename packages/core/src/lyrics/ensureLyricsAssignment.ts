@@ -1,17 +1,18 @@
 import { FileAccessPermissionPendingError, type FileAccess } from '../file-access/types';
 import type { LibraryStore, LyricsScope } from '../library-store/types';
-import { scanAllLyricsScopes } from './loadAssignedLyrics';
+import { getLyricsFileIndex } from './loadAssignedLyrics';
 import { findAutoLyricsMatch } from './matchLyrics';
 
 /**
  * Resolves an auto-match lyrics assignment for a single track, a no-op if
  * it already has one (manual or previously auto-matched). This is the
  * critical-path counterpart to matchLibraryLyrics's whole-library,
- * idle-chunked background pass: bounded by lyrics-folder size rather than
- * track count (same "lyrics folders are expected to be small" assumption as
- * loadAssignedLyrics), so it's cheap enough to await on startup for just the
- * track being restored - see usePlaybackPersistence and CLAUDE.md's note on
- * keeping that path narrow.
+ * idle-chunked background pass. Reads getLyricsFileIndex's persisted result
+ * rather than walking disk itself, so on any launch after the first this is
+ * just a getSetting read plus the find/match work, not a real directory
+ * walk - important given this runs on startup restore for just the track
+ * being restored (see usePlaybackPersistence and CLAUDE.md's note on
+ * keeping that path narrow).
  */
 export async function ensureLyricsAssignment(
   fileAccess: FileAccess,
@@ -25,7 +26,7 @@ export async function ensureLyricsAssignment(
   if (existing) return;
   let files;
   try {
-    files = await scanAllLyricsScopes(fileAccess, scopes);
+    files = await getLyricsFileIndex(fileAccess, store, scopes);
   } catch (err) {
     // See matchLibraryLyrics's identical catch for why: a lapsed browser
     // grant can't be re-requested off this non-gesture call - skip quietly

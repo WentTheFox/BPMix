@@ -53,6 +53,28 @@ describe('parseLrc', () => {
     });
   });
 
+  it('keeps a trailing untimed line at the end, not sorted to the front as if its time were 0', () => {
+    const text = ['[00:04.00]First line', '[00:08.00]Second line', 'Third line, no timestamp yet'].join('\n');
+    expect(parseLrc(text)).toEqual({
+      synced: true,
+      tags: {},
+      lines: [
+        { timeSeconds: 4, text: 'First line' },
+        { timeSeconds: 8, text: 'Second line' },
+        { timeSeconds: null, text: 'Third line, no timestamp yet' },
+      ],
+    });
+  });
+
+  it('keeps multiple untimed lines in their original relative order, all after the timed ones', () => {
+    const text = ['Untimed A', '[00:04.00]Timed', 'Untimed B'].join('\n');
+    expect(parseLrc(text).lines).toEqual([
+      { timeSeconds: 4, text: 'Timed' },
+      { timeSeconds: null, text: 'Untimed A' },
+      { timeSeconds: null, text: 'Untimed B' },
+    ]);
+  });
+
   it('handles CRLF line endings and blank lines', () => {
     const text = '[00:00.00]Line one\r\n\r\n[00:05.00]Line two\r\n';
     expect(parseLrc(text)).toEqual({

@@ -38,6 +38,7 @@ import {
   LibraryScreen,
   LocateMissingFileScreen,
   LyricsFolderSection,
+  LyricsMenu,
   MiniPlayerBar,
   MultiPaneLayout,
   NowPlayingScreen,
@@ -60,6 +61,7 @@ import {
   useNotificationCenter,
   useTaskNotifications,
   useBackNavigation,
+  useHasLyrics,
   usePlaybackPersistence,
   usePlaylistTransport,
   useRestoringProgress,
@@ -231,6 +233,13 @@ function AppContent() {
   const statusBarStyle = settings.themeMode === 'dark' || settings.themeMode === 'amoled' ? 'light-content' : 'dark-content';
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [externalConnectionsOpen, setExternalConnectionsOpen] = useState(false);
+  // All three lifted up here rather than left inside LyricsSection - the
+  // trigger (the lyrics icon in headerActionsEl, next to the settings gear)
+  // lives in the global header, a sibling of NowPlayingScreen/LyricsSection,
+  // not a descendant of either - see HeaderActions/LyricsMenu's own docs.
+  const [lyricsMenuOpen, setLyricsMenuOpen] = useState(false);
+  const [lyricsEditorOpen, setLyricsEditorOpen] = useState(false);
+  const [lyricsPickerOpen, setLyricsPickerOpen] = useState(false);
   const [rootsWithLibrary, setRootsWithLibrary] = useState<RootWithLibrary[]>([]);
   // See apps/web/src/App.tsx's identical isLoadingRoots doc - kept in sync
   // with it rather than letting the two App.tsx files drift (CLAUDE.md's
@@ -985,10 +994,23 @@ function AppContent() {
     />
   );
 
+  // Drives the lyrics icon's presence in headerActionsEl below - reused
+  // across every screen's header (see that doc), so this has to tolerate
+  // "" when nothing's currently loaded (useHasLyrics can't be called
+  // conditionally - it just caches "" to false, harmlessly).
+  const currentTrackHasLyrics = useHasLyrics(libraryStore, playerState.currentFileId ?? '');
+
   // Identical at every call site (Now Playing's headerRight, the
   // playlist screen's HeaderRow right slot, and the library screen's
   // headerRight) - hoisted once rather than reconstructed per site.
-  const headerActionsEl = <HeaderActions colors={colors} center={notificationCenter} onOpenSettings={() => setSettingsOpen(true)} />;
+  const headerActionsEl = (
+    <HeaderActions
+      colors={colors}
+      center={notificationCenter}
+      onOpenSettings={() => setSettingsOpen(true)}
+      onOpenLyricsMenu={playerState.currentFileId && currentTrackHasLyrics ? () => setLyricsMenuOpen(true) : undefined}
+    />
+  );
   // Side-by-side tiers show several panes at once, each with its own header
   // - only the docked Now Playing pane (rightmost, so the window's top-right
   // corner) carries the settings/notification buttons there, instead of one
@@ -1037,6 +1059,10 @@ function AppContent() {
         libraryStore={libraryStore}
         lyricsScopes={lyricsScopes}
         headerRight={headerActionsEl}
+        lyricsEditorOpen={lyricsEditorOpen}
+        onLyricsEditorOpenChange={setLyricsEditorOpen}
+        lyricsPickerOpen={lyricsPickerOpen}
+        onLyricsPickerOpenChange={setLyricsPickerOpen}
         controls={
           <PlayerControlsRow
             colors={colors}
@@ -1446,6 +1472,32 @@ function AppContent() {
       />
   );
 
+  // Reachable from every screen's header (see headerActionsEl above), not
+  // just Now Playing - selecting either action also force-opens Now
+  // Playing itself on the narrow tier (nowPlayingScreen's own `&&` already
+  // requires nowPlayingScreenOpen; medium/wide's docked pane renders
+  // regardless), so the editor/picker it opens inside LyricsSection is
+  // actually visible rather than opening invisibly behind the screen the
+  // user happened to be on.
+  const lyricsMenu = lyricsMenuOpen && (
+    <LyricsMenu
+      colors={colors}
+      onOpenEditor={() => {
+        setLyricsMenuOpen(false);
+        setLyricsEditorOpen(true);
+        setNowPlayingScreenOpen(true);
+        persistPlaybackPatch({ nowPlayingOpen: true });
+      }}
+      onChangeFile={() => {
+        setLyricsMenuOpen(false);
+        setLyricsPickerOpen(true);
+        setNowPlayingScreenOpen(true);
+        persistPlaybackPatch({ nowPlayingOpen: true });
+      }}
+      onCancel={() => setLyricsMenuOpen(false)}
+    />
+  );
+
   const missingFileDialog = missingTrackRelocation.explainTarget && (
     <ConfirmDialog
       colors={colors}
@@ -1478,6 +1530,7 @@ function AppContent() {
         {editPlaylistFileScreen}
         {missingFileDialog}
         {addToPlaylistDialog}
+        {lyricsMenu}
       </View>
     </>
   );

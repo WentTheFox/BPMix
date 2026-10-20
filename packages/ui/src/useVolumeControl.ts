@@ -24,6 +24,15 @@ export interface VolumeControl {
 export function useVolumeControl(input: VolumeControlInput): VolumeControl {
   const { playlistPlayer, libraryStore, persistPlaybackPatch } = input;
 
+  // usePlaybackPersistence's own restore effect already calls
+  // playlistPlayer.setVolume(stored.volume) as early as possible (see its
+  // own doc for why that, not this, is the fix for a real "starts loud,
+  // drops a moment later" launch bug this independent fetch used to cause
+  // on its own) - the setVolume call below is accordingly usually a no-op
+  // repeat of the same value by the time it resolves. Still needed on its
+  // own merits: this hook's `volume` (what the UI actually displays) has
+  // no other way to pick up the real persisted value, since React state
+  // set elsewhere doesn't propagate here.
   const [volume, setVolumeState] = useState(() => playlistPlayer.getVolume());
   useEffect(() => {
     libraryStore.getPlaybackState().then((stored) => {

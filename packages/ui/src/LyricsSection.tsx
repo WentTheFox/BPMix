@@ -1,7 +1,7 @@
 import {
   formatLrc,
+  getLyricsFileIndex,
   resolveAssignedLyricsFile,
-  scanAllLyricsScopes,
   type FileAccess,
   type FileRef,
   type LibraryStore,
@@ -12,8 +12,8 @@ import { mdiSubtitles } from '@mdi/js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View, type ListRenderItemInfo } from 'react-native';
 import { IconLabel } from './IconLabel';
+import { LyricsEditorScreen } from './LyricsEditorScreen';
 import { LyricsPickerScreen } from './LyricsPickerScreen';
-import { LyricsSyncScreen } from './LyricsSyncScreen';
 import type { Colors } from './theme';
 import { useAssignedLyrics } from './useAssignedLyrics';
 import { invalidateHasLyricsCache } from './useHasLyrics';
@@ -27,10 +27,18 @@ export interface LyricsSectionProps {
   trackFileId: string | null;
   /** Drives which synced line is highlighted/scrolled-to - ignored for unsynced lyrics. */
   positionSeconds: number;
+  /** Passed straight through to LyricsEditorScreen's Sync mode's own seek bar - not used anywhere else in this component. */
+  durationSeconds: number;
   /** Jumps playback to a tapped synced line's timestamp - same callback SeekBar uses. */
   onSeekTo: (positionSeconds: number) => void;
-  /** Fires whenever the manual sync screen (LyricsSyncScreen) opens/closes, so NowPlayingScreen can hide the disc/seek bar above and let this section take over the full screen while syncing - see its own call site. Omitted entirely by a caller that doesn't need the fullscreen treatment. */
+  /** Fires whenever the full-screen lyrics editor (LyricsEditorScreen) opens/closes, so NowPlayingScreen can hide the disc/seek bar above and let this section take over the full screen while editing - see its own call site. Omitted entirely by a caller that doesn't need the fullscreen treatment. */
   onSyncActiveChange?: (active: boolean) => void;
+  /** Controlled from outside - opened via the lyrics icon next to Settings (see HeaderActions/LyricsMenu), not an inline link within this section anymore, since that icon lives in the global header, outside this component's own subtree. */
+  editorOpen: boolean;
+  onEditorOpenChange: (open: boolean) => void;
+  /** Same reasoning as editorOpen - "Change lyrics file..." is also one of LyricsMenu's two actions now. */
+  pickerOpen: boolean;
+  onPickerOpenChange: (open: boolean) => void;
 }
 
 interface Row {
@@ -51,9 +59,22 @@ interface Row {
  * only need to pass through the same fileAccess/libraryStore/lyricsScopes
  * they already have.
  */
-export function LyricsSection({ colors, fileAccess, libraryStore, lyricsScopes, trackFileId, positionSeconds, onSeekTo, onSyncActiveChange }: LyricsSectionProps) {
+export function LyricsSection({
+  colors,
+  fileAccess,
+  libraryStore,
+  lyricsScopes,
+  trackFileId,
+  positionSeconds,
+  durationSeconds,
+  onSeekTo,
+  onSyncActiveChange,
+  editorOpen,
+  onEditorOpenChange,
+  pickerOpen,
+  onPickerOpenChange,
+}: LyricsSectionProps) {
   const [reloadToken, setReloadToken] = useState(0);
-  const [pickerOpen, setPickerOpen] = useState(false);
   const [candidates, setCandidates] = useState<FileRef[] | null>(null);
   const [currentAssignmentId, setCurrentAssignmentId] = useState<string | null>(null);
   // Set only between tapping a candidate/Remove in the picker and the write
@@ -61,16 +82,18 @@ export function LyricsSection({ colors, fileAccess, libraryStore, lyricsScopes, 
   // everywhere: SQLite on Android, IndexedDB on web) shouldn't leave the
   // picker looking idle/tappable-again in that gap.
   const [assigning, setAssigning] = useState(false);
-  const [syncOpen, setSyncOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
-    onSyncActiveChange?.(syncOpen);
-    // Also reports "closed" on unmount - e.g. the track changes mid-sync and
+    // "active" here means "the full-screen lyrics editor is open" - a
+    // dense per-line list (or the tap-to-sync flow) needs the room
+    // NowPlayingScreen's disc/seek bar would otherwise take up.
+    onSyncActiveChange?.(editorOpen);
+    // Also reports "closed" on unmount - e.g. the track changes mid-edit and
     // this whole section remounts fresh - so NowPlayingScreen never gets
-    // stuck believing sync is still active for a screen that's gone.
+    // stuck believing the editor is still active for a screen that's gone.
     return () => onSyncActiveChange?.(false);
-  }, [syncOpen, onSyncActiveChange]);
+  }, [editorOpen, onSyncActiveChange]);
 
   const lyrics = useAssignedLyrics(fileAccess, libraryStore, lyricsScopes, trackFileId, reloadToken);
   // Memoized on `lyrics` itself (stable across re-renders until it actually
@@ -92,7 +115,7 @@ export function LyricsSection({ colors, fileAccess, libraryStore, lyricsScopes, 
     if (!pickerOpen || !trackFileId) return;
     let cancelled = false;
     setCandidates(null);
-    Promise.all([scanAllLyricsScopes(fileAccess, lyricsScopes), libraryStore.getLyricsAssignment(trackFileId)]).then(([files, assignment]) => {
+    Promise.all([getLyricsFileIndex(fileAccess, libraryStore, lyricsScopes), libraryStore.getLyricsAssignment(trackFileId)]).then(([files, assignment]) => {
       if (cancelled) return;
       setCandidates(files);
       setCurrentAssignmentId(assignment);
@@ -108,19 +131,19 @@ export function LyricsSection({ colors, fileAccess, libraryStore, lyricsScopes, 
     libraryStore.putLyricsAssignment(trackFileId, lrcFileId).then(() => {
       invalidateHasLyricsCache(trackFileId);
       setAssigning(false);
-      setPickerOpen(false);
+      onPickerOpenChange(false);
       setReloadToken((t) => t + 1);
     });
   };
 
-  // Writes the hand-synced result back to the assigned .lrc file in place
-  // (same file, same assignment - manual sync corrects an existing file's
-  // timing, it doesn't create a new one) and reloads so LyricsList picks up
-  // the now-synced content. Silently no-ops if the assignment vanished out
-  // from under the sync session (e.g. the lyrics scope was removed while
-  // the screen was open) - same "no worse than not having synced" handling
-  // LyricsPickerScreen's own write already gets.
-  const completeSync = async (lines: LyricLine[]) => {
+  // Writes a hand-synced or hand-edited result back to the assigned .lrc
+  // file in place (same file, same assignment - LyricsEditorScreen corrects
+  // an existing file's timing, never creates a new one) and reloads so
+  // LyricsList picks up the result. Silently no-ops if the assignment
+  // vanished out from under the session (e.g. the lyrics scope was removed
+  // while the screen was open) - same "no worse than not having edited"
+  // handling LyricsPickerScreen's own write already gets.
+  const completeEdit = async (lines: LyricLine[]) => {
     if (!trackFileId || syncing) return;
     setSyncing(true);
     try {
@@ -130,23 +153,24 @@ export function LyricsSection({ colors, fileAccess, libraryStore, lyricsScopes, 
       }
     } finally {
       setSyncing(false);
-      setSyncOpen(false);
+      onEditorOpenChange(false);
       setReloadToken((t) => t + 1);
     }
   };
 
   if (!trackFileId) return null;
 
-  if (syncOpen) {
+  if (editorOpen) {
     return (
       <View style={styles.container}>
-        <LyricsSyncScreen
+        <LyricsEditorScreen
           colors={colors}
-          lines={rows.map((row) => row.text)}
+          lines={rows.map((row) => ({ timeSeconds: row.timeSeconds, text: row.text }))}
           positionSeconds={positionSeconds}
+          durationSeconds={durationSeconds}
           onSeekTo={onSeekTo}
-          onCancel={() => setSyncOpen(false)}
-          onComplete={(lines) => void completeSync(lines)}
+          onCancel={() => onEditorOpenChange(false)}
+          onComplete={(lines) => void completeEdit(lines)}
           saving={syncing}
         />
       </View>
@@ -163,7 +187,7 @@ export function LyricsSection({ colors, fileAccess, libraryStore, lyricsScopes, 
           saving={assigning}
           onSelect={assign}
           onClear={() => assign(null)}
-          onCancel={() => setPickerOpen(false)}
+          onCancel={() => onPickerOpenChange(false)}
         />
       </View>
     );
@@ -181,24 +205,14 @@ export function LyricsSection({ colors, fileAccess, libraryStore, lyricsScopes, 
     return (
       <View style={[styles.container, styles.placeholderContainer]}>
         <Text style={[styles.placeholderText, { color: colors.subtleText }]}>Lyrics are not available for this song.</Text>
-        <Pressable onPress={() => setPickerOpen(true)}>
+        <Pressable onPress={() => onPickerOpenChange(true)}>
           <IconLabel path={mdiSubtitles} text="Link a lyrics file" color={colors.accent} iconSize={16} textStyle={styles.linkText} />
         </Pressable>
       </View>
     );
   }
 
-  return (
-    <LyricsList
-      colors={colors}
-      rows={rows}
-      synced={lyrics.synced}
-      positionSeconds={positionSeconds}
-      onEditPress={() => setPickerOpen(true)}
-      onSyncPress={() => setSyncOpen(true)}
-      onSeekTo={onSeekTo}
-    />
-  );
+  return <LyricsList colors={colors} rows={rows} synced={lyrics.synced} positionSeconds={positionSeconds} onSeekTo={onSeekTo} />;
 }
 
 // styles.line's lineHeight (24) + its top+bottom paddingVertical (6+6) - kept
@@ -223,8 +237,6 @@ interface LyricsListProps {
   rows: Row[];
   synced: boolean;
   positionSeconds: number;
-  onEditPress: () => void;
-  onSyncPress: () => void;
   onSeekTo: (positionSeconds: number) => void;
 }
 
@@ -251,7 +263,7 @@ function lineOpacity(index: number, currentIndex: number | null): number {
   return Math.max(MIN_UPCOMING_LINE_OPACITY, 1 - linesAhead * UPCOMING_LINE_FADE_PER_LINE);
 }
 
-function LyricsList({ colors, rows, synced, positionSeconds, onEditPress, onSyncPress, onSeekTo }: LyricsListProps) {
+function LyricsList({ colors, rows, synced, positionSeconds, onSeekTo }: LyricsListProps) {
   const listRef = useRef<FlatList<Row>>(null);
   const currentIndex = useMemo(() => (synced ? currentLyricsLineIndex(rows, positionSeconds) : null), [rows, synced, positionSeconds]);
 
@@ -338,19 +350,11 @@ function LyricsList({ colors, rows, synced, positionSeconds, onEditPress, onSync
 
   return (
     <View style={styles.container}>
-      <View style={styles.editRow}>
-        <Pressable onPress={onEditPress}>
-          <Text style={[styles.editLink, { color: colors.accent }]}>Change lyrics file</Text>
-        </Pressable>
-      </View>
-      {!synced && (
-        <View style={styles.unsyncedRow}>
-          <Text style={[styles.unsyncedNote, { color: colors.subtleText }]}>Not synced to playback</Text>
-          <Pressable onPress={onSyncPress} style={styles.syncButton}>
-            <Text style={[styles.syncButtonText, { color: colors.accent }]}>Sync lyrics manually</Text>
-          </Pressable>
-        </View>
-      )}
+      {/* No inline sync/edit/change-file links here anymore - all three
+          collapsed into the global lyrics icon next to Settings (see
+          HeaderActions/LyricsMenu), which opens either the combined
+          LyricsEditorScreen or LyricsPickerScreen as a controlled prop on
+          LyricsSection rather than this list managing its own entry points. */}
       <FlatList
         ref={listRef}
         style={styles.list}
@@ -475,31 +479,6 @@ const styles = StyleSheet.create({
   },
   linkText: {
     fontSize: 14,
-    fontWeight: '600',
-  },
-  editRow: {
-    alignItems: 'flex-end',
-    marginBottom: 6,
-  },
-  editLink: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  unsyncedRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  unsyncedNote: {
-    fontSize: 12,
-    opacity: 0.7,
-  },
-  syncButton: {
-    opacity: 0.4,
-  },
-  syncButtonText: {
-    fontSize: 12,
     fontWeight: '600',
   },
   list: {

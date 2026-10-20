@@ -27,7 +27,7 @@ const TRANSLATION_LANGUAGE_CODE = 'en';
  * add/remove call site.
  */
 const SCAN_CACHE_TTL_MS = 5000;
-const scanCachesByFileAccess = new WeakMap<FileAccess, Map<string, { files: FileRef[]; fetchedAtMs: number }>>();
+const scanCachesByFileAccess = new WeakMap<FileAccess, Map<string, { files: LyricsFileRef[]; fetchedAtMs: number }>>();
 
 function lyricsScopesCacheKey(scopes: LyricsScope[]): string {
   return scopes
@@ -36,8 +36,20 @@ function lyricsScopesCacheKey(scopes: LyricsScope[]): string {
     .join('|');
 }
 
-/** Every .lrc file across every configured lyrics scope - the candidate pool for both auto-match and a manual picker. */
-export async function scanAllLyricsScopes(fileAccess: FileAccess, scopes: LyricsScope[]): Promise<FileRef[]> {
+/** A lyrics file found while walking a scope, tagged with which scope's rootId it came from - scanAllLyricsScopes flattens every configured scope into one array, so this is the only way a caller (resolveAssignedLyricsFile) can tell which root to read/write a given file through afterward. */
+export type LyricsFileRef = FileRef & { rootId: string };
+
+/**
+ * Every .lrc file across every configured lyrics scope - the candidate pool
+ * for both auto-match and a manual picker. This is the REAL, disk-walking
+ * scan (see scanLyricsRoot/walkDirectory) - matchLibraryLyrics is the only
+ * caller that should still reach for this directly (it's the thing that
+ * then persists the result via lyricsFileIndexSettingKey/putSetting for
+ * everyone else to read back). Every other caller should use
+ * getLyricsFileIndex instead, which trusts that persisted result rather
+ * than re-walking.
+ */
+export async function scanAllLyricsScopes(fileAccess: FileAccess, scopes: LyricsScope[]): Promise<LyricsFileRef[]> {
   const key = lyricsScopesCacheKey(scopes);
   const now = Date.now();
   const cacheForAccess = scanCachesByFileAccess.get(fileAccess);
@@ -46,10 +58,49 @@ export async function scanAllLyricsScopes(fileAccess: FileAccess, scopes: Lyrics
     return cached.files;
   }
 
-  const files = (await Promise.all(scopes.map((scope) => scanLyricsRoot(fileAccess, scope.rootId, scope.relativePath)))).flat();
-  const cache = cacheForAccess ?? new Map<string, { files: FileRef[]; fetchedAtMs: number }>();
+  const files = (
+    await Promise.all(scopes.map(async (scope) => (await scanLyricsRoot(fileAccess, scope.rootId, scope.relativePath)).map((file) => ({ ...file, rootId: scope.rootId }))))
+  ).flat();
+  const cache = cacheForAccess ?? new Map<string, { files: LyricsFileRef[]; fetchedAtMs: number }>();
   cache.set(key, { files, fetchedAtMs: now });
   scanCachesByFileAccess.set(fileAccess, cache);
+  return files;
+}
+
+/** LibraryStore.getSetting/putSetting key matchLibraryLyrics writes its authoritative post-walk file list under, for getLyricsFileIndex to read back - see that function's doc. */
+export function lyricsFileIndexSettingKey(scopes: LyricsScope[]): string {
+  return `lyricsFileIndex:${lyricsScopesCacheKey(scopes)}`;
+}
+
+/**
+ * The lyrics-file candidate pool, trusting matchLibraryLyrics's own
+ * already-persisted result instead of re-walking disk (see
+ * scanAllLyricsScopes's doc). Before this, every track switch re-walked the
+ * whole configured lyrics folder from scratch (scanAllLyricsScopes's own
+ * in-memory cache only has a 5-second TTL, meant to collapse same-tick
+ * repeats, not survive actually browsing around) - on Android in
+ * particular each folder level in that walk is a real SAF/
+ * DocumentsProvider IPC round-trip (see walk.ts), so a library with
+ * hundreds of lyrics files made opening a different track visibly stall on
+ * a spinner even though matchLibraryLyrics had already walked the exact
+ * same folder moments earlier at launch. Falls back to a real walk (and
+ * persists its own result, so the next caller doesn't pay for it either) if
+ * nothing's been persisted yet - e.g. a lyrics scope just added, before the
+ * background match pass has had a chance to run once.
+ */
+export async function getLyricsFileIndex(fileAccess: FileAccess, store: LibraryStore, scopes: LyricsScope[]): Promise<LyricsFileRef[]> {
+  const key = lyricsFileIndexSettingKey(scopes);
+  const persisted = await store.getSetting(key);
+  if (persisted) {
+    try {
+      return JSON.parse(persisted) as LyricsFileRef[];
+    } catch {
+      // Corrupt or old-shape value (e.g. from before rootId was added) -
+      // fall through to a real walk below, which overwrites it.
+    }
+  }
+  const files = await scanAllLyricsScopes(fileAccess, scopes);
+  await store.putSetting(key, JSON.stringify(files));
   return files;
 }
 
@@ -88,7 +139,7 @@ export async function loadAssignedLyrics(
   const lrcFileId = await libraryStore.getLyricsAssignment(trackFileId);
   if (!lrcFileId) return null;
 
-  const files = await scanAllLyricsScopes(fileAccess, scopes);
+  const files = await getLyricsFileIndex(fileAccess, libraryStore, scopes);
   const file = files.find((f) => f.id === lrcFileId);
   if (!file) return null;
 
@@ -104,13 +155,14 @@ export async function loadAssignedLyrics(
 
 /**
  * Resolves a track's assigned .lrc file to its FileRef and the rootId it
- * lives under - what LyricsSyncScreen needs to write the hand-synced
- * result back with fileAccess.writeFileText(rootId, relativePath, ...),
- * neither of which loadAssignedLyrics' own ParsedLyrics return value
- * carries. Doesn't go through scanAllLyricsScopes' cross-scope cache (that
- * flattens away which scope/rootId each file came from) - walks scopes one
- * at a time instead, same cost as a cache miss there, acceptable for a
- * call site that only runs once per sync session, not per track change.
+ * lives under - what LyricsSyncScreen needs to write the hand-synced result
+ * back with fileAccess.writeFileText(rootId, relativePath, ...), neither of
+ * which loadAssignedLyrics' own ParsedLyrics return value carries. Goes
+ * through getLyricsFileIndex (LyricsFileRef carries rootId per file) rather
+ * than walking scopes one at a time - this used to deliberately avoid
+ * scanAllLyricsScopes' flattened cache for exactly that reason, which meant
+ * every "Save" in LyricsSyncScreen re-walked the whole lyrics folder from
+ * scratch right before writing back.
  */
 export async function resolveAssignedLyricsFile(
   fileAccess: FileAccess,
@@ -120,10 +172,9 @@ export async function resolveAssignedLyricsFile(
 ): Promise<{ rootId: string; file: FileRef } | null> {
   const lrcFileId = await libraryStore.getLyricsAssignment(trackFileId);
   if (!lrcFileId) return null;
-  for (const scope of scopes) {
-    const files = await scanLyricsRoot(fileAccess, scope.rootId, scope.relativePath);
-    const file = files.find((f) => f.id === lrcFileId);
-    if (file) return { rootId: scope.rootId, file };
-  }
-  return null;
+  const files = await getLyricsFileIndex(fileAccess, libraryStore, scopes);
+  const file = files.find((f) => f.id === lrcFileId);
+  if (!file) return null;
+  const { rootId, ...plainFile } = file;
+  return { rootId, file: plainFile };
 }

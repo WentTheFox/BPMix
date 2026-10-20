@@ -11,12 +11,18 @@ import {
   mdiFolder,
   mdiFolderMusic,
   mdiFolderPlus,
+  mdiGestureSwipeDown,
+  mdiGestureSwipeHorizontal,
+  mdiGestureSwipeUp,
+  mdiGestureTap,
+  mdiMinus,
   mdiMusicNote,
   mdiPause,
   mdiPencilOutline,
   mdiPlay,
   mdiPlaylistMusic,
   mdiPlaylistPlus,
+  mdiPlus,
   mdiProgressClock,
   mdiRefresh,
   mdiRepeat,
@@ -27,6 +33,7 @@ import {
   mdiSubtitles,
   mdiSwapVertical,
   mdiTrashCanOutline,
+  mdiUndo,
   mdiVolumeHigh,
   mdiVolumeLow,
   mdiVolumeMedium,
@@ -122,6 +129,31 @@ const CODEPOINTS: Record<string, number> = {
   // above, no GDI+ re-verification.
   [mdiSwapVertical]: 0xe8cb, // "Sort" - the font's closest glyph to a reorder/sort affordance; no dedicated "reorder" icon exists
   [mdiPencilOutline]: 0xe70f, // "Edit" - a plain pencil
+  // "TouchPointer" - the font has no tap-specific glyph; this hand/pointer
+  // icon is the closest match for LyricsSyncScreen's compact gesture legend.
+  [mdiGestureTap]: 0xe7c9,
+  [mdiUndo]: 0xe7a7, // "Undo" - a curved left-pointing arrow, exact semantic match
+  // Segoe Fluent Icons has no direction-specific swipe glyphs (checked the
+  // full name->codepoint table - only a generic "Swipe", "Touch" and
+  // "TouchPointer") - LyricsSyncScreen's legend falls back to the font's
+  // plain chevrons here instead, same direction, just not gesture-specific
+  // artwork. Real react-native-svg platforms (Android/iOS/web) render the
+  // actual mdiGestureSwipe* icons via Icon.tsx - this mapping only kicks in
+  // on Windows.
+  [mdiGestureSwipeUp]: 0xe70e, // "ChevronUp"
+  [mdiGestureSwipeDown]: 0xe70d, // "ChevronDown"
+  // LyricsSyncScreen's legend uses this for "skip" (either horizontal
+  // direction) - the font has no bidirectional-swipe glyph either, so this
+  // reuses the same "ChevronLeft" fallback as before, just under the new
+  // mdiGestureSwipeHorizontal icon key (see mdiGestureSwipeUp/Down's own
+  // comment above for why Windows can't get real gesture artwork here).
+  // The web build's keyboard-mode icons (mdiArrowUpBold and friends) never
+  // need an entry here at all - that variant only exists on the web build,
+  // which doesn't go through this file.
+  [mdiGestureSwipeHorizontal]: 0xe76b, // "ChevronLeft"
+  // LyricsEditScreen's per-line +/- timestamp nudge buttons.
+  [mdiPlus]: 0xe710, // "Add"
+  [mdiMinus]: 0xe738, // "Remove"
 };
 
 const FALLBACK_CODEPOINT = 0xe11b; // "StatusErrorFull" (a "?" in a circle) - visible placeholder for an unmapped icon, not a silent blank.
