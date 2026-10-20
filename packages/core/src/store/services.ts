@@ -17,6 +17,14 @@ import type { PlaylistPlayer } from '../playback/playlistPlayer';
  */
 export interface Services {
   fileAccess: FileAccess;
+  /**
+   * File access for work with no user gesture behind it (startup refresh,
+   * background scans), which must never trigger a permission prompt. The
+   * same object as `fileAccess` on platforms without that permission model.
+   */
+  backgroundFileAccess: FileAccess;
+  /** Roots that refresh always rescans, not just when their cache is empty (the self-hosted server's: its files change on disk with no app interaction). Always false where there are none. */
+  alwaysRescanRoot: (rootId: string) => boolean;
   libraryStore: LibraryStore;
   audioEngine: AudioEngine;
   playlistPlayer: PlaylistPlayer;

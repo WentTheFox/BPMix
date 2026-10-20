@@ -31,6 +31,7 @@ export * from './useOpenPlaylistMetadataScan';
 export * from './LyricsSection';
 export * from './MiniPlayerBar';
 export * from './MultiPaneLayout';
+export * from './library/useLibrary';
 export * from './navigation/backNavigation';
 export * from './navigation/useBackNavigation';
 export * from './navigation/useNavigation';

@@ -22,7 +22,7 @@ export interface TrackListProps {
   /** How many rows to render up front - tunable per app since mobile/web have historically used different values here, not because the list itself differs. */
   initialNumToRender?: number;
   /** fileIds whose most recent playback attempt failed to decode - see TrackRow.isMissing's doc. Omitted entirely (not just empty) by a caller that doesn't track this. */
-  missingFileIds?: Set<string>;
+  missingFileIds?: ReadonlySet<string>;
   /** See TrackRow.onAddToPlaylist's doc - passed straight through, omitted entirely by every caller except the Unplaylisted automatic view. */
   onAddToPlaylist?: (track: TrackRecord) => void;
   /**

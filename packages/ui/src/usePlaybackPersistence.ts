@@ -10,6 +10,7 @@ import {
   type PlaylistPlayer,
   type PlaylistPlayerState,
   type PlaylistRecord,
+  type RootWithLibrary,
   type TrackRecord,
 } from '@bpmix/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -21,11 +22,8 @@ const POSITION_PERSIST_INTERVAL_MS = 5000;
 /** Debounce for persisting a rapidly-changing value (currently just volume, dragged via VolumeSlider) - see persistPlaybackPatch's `debounceMs` option. Long enough to coalesce a drag's whole burst of touch-move ticks into one write, short enough that a quick tap-to-set still saves within a beat of releasing. */
 export const RAPID_PLAYBACK_PATCH_DEBOUNCE_MS = 400;
 
-export interface RootWithLibrary {
-  root: GrantedRoot;
-  playlists: PlaylistRecord[];
-  tracksById: Map<string, TrackRecord>;
-}
+// Moved to @bpmix/core with the library slice; re-exported so existing imports keep working.
+export type { RootWithLibrary };
 
 interface UsePlaybackPersistenceOptions {
   fileAccess: FileAccess;

@@ -17,7 +17,14 @@ export function createStore(services: Services) {
   return configureStore({
     reducer: rootReducer,
     middleware: (getDefaultMiddleware) =>
-      getDefaultMiddleware({ thunk: { extraArgument: services } }).prepend(listenerMiddleware.middleware),
+      getDefaultMiddleware({
+        thunk: { extraArgument: services },
+        // The scanned library can be tens of thousands of records; walking it
+        // on every dispatch is real cost, and it's plain data straight from
+        // LibraryStore anyway.
+        serializableCheck: { ignoredPaths: ['library.roots'] },
+        immutableCheck: { ignoredPaths: ['library.roots'] },
+      }).prepend(listenerMiddleware.middleware),
   });
 }
 

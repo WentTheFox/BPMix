@@ -4,26 +4,26 @@
  * @format
  */
 
-import type { FileRef, GrantedRoot, LyricsScope, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '@bpmix/core';
+import type { FileRef, GrantedRoot, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '@bpmix/core';
 import {
   addTracksToPlaylist,
   BUILD_VERSION,
   DEFAULT_DISCORD_APPLICATION_ID,
+  addError,
   createStore,
+  fileFoundReported,
+  fileMissingReported,
+  refreshLibrary,
   DEFAULT_CROSSFADE_SECONDS,
   ensureTrackAnalyzed,
   errorMessage,
   findUnplaylistedTracksQueued,
   formatTrackTitle,
   logLibraryAction,
-  LYRICS_MATCHED_COUNT_SETTING_KEY,
-  matchLibraryLyricsQueued,
   movePlaylistTracks,
   PlaylistPlayer,
-  pruneOrphanedRootData,
   removePlaylistTracks,
   scanLibraryMetadataQueued,
-  scanRootCoordinated,
   trackDisplayName,
 } from '@bpmix/core';
 import {
@@ -67,12 +67,13 @@ import {
   usePlaylistTransport,
   useRestoringProgress,
   useThemeColors,
+  useAppDispatch,
+  useLibrary,
   useNavigation,
   useViewportTier,
   useVolumeControl,
   StoreProvider,
 } from '@bpmix/ui';
-import type { RootWithLibrary } from '@bpmix/ui';
 import { mdiSubtitles } from '@mdi/js';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Linking, Pressable, StatusBar, StyleSheet, Text, View } from 'react-native';
@@ -149,20 +150,14 @@ let activeTracksById = new Map<string, TrackRecord>();
 const setActiveTracksById = (tracksById: Map<string, TrackRecord>) => {
   activeTracksById = tracksById;
 };
-/** fileId is the track a decode/playback error actually happened for, when known - see PlaylistPlayer's onError doc. Routed to the notification bell, not a one-shot setError string - see NotificationBell's doc for why. */
-let reportError: (error: unknown, fileId?: string) => void = () => {};
-/** Clears a fileId's "missing" flag once it decodes successfully again (e.g. a sync catches up) - bridged alongside reportError. */
-let reportFileFound: (fileId: string) => void = () => {};
-/** Mirrors the settings screen's volume-normalization toggle into resolveGain below - bridged the same way as reportError, since playlistPlayer is a module-level singleton built before any component (and its settings) exist. */
+/** Mirrors the settings screen's volume-normalization toggle into resolveGain below - bridged in from an effect, since playlistPlayer is a module-level singleton built before any component (and its settings) exist. */
 let volumeNormalizationEnabled = true;
-// Bridged in on mount, same pattern as reportError - lets PlaylistPlayer push
+// Bridged in on mount, same pattern as volumeNormalizationEnabled - lets PlaylistPlayer push
 // an immediate re-render right when position changes outside a manual UI
 // action (a crossfade completing, or a natural end auto-advancing), instead
 // of the "now playing" display waiting on the next ~200ms poll tick to
 // notice (see PlaylistPlayer's onAdvance doc).
 let notifyAdvance: () => void = () => {};
-/** Guards pruneOrphanedRootData to once per app launch - see refresh()'s call site for why a repeat isn't needed every refresh. */
-let hasPrunedOrphanedRootData = false;
 
 const playlistPlayer = new PlaylistPlayer(
   audioEngine,
@@ -172,7 +167,7 @@ const playlistPlayer = new PlaylistPlayer(
     return trackToFileRef(track);
   },
   {
-    onError: (error, fileId) => reportError(error, fileId),
+    onError: (error, fileId) => reportPlaybackError(error, fileId),
     resolveGain: async (fileId) =>
       volumeNormalizationEnabled ? ((await libraryStore.getAnalysis(fileId))?.normalizationGain ?? 1) : 1,
     onAdvance: () => notifyAdvance(),
@@ -182,7 +177,7 @@ const playlistPlayer = new PlaylistPlayer(
     // batch pass over the whole library.
     onDecoded: (ref, decoded) => {
       void ensureTrackAnalyzed(libraryStore, ref, decoded, audioEngine);
-      reportFileFound(ref.id);
+      store.dispatch(fileFoundReported(ref.id));
     },
   },
 );
@@ -205,10 +200,20 @@ const store = createStore({
   audioEngine,
   playlistPlayer,
   coverArtResizer,
-  appUpdateBridge: appUpdateBridge,
-  discordPresenceBridge: discordPresenceBridge,
+  appUpdateBridge,
+  discordPresenceBridge,
+  // No always-rescanned (self-hosted server) roots on mobile, and no browser-style
+  // gesture-gated permission model, so background work uses the plain adapter.
+  backgroundFileAccess: fileAccess,
+  alwaysRescanRoot: () => false,
   now: Date.now,
 });
+
+/** fileId is the track a decode/playback error actually happened for, when known - see PlaylistPlayer's onError doc. Routed to the notification bell, not the error banner - see NotificationBell's doc for why. */
+function reportPlaybackError(error: unknown, fileId?: string): void {
+  store.dispatch(addError(fileId ? `Couldn't play "${fileId.split('/').pop()}"` : 'Playback error', errorMessage(error)));
+  if (fileId) store.dispatch(fileMissingReported(fileId));
+}
 
 // playlistPlayer/audioEngine are module-level singletons, but the native
 // AudioContext they wrap isn't torn down just because a Fast Refresh reload
@@ -286,14 +291,20 @@ function AppContent() {
     chooseCreatePlaylistFolder,
     endCreatePlaylist,
   } = useNavigation();
-  const [rootsWithLibrary, setRootsWithLibrary] = useState<RootWithLibrary[]>([]);
-  // See apps/web/src/App.tsx's identical isLoadingRoots doc - kept in sync
-  // with it rather than letting the two App.tsx files drift (CLAUDE.md's
-  // own convention note on this pair of files).
-  const [isLoadingRoots, setIsLoadingRoots] = useState(true);
-  const [grantedRoots, setGrantedRoots] = useState<GrantedRoot[]>([]);
-  const [lyricsScopes, setLyricsScopes] = useState<LyricsScope[]>([]);
-  const [matchedLyricsCount, setMatchedLyricsCount] = useState<number | null>(null);
+  // Library data (roots, playlists, tracks, lyrics scopes, the error banner,
+  // missing-file flags) lives in the store's library slice - see useLibrary.
+  const {
+    rootsWithLibrary,
+    grantedRoots,
+    isLoadingRoots,
+    lyricsScopes,
+    matchedLyricsCount,
+    error,
+    missingFileIds,
+    setError,
+    setLyricsScopes,
+  } = useLibrary();
+  const dispatch = useAppDispatch();
   // Android only - true after requestRoot() throws AllFilesAccessRequiredError, so the error banner can offer a direct "Open Settings" retry instead of just describing the problem.
   const [needsAllFilesAccess, setNeedsAllFilesAccess] = useState(false);
   // Set while FolderBrowser is open picking a brand-new root (Android's
@@ -307,18 +318,16 @@ function AppContent() {
   } | null>(null);
   /** See apps/web/src/App.tsx's identical field for why this is declared up here, ahead of this component's early returns. */
   const [addToPlaylistTrack, setAddToPlaylistTrack] = useState<TrackRecord | null>(null);
-  const [error, setError] = useState<string | null>(null);
   // Everything that used to be a one-shot setError(errorMessage(err)) string
   // (playback/decode failures specifically) now goes here instead - see
   // NotificationBell's doc for why a raw error string as the *entire*
-  // message wasn't good enough on its own. `error`/setError above is left
+  // message wasn't good enough on its own. `error`/setError (from useLibrary) is left
   // alone for the handful of direct-action error paths (addFolder, rescan,
   // etc.) that still want an immediate, action-adjacent inline message.
   const notificationCenter = useNotificationCenter();
   // fileIds whose most recent decode attempt failed - TrackRow reads this to
   // show a missing-file indicator instead of pretending everything's fine
   // until the user taps play and it silently does nothing.
-  const [missingFileIds, setMissingFileIds] = useState<Set<string>>(new Set());
   // Drives RestoringScreen's checklist - see refresh()'s and
   // usePlaybackPersistence's onStepChange updates below.
   const { completedSteps, currentStep, hasLyricsScopes, advanceStep, setHasLyricsScopes } = useRestoringProgress();
@@ -414,30 +423,6 @@ function AppContent() {
   };
 
   useEffect(() => {
-    reportError = (err, fileId) => {
-      notificationCenter.addError(fileId ? `Couldn't play "${fileId.split('/').pop()}"` : 'Playback error', errorMessage(err));
-      if (fileId) {
-        setMissingFileIds((prev) => (prev.has(fileId) ? prev : new Set(prev).add(fileId)));
-      }
-    };
-    reportFileFound = (fileId) => {
-      setMissingFileIds((prev) => {
-        if (!prev.has(fileId)) return prev;
-        const next = new Set(prev);
-        next.delete(fileId);
-        return next;
-      });
-    };
-    return () => {
-      reportError = () => {};
-      reportFileFound = () => {};
-    };
-    // notificationCenter.addError specifically - see refresh()'s identical
-    // note on why the whole notificationCenter object isn't a safe dep here.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notificationCenter.addError]);
-
-  useEffect(() => {
     volumeNormalizationEnabled = settings.volumeNormalizationEnabled;
   }, [settings.volumeNormalizationEnabled]);
 
@@ -455,210 +440,28 @@ function AppContent() {
     return () => registerRootBrowser(null);
   }, []);
 
-  const refresh = useCallback(async () => {
-    advanceStep('listingFolders');
-    let roots: GrantedRoot[];
-    try {
-      roots = await fileAccess.listGrantedRoots();
-    } catch (err) {
-      // Otherwise isLoadingRoots (see its own doc) would stay stuck true
-      // forever on a genuine failure here - the success path clears it
-      // itself, right after setRootsWithLibrary below.
-      setIsLoadingRoots(false);
-      throw err;
-    }
-    setGrantedRoots(roots);
-
-    // Self-heals installs from before removeRoot cleaned up after itself
-    // (see pruneOrphanedRootData's own doc) - fire-and-forget background
-    // work, never awaited, so a large orphaned-data scan can't delay the
-    // rest of this refresh or RestoringScreen. Once per app launch: cheap
-    // insurance, not worth a full listAllTracks()/listAllPlaylists() scan
-    // on every manual pull-to-refresh once a session's already clean.
-    if (!hasPrunedOrphanedRootData) {
-      hasPrunedOrphanedRootData = true;
-      void pruneOrphanedRootData(
-        libraryStore,
-        roots.map((root) => root.id),
-      )
-        .then((prunedRootIds) => {
-          if (prunedRootIds.length > 0) logLibraryAction('pruneOrphanedRootData', { prunedRootIds });
-        })
-        .catch((err) => {
-          logLibraryAction('pruneOrphanedRootData:failed', { error: String(err) });
-        });
-    }
-
-    advanceStep('scanningLibrary');
-
-    // Each root's scan is isolated in its own try/catch - see
-    // apps/web/src/App.tsx's refresh() for why (one bad root used to blank
-    // the entire library, including every other perfectly fine root, on
-    // every refresh/relaunch until removed).
-    const withLibrary = (
-      await Promise.all(
-        // A 'lyrics' root (see GrantedRoot.kind's doc) is never a music
-        // library - it's a lyrics-only folder granted via addLyricsFolder's
-        // own requestRoot('lyrics') call, and scanning/listing it here would
-        // just show a permanently-empty "library" entry for it. Same filter
-        // as apps/web/src/App.tsx's refresh().
-        roots
-          .filter((root) => (root.kind ?? 'library') === 'library')
-          .map(async (root) => {
-          try {
-            let [playlists, tracks] = await Promise.all([
-              libraryStore.listPlaylists(root.id),
-              libraryStore.listTracks(root.id),
-            ]);
-            if (playlists.length === 0 && tracks.length === 0) {
-              // A root can reach listGrantedRoots() without ever going through
-              // addFolder's explicit requestRoot+scanRoot flow - e.g. a
-              // composite-adapter root the self-hosted server exposes just by
-              // having a volume mounted (web-only today, but this keeps the
-              // two refresh()s in sync rather than letting them drift). Scan
-              // it now instead of silently showing an empty library until the
-              // user notices and clicks Rescan themselves.
-              await scanRootCoordinated(fileAccess, libraryStore, root.id, root.displayName);
-              [playlists, tracks] = await Promise.all([
-                libraryStore.listPlaylists(root.id),
-                libraryStore.listTracks(root.id),
-              ]);
-            }
-            return { root, playlists, tracksById: new Map(tracks.map((t) => [t.fileId, t])) };
-          } catch (err) {
-            setError(errorMessage(err));
-            logLibraryAction('refresh:rootFailed', { rootId: root.id, error: String(err) });
-            return null;
-          }
+  // Loading lives in the refreshLibrary thunk (see @bpmix/core's
+  // store/library); the callbacks bridge what this component still owns: the
+  // restore checklist, and the playback state/persistence that a reconciled
+  // now-playing playlist feeds. Only `dispatch` as a dep (stable) - depending
+  // on the callbacks would recreate refresh, and so retrigger
+  // usePlaybackPersistence's restore effect (which depends on it).
+  const refresh = useCallback(
+    () =>
+      dispatch(
+        refreshLibrary({
+          onStep: advanceStep,
+          onLyricsScopesKnown: setHasLyricsScopes,
+          onNowPlayingReconciled: (tracksById) => {
+            activeTracksById = tracksById;
+            setPlayerState(playlistPlayer.getState());
+            persistPlaybackPatch({ shuffleOrder: playlistPlayer.getShuffleOrder() });
+          },
         }),
-      )
-    ).filter((entry): entry is RootWithLibrary => entry !== null);
-    setRootsWithLibrary(withLibrary);
-    setIsLoadingRoots(false);
-
-    // A 'lyrics'-kind root can reach listGrantedRoots() without ever going
-    // through addLyricsFolder's own requestRoot('lyrics') gesture - see
-    // apps/web/src/App.tsx's refresh() for the identical logic/reasoning
-    // (currently only the self-hosted server adapter produces one this way;
-    // a no-op elsewhere since addLyricsScope is an idempotent upsert).
-    await Promise.all(
-      roots
-        .filter((root) => root.kind === 'lyrics')
-        .map((root) => libraryStore.addLyricsScope({ rootId: root.id, relativePath: '' })),
-    );
-
-    // Lyrics scopes are subfolders of an already-granted root (see
-    // LyricsScope's doc) - see apps/web/src/App.tsx's refresh() for the
-    // identical logic/reasoning.
-    const scopes = await libraryStore.getLyricsScopes();
-    setLyricsScopes(scopes);
-    setHasLyricsScopes(scopes.length > 0);
-
-    if (scopes.length > 0) {
-      advanceStep('scanningLyrics');
-      // Optimistic starting display: last launch's exact final count,
-      // shown immediately instead of null/"Matching lyrics…" - the pass
-      // below only ever ticks it down (via onAnomaly) as it actually finds
-      // a track without a match, then snaps to the exact true count and
-      // persists it as next launch's baseline once done (onSettled). A
-      // library that hasn't changed since last launch (the common case)
-      // never visibly moves at all.
-      const lastKnownCount = await libraryStore.getSetting(LYRICS_MATCHED_COUNT_SETTING_KEY);
-      setMatchedLyricsCount(lastKnownCount != null ? Number(lastKnownCount) : null);
-      // A missing-track placeholder (see TrackRecord.missing) has no real
-      // file to match a lyrics scope against - excluded here (and from
-      // scanLibraryMetadata below), same as apps/web/src/App.tsx's refresh().
-      const allTracks = withLibrary.flatMap(({ tracksById }) => [...tracksById.values()].filter((t) => !t.missing));
-      // Idle-chunked, same reasoning as scanLibraryMetadata below - matching
-      // every track in the library against every .lrc candidate is real
-      // synchronous work that shouldn't run straight through and compete
-      // with whatever else is on the JS thread. Fire-and-forget: the
-      // restoring track's own assignment is already resolved separately
-      // (see usePlaybackPersistence/ensureLyricsAssignment), so nothing here
-      // needs to be awaited before refresh() returns.
-      void matchLibraryLyricsQueued(fileAccess, libraryStore, scopes, allTracks, {
-        onProgress: (matchedCount) => {
-          // Only drives the display for a first-ever run (no baseline to
-          // start optimistic from yet) - once there's a baseline, onAnomaly/
-          // onSettled below own the display so it doesn't jump back down to
-          // a small live-counted number and re-climb every launch.
-          if (lastKnownCount == null) setMatchedLyricsCount(matchedCount);
-        },
-        onAnomaly: () => {
-          if (lastKnownCount != null) setMatchedLyricsCount((prev) => (prev == null ? null : Math.max(0, prev - 1)));
-        },
-        onSettled: (matchedCount) => {
-          setMatchedLyricsCount(matchedCount);
-          void libraryStore.putSetting(LYRICS_MATCHED_COUNT_SETTING_KEY, String(matchedCount));
-        },
-        getPriorityFileIds: () => {
-          const state = playlistPlayer.getState();
-          const nextFileId = playlistPlayer.getNextFileId();
-          return [state.currentFileId, nextFileId].filter((id): id is string => id != null);
-        },
-      }).catch((err) => {
-        setError(errorMessage(err));
-        logLibraryAction('matchLibraryLyrics:failed', { error: String(err) });
-      });
-    } else {
-      setMatchedLyricsCount(null);
-    }
-    // Fire-and-forget: fills in real titles/artists as it goes (each row's
-    // useTrackMetadata retry-polls the store), rather than blocking the
-    // library screen on reading every file's tag bytes up front. Cheap to
-    // call again on every refresh - already-fresh tracks are skipped
-    // without a re-read (see scanLibraryMetadata/isMetadataFresh).
-    // scanLibraryMetadata itself chunks its work against real idle time
-    // (requestIdle, backed by requestIdleCallback) rather than running
-    // straight through - reading/parsing tag bytes is real synchronous JS
-    // work (there's no worker-thread equivalent available here; RN's JS
-    // environment is single-threaded), so it only touches the JS thread
-    // during actual idle gaps instead of competing with whatever brought
-    // the user to this screen. No InteractionManager.runAfterInteractions
-    // wrapper needed here anymore - that API is deprecated on this RN
-    // version, and requestIdle already defers past the current interaction
-    // on its own. Queued as a background task (see @bpmix/core's
-    // taskQueue.ts): it pauses while a folder scan/Unplaylisted walk runs,
-    // and its progress shows in the notification bell via useTaskNotifications.
-    void scanLibraryMetadataQueued({ id: 'metadata-scan', label: 'Scanning track metadata' }, fileAccess, libraryStore, withLibrary.flatMap(({ tracksById }) => [...tracksById.values()].filter((t) => !t.missing)), {
-      resizer: coverArtResizer,
-      // Bumps whatever's actually on screen (now playing + up next) ahead
-      // of the rest of the library, evaluated fresh on every step - so a
-      // large stale-parser-version rescan reaches the tracks the user is
-      // looking at long before it would in plain list order.
-      getPriorityFileIds: () => {
-        const state = playlistPlayer.getState();
-        const nextFileId = playlistPlayer.getNextFileId();
-        return [state.currentFileId, nextFileId].filter((id): id is string => id != null);
-      },
-    });
-
-    // The now-playing playlist's .m3u8 may have been rescanned (this
-    // refresh() call itself, a manual "Rescan", or Syncthing dropping in a
-    // new file) since playback started - reconcile PlaylistPlayer's
-    // running order against whatever this fresh scan found instead of
-    // leaving it stale until the user happens to reopen the playlist (see
-    // reconcilePlaylist's doc for why a plain setPlaylist() reload isn't
-    // used here - it would restart shuffle/position bookkeeping).
-    const nowPlayingPlaylistId = playlistPlayer.getCurrentPlaylistId();
-    if (nowPlayingPlaylistId) {
-      for (const { playlists, tracksById } of withLibrary) {
-        const nowPlayingPlaylist = playlists.find((p) => p.id === nowPlayingPlaylistId);
-        if (nowPlayingPlaylist) {
-          playlistPlayer.reconcilePlaylist(nowPlayingPlaylist.trackFileIds);
-          activeTracksById = tracksById;
-          setPlayerState(playlistPlayer.getState());
-          persistPlaybackPatch({ shuffleOrder: playlistPlayer.getShuffleOrder() });
-          break;
-        }
-      }
-    }
-
-    return withLibrary;
-    // notificationCenter.upsertProgress specifically - see the identical
-    // note on this in apps/web/src/App.tsx's refresh().
+      ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notificationCenter.upsertProgress]);
+    [dispatch],
+  );
 
   const { isRestoring, persistPlaybackPatch, persistPositionIfDue, notifyUserTookOver } = usePlaybackPersistence({
     fileAccess,
