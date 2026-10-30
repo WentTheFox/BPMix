@@ -1,3 +1,4 @@
+import { moveWithin } from '../../playlist/reorder';
 import { createSelector, createSlice } from '@reduxjs/toolkit';
 import type { PayloadAction } from '@reduxjs/toolkit';
 import type { GrantedRoot } from '../../file-access/types';
@@ -164,12 +165,8 @@ export const navigationSlice = createSlice({
       const { screen } = state;
       const { playlistId, movingFileIds, anchorFileId, position } = action.payload;
       if (screen.kind !== 'playlist' || screen.playlist.id !== playlistId) return;
-      const moving = new Set(movingFileIds);
-      const remaining = screen.playlist.trackFileIds.filter((id) => !moving.has(id));
-      const anchorIndex = remaining.indexOf(anchorFileId);
-      if (anchorIndex === -1) return;
-      const insertAt = position === 'before' ? anchorIndex : anchorIndex + 1;
-      screen.playlist.trackFileIds = [...remaining.slice(0, insertAt), ...movingFileIds, ...remaining.slice(insertAt)];
+      const moved = moveWithin(screen.playlist.trackFileIds, movingFileIds, anchorFileId, position);
+      if (moved) screen.playlist.trackFileIds = moved;
     },
     /** Drops tracks from the open playlist immediately (a removal, or a just-added track leaving the Unplaylisted view) rather than waiting on the rescan. */
     openPlaylistTracksRemoved(state, action: PayloadAction<{ playlistId: string; fileIds: string[] }>) {
@@ -177,6 +174,11 @@ export const navigationSlice = createSlice({
       if (screen.kind !== 'playlist' || screen.playlist.id !== action.payload.playlistId) return;
       const removing = new Set(action.payload.fileIds);
       screen.playlist.trackFileIds = screen.playlist.trackFileIds.filter((id) => !removing.has(id));
+    },
+    /** The open playlist was renamed. */
+    openPlaylistRenamed(state, action: PayloadAction<{ playlistId: string; name: string }>) {
+      const { screen } = state;
+      if (screen.kind === 'playlist' && screen.playlist.id === action.payload.playlistId) screen.playlist.name = action.payload.name;
     },
     /** A track started playing from the open playlist: that playlist is now the playing one. */
     playingContextSetFromScreen(state) {
@@ -235,6 +237,7 @@ export const {
   unplaylistedLoaded,
   openPlaylistTracksMoved,
   openPlaylistTracksRemoved,
+  openPlaylistRenamed,
   playingContextSetFromScreen,
   playingContextSet,
   playingContextRefreshed,

@@ -61,6 +61,8 @@ export interface LibraryScreenProps {
   onRemoveRoot?: (rootId: string) => void;
   /** Opens the create-playlist-from-folder flow (see CreatePlaylistScreen) scoped to this root - if omitted, no "New Playlist" action is shown for roots. */
   onCreatePlaylist?: (rootId: string) => void;
+  /** Whether the "New Playlist" tap first explains the build-it-from-a-folder flow (the default). Off in server mode, where it just asks for a name. */
+  explainCreatePlaylist?: boolean;
   /** Walks this root for every audio file no current playlist references and opens the result as an ordinary playlist screen (see findUnplaylistedTracks) - if omitted, no "Unplaylisted" row is shown for roots. Rendered under a per-root "Automatic" heading, alongside "Now Playing" (below) when that's also present for the same root. */
   onShowUnplaylisted?: (rootId: string) => Promise<void>;
   /** rootId of whatever's actually playing right now, or null if nothing has played yet this session (see App.tsx's playingContext) - the "Now Playing" automatic-playlist row only appears under that one root's section, since only one root can be playing at a time. */
@@ -110,6 +112,7 @@ export function LibraryScreen({
   onRescan,
   onRemoveRoot,
   onCreatePlaylist,
+  explainCreatePlaylist = true,
   onShowUnplaylisted,
   nowPlayingRootId,
   onShowNowPlaying,
@@ -170,7 +173,7 @@ export function LibraryScreen({
                     <IconLabel path={mdiRefresh} text="Rescan" color={colors.accent} iconSize={16} />
                   </Pressable>
                 )}
-                {onCreatePlaylist && <CreatePlaylistButton colors={colors} onConfirm={() => onCreatePlaylist(root.id)} />}
+                {onCreatePlaylist && <CreatePlaylistButton colors={colors} explain={explainCreatePlaylist} onConfirm={() => onCreatePlaylist(root.id)} />}
                 {onRemoveRoot && root.removable !== false && <RemoveButton colors={colors} onConfirm={() => onRemoveRoot(root.id)} />}
               </View>
             </View>

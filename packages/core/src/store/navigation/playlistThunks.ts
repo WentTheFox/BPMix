@@ -1,6 +1,18 @@
 import type { ThunkAction, UnknownAction } from '@reduxjs/toolkit';
 import { errorMessage } from '../../errorMessage';
 import { addTracksToPlaylist } from '../../library-scan/addTracksToPlaylist';
+import { moveWithin } from '../../playlist/reorder';
+import {
+  addToUserPlaylist,
+  createUserPlaylist,
+  deleteUserPlaylist,
+  isUserPlaylistId,
+  removeFromUserPlaylist,
+  renameUserPlaylist,
+  setUserPlaylistTracks,
+  type UserPlaylistDeps,
+} from '../../server-mode/userPlaylists';
+import { refreshLibrary } from '../library/refreshLibrary';
 import { movePlaylistTracks, removePlaylistTracks } from '../../library-scan/editPlaylistTracks';
 import { findUnplaylistedTracksInStore, findUnplaylistedTracksQueued } from '../../library-scan/findUnplaylistedTracks';
 import type { PlaylistRecord, TrackRecord } from '../../library-store/types';
@@ -10,6 +22,8 @@ import type { RootState } from '../rootReducer';
 import type { Services } from '../services';
 import {
   addToPlaylistTrackSet,
+  libraryScreenOpened,
+  openPlaylistRenamed,
   openPlaylistTracksMoved,
   openPlaylistTracksRemoved,
   playlistScreenOpened,
@@ -111,6 +125,15 @@ export function showUnplaylisted(rootId: string, callbacks: OpenedCallbacks = {}
   };
 }
 
+/**
+ * The deps for editing one of the user's own playlists, if `playlist` is one and the library comes from a
+ * server (otherwise null: it's a playlist file, edited by rewriting the file).
+ */
+function userPlaylistDeps(services: Services, playlist: PlaylistRecord): UserPlaylistDeps | null {
+  const { serverMode, libraryStore } = services;
+  return serverMode?.isActive() && isUserPlaylistId(playlist.id) ? { store: libraryStore, serverMode } : null;
+}
+
 /** The open playlist screen as the pieces the file-editing helpers take, or null if a playlist isn't open. */
 function openPlaylistOf(getState: () => RootState) {
   const { screen } = getState().navigation;
@@ -129,10 +152,19 @@ export function moveOpenPlaylistTracks(
   position: 'before' | 'after',
   callbacks: PlaylistActionCallbacks,
 ): AppThunk<Promise<void>> {
-  return async (dispatch, getState, { fileAccess }) => {
+  return async (dispatch, getState, services) => {
+    const { fileAccess } = services;
     const open = openPlaylistOf(getState);
     if (!open) return;
     try {
+      const own = userPlaylistDeps(services, open.playlist);
+      if (own) {
+        const reordered = moveWithin(open.playlist.trackFileIds, movingFileIds, anchorFileId, position);
+        if (reordered) await setUserPlaylistTracks(own, open.playlist.id, reordered);
+        dispatch(openPlaylistTracksMoved({ playlistId: open.playlist.id, movingFileIds, anchorFileId, position }));
+        void dispatch(refreshLibrary({ syncServer: false }));
+        return;
+      }
       await movePlaylistTracks(fileAccess, open.root.id, open.playlist, open.tracksById, movingFileIds, anchorFileId, position);
       dispatch(openPlaylistTracksMoved({ playlistId: open.playlist.id, movingFileIds, anchorFileId, position }));
       void callbacks.rescan(open.root.id);
@@ -144,10 +176,18 @@ export function moveOpenPlaylistTracks(
 
 /** Removes tracks from the open real playlist (writing its .m3u8), patches the open screen immediately, then rescans. */
 export function removeOpenPlaylistTracks(fileIds: string[], callbacks: PlaylistActionCallbacks): AppThunk<Promise<void>> {
-  return async (dispatch, getState, { fileAccess }) => {
+  return async (dispatch, getState, services) => {
+    const { fileAccess } = services;
     const open = openPlaylistOf(getState);
     if (!open) return;
     try {
+      const own = userPlaylistDeps(services, open.playlist);
+      if (own) {
+        await removeFromUserPlaylist(own, open.playlist.id, fileIds);
+        dispatch(openPlaylistTracksRemoved({ playlistId: open.playlist.id, fileIds }));
+        void dispatch(refreshLibrary({ syncServer: false }));
+        return;
+      }
       await removePlaylistTracks(fileAccess, open.root.id, open.playlist, open.tracksById, fileIds);
       dispatch(openPlaylistTracksRemoved({ playlistId: open.playlist.id, fileIds }));
       void callbacks.rescan(open.root.id);
@@ -168,18 +208,79 @@ export function addPendingTrackToPlaylist(
   position: 'start' | 'end',
   callbacks: PlaylistActionCallbacks,
 ): AppThunk<Promise<void>> {
-  return async (dispatch, getState, { fileAccess }) => {
+  return async (dispatch, getState, services) => {
+    const { fileAccess } = services;
     const state = getState();
     const track = state.navigation.addToPlaylistTrack;
     const open = openPlaylistOf(getState);
     if (!track || !open) return;
     try {
+      const own = userPlaylistDeps(services, playlist);
+      if (own) {
+        await addToUserPlaylist(own, playlist.id, [track.fileId], position);
+        dispatch(openPlaylistTracksRemoved({ playlistId: open.playlist.id, fileIds: [track.fileId] }));
+        dispatch(addToPlaylistTrackSet(null));
+        void dispatch(refreshLibrary({ syncServer: false }));
+        return;
+      }
       await addTracksToPlaylist(fileAccess, open.root.id, playlist, [track], position);
       dispatch(openPlaylistTracksRemoved({ playlistId: open.playlist.id, fileIds: [track.fileId] }));
       dispatch(addToPlaylistTrackSet(null));
       void callbacks.rescan(open.root.id);
     } catch (err) {
       dispatch(addError(`Couldn't add "${trackDisplayName(track)}" to "${playlist.name}"`, errorMessage(err)));
+    }
+  };
+}
+
+/**
+ * Creates one of the user's own playlists (server mode) and opens it. It exists locally at once and
+ * reaches the server through the offline queue, so this works with no connection.
+ */
+export function createUserPlaylistAndOpen(name: string, fileIds: string[] = [], callbacks: OpenedCallbacks = {}): AppThunk<Promise<void>> {
+  return async (dispatch, getState, { serverMode, libraryStore }) => {
+    if (!serverMode?.isActive()) return;
+    try {
+      const record = await createUserPlaylist({ store: libraryStore, serverMode }, name, fileIds);
+      await dispatch(refreshLibrary({ syncServer: false }));
+      const root = getState().library.grantedRoots.find((r) => r.id === record.rootId);
+      if (!root) return;
+      dispatch(playlistScreenOpened({ root, playlist: record, tracks: await libraryStore.listTracks(root.id) }));
+      callbacks.onOpened?.(record, root.id);
+    } catch (err) {
+      dispatch(addError(`Couldn't create "${name.trim()}"`, errorMessage(err)));
+    }
+  };
+}
+
+/** Renames the open playlist, if it is one of the user's own (server mode). */
+export function renameOpenUserPlaylist(name: string): AppThunk<Promise<void>> {
+  return async (dispatch, getState, services) => {
+    const open = openPlaylistOf(getState);
+    const own = open && userPlaylistDeps(services, open.playlist);
+    if (!open || !own) return;
+    try {
+      const renamed = await renameUserPlaylist(own, open.playlist.id, name);
+      dispatch(openPlaylistRenamed({ playlistId: open.playlist.id, name: renamed.name }));
+      void dispatch(refreshLibrary({ syncServer: false }));
+    } catch (err) {
+      dispatch(addError(`Couldn't rename "${open.playlist.name}"`, errorMessage(err)));
+    }
+  };
+}
+
+/** Deletes the open playlist, if it is one of the user's own (server mode), and goes back to the library. */
+export function deleteOpenUserPlaylist(): AppThunk<Promise<void>> {
+  return async (dispatch, getState, services) => {
+    const open = openPlaylistOf(getState);
+    const own = open && userPlaylistDeps(services, open.playlist);
+    if (!open || !own) return;
+    try {
+      await deleteUserPlaylist(own, open.playlist.id);
+      dispatch(libraryScreenOpened());
+      void dispatch(refreshLibrary({ syncServer: false }));
+    } catch (err) {
+      dispatch(addError(`Couldn't delete "${open.playlist.name}"`, errorMessage(err)));
     }
   };
 }

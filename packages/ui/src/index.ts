@@ -59,6 +59,8 @@ export * from './formatSeconds';
 export * from './SeekBar';
 export * from './settings/AppSwitch';
 export * from './offline/formatBytes';
+export * from './TextPromptDialog';
+export * from './useUserPlaylistActions';
 export * from './offline/useOffline';
 export * from './server/useServerConnection';
 export * from './settings/ExternalConnectionsScreen';

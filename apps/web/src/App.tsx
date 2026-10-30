@@ -48,6 +48,7 @@ import {
   useCrossfadePlaybackDisplay,
   offlinePlaylistControl,
   useLastFmConnection,
+  useUserPlaylistActions,
   useOffline,
   useServerConnection,
   useLibraryRootActions,
@@ -617,6 +618,7 @@ function AppContent() {
   const server = useServerConnection(serverMode);
   const fromServer = server?.status.active === true;
   const offline = useOffline(offlineLibrary);
+  const userPlaylists = useUserPlaylistActions(colors);
   const playbackBridges = (
     <>
       <MediaSessionBridge
@@ -948,12 +950,15 @@ function AppContent() {
   // real .m3u8, which neither virtual playlist (Unplaylisted, Now Playing)
   // has one of. See apps/mobile/App.tsx's identical block.
   const isRealPlaylistScreen = screen.kind === 'playlist' && !screen.playlist.id.startsWith('virtual:');
+  // A playlist you built yourself in server mode: reorder/remove/rename/delete go to the server (see userPlaylists in @bpmix/core).
+  const isUserPlaylistScreen = fromServer && screen.kind === 'playlist' && screen.playlist.id.startsWith('user:');
 
   const addToPlaylistDialog =
     addToPlaylistTrack && screen.kind === 'playlist' ? (
       <AddToPlaylistDialog
         colors={colors}
-        playlists={rootsWithLibrary.find((r) => r.root.id === screen.root.id)?.playlists ?? []}
+        // In server mode only the playlists you built yourself can be added to (library playlists are the server's files).
+        playlists={(rootsWithLibrary.find((r) => r.root.id === screen.root.id)?.playlists ?? []).filter((p) => !fromServer || p.id.startsWith('user:'))}
         trackLabel={trackDisplayName(addToPlaylistTrack)}
         onCancel={() => setAddToPlaylistTrack(null)}
         onSelect={(playlist, position) => addPendingTrackToPlaylist(playlist, position, rescan)}
@@ -986,16 +991,18 @@ function AppContent() {
           onAddToPlaylist={isUnplaylistedScreen ? setAddToPlaylistTrack : undefined}
           // Editing a playlist rewrites its .m3u8 through FileAccess, which a server-backed library doesn't offer.
           onMoveTracks={
-            isRealPlaylistScreen && !fromServer
+            isRealPlaylistScreen && (!fromServer || isUserPlaylistScreen)
               ? (movingFileIds, anchorFileId, position) => moveTracks(movingFileIds, anchorFileId, position, rescan)
               : undefined
           }
           onRemoveTracks={
-            isRealPlaylistScreen && !fromServer
+            isRealPlaylistScreen && (!fromServer || isUserPlaylistScreen)
               ? (fileIds) => removeTracks(fileIds, rescan)
               : undefined
           }
           onEditRaw={isRealPlaylistScreen && !fromServer ? () => setEditingPlaylistFile({ root: screen.root, playlist: screen.playlist }) : undefined}
+          onRename={isUserPlaylistScreen ? () => userPlaylists.startRename(screen.playlist.name) : undefined}
+          onDelete={isUserPlaylistScreen ? () => userPlaylists.startDelete(screen.playlist.name) : undefined}
           offline={fromServer && offline ? offlinePlaylistControl(offline, screen.playlist.trackFileIds) : undefined}
         />
       </>
@@ -1013,7 +1020,8 @@ function AppContent() {
         onAddFolder={addFolder}
         onRescan={fromServer ? () => server?.syncNow() : rescan}
         onRemoveRoot={(rootId) => void removeRoot(rootId)}
-        onCreatePlaylist={fromServer ? undefined : (rootId) => startCreatePlaylist(rootId)}
+        onCreatePlaylist={fromServer ? () => userPlaylists.startCreate({ onOpened: persistOpenedPlaylist }) : (rootId) => startCreatePlaylist(rootId)}
+        explainCreatePlaylist={!fromServer}
         onShowUnplaylisted={handleShowUnplaylisted}
         nowPlayingRootId={playingContext?.root.id ?? null}
         onShowNowPlaying={playingContext ? handleShowNowPlaying : undefined}
@@ -1111,6 +1119,7 @@ function AppContent() {
         {editPlaylistFileScreen}
         {missingFileDialog}
         {addToPlaylistDialog}
+        {userPlaylists.dialogs}
       </View>
     );
   }
@@ -1126,6 +1135,7 @@ function AppContent() {
       {editPlaylistFileScreen}
       {missingFileDialog}
       {addToPlaylistDialog}
+      {userPlaylists.dialogs}
     </View>
   );
 }

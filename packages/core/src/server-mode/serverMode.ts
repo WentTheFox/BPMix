@@ -13,6 +13,7 @@ import type { GrantedRoot } from '../file-access/types';
 import type { LibraryStore } from '../library-store/types';
 import { errorMessage } from '../errorMessage';
 import { applyChange, USER_PLAYLIST_ID_PREFIX, type ApplyContext } from './applySync';
+import { MutationQueue } from './mutationQueue';
 
 const CONFIG_KEY = 'serverMode.config';
 const CURSOR_KEY = 'serverMode.cursor';
@@ -81,6 +82,8 @@ export function normalizeServerUrl(input: string): string {
 export class ServerMode {
   /** Resolves once the saved sign-in has been read from local storage (fast, never the network). */
   readonly ready: Promise<void>;
+  /** Changes made here that the server hasn't seen yet; flushed at the start of every check-in. */
+  readonly mutations: MutationQueue;
 
   private config: StoredConfig | null = null;
   private cachedRoots: GrantedRoot[] = [];
@@ -92,6 +95,7 @@ export class ServerMode {
 
   constructor(private readonly deps: ServerModeDeps) {
     this.now = deps.now ?? (() => Date.now());
+    this.mutations = new MutationQueue(deps.store, () => this.getApi());
     this.ready = this.loadSaved();
   }
 
@@ -224,6 +228,8 @@ export class ServerMode {
       for (const playlist of await store.listPlaylists(root.id)) await store.deletePlaylist(playlist.id);
     }
     this.cachedRoots = [];
+    // Changes queued under one account must never be sent to another.
+    await this.mutations.clear();
     await Promise.all([store.putSetting(CURSOR_KEY, ''), store.putSetting(ROOTS_KEY, ''), store.putSetting(SYNCED_AT_KEY, '')]);
   }
 
@@ -246,6 +252,8 @@ export class ServerMode {
     if (!api) return { kind: 'inactive', changed: false };
     this.setStatus({ syncing: true, error: null });
     try {
+      // Our own changes go first, so the version of them the server hands back is what we then pull.
+      await this.mutations.flush();
       const cursor = (await this.deps.store.getSetting(CURSOR_KEY)) || null;
       let outcome: SyncOutcome;
       if (cursor === null) {

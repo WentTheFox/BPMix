@@ -8,6 +8,8 @@ import type { Colors } from './theme';
 export interface CreatePlaylistButtonProps {
   colors: Colors;
   onConfirm: () => void;
+  /** Explain the folder-based flow before continuing (the default). Off when "New Playlist" means something simpler (a named, empty playlist on the server). */
+  explain?: boolean;
 }
 
 /**
@@ -17,12 +19,12 @@ export interface CreatePlaylistButtonProps {
  * rather than jumping straight into CreatePlaylistScreen - Continue there
  * proceeds exactly like the old direct-tap behavior did.
  */
-export function CreatePlaylistButton({ colors, onConfirm }: CreatePlaylistButtonProps) {
+export function CreatePlaylistButton({ colors, onConfirm, explain = true }: CreatePlaylistButtonProps) {
   const [explaining, setExplaining] = useState(false);
 
   return (
     <>
-      <Pressable onPress={() => setExplaining(true)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+      <Pressable onPress={() => (explain ? setExplaining(true) : onConfirm())} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
         <Icon path={mdiPlaylistPlus} size={18} color={colors.accent} />
       </Pressable>
       {explaining && (

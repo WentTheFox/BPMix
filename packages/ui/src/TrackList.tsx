@@ -43,6 +43,9 @@ export interface TrackListProps {
   onEditRaw?: () => void;
   /** "Available offline" for this playlist (server mode). Omitted where the platform has no offline storage. Rendered next to "Reorder". */
   offline?: OfflinePlaylistControl | null;
+  /** Rename / delete the playlist itself (one the user built, in server mode). Rendered as toolbar buttons next to "Reorder". */
+  onRename?: () => void;
+  onDelete?: () => void;
 }
 
 /**
@@ -80,6 +83,8 @@ export function TrackList({
   onRemoveTracks,
   onEditRaw,
   offline,
+  onRename,
+  onDelete,
 }: TrackListProps): React.JSX.Element {
   const [query, setQuery] = useState('');
 
@@ -187,7 +192,7 @@ export function TrackList({
     ],
   );
 
-  const showReorderToolbar = Boolean(onMoveTracks || onRemoveTracks || onEditRaw || offline);
+  const showReorderToolbar = Boolean(onMoveTracks || onRemoveTracks || onEditRaw || offline || onRename || onDelete);
 
   return (
     <>
@@ -237,6 +242,16 @@ export function TrackList({
                     color={colors.accent}
                     iconSize={14}
                   />
+                </Pressable>
+              )}
+              {onRename && (
+                <Pressable onPress={onRename}>
+                  <IconLabel path={mdiPencilOutline} text="Rename" color={colors.accent} iconSize={14} />
+                </Pressable>
+              )}
+              {onDelete && (
+                <Pressable onPress={onDelete}>
+                  <IconLabel path={mdiTrashCanOutline} text="Delete" color="#dc2626" iconSize={14} />
                 </Pressable>
               )}
               {onEditRaw && (

@@ -1,4 +1,7 @@
 export * from './applySync';
+export * from './mutationQueue';
+export * from './randomId';
+export * from './userPlaylists';
 export * from './serverCovers';
 export * from './serverFileAccess';
 export * from './serverMode';
