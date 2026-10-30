@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ANALYSIS_ALGORITHM_VERSION } from '../analysis/analyzeTrack';
 import { METADATA_PARSER_VERSION } from '../metadata/ensureMetadata';
 import type { FileAccess } from '../file-access/types';
+import { loadAssignedLyrics } from '../lyrics/loadAssignedLyrics';
 import { withServerCoverArt } from './serverCovers';
 import { createModeAwareFileAccess, ServerModeUnsupportedError } from './serverFileAccess';
 import type { OfflineLibrary } from '../offline/offlineLibrary';
@@ -67,6 +68,46 @@ describe('normalizeServerUrl', () => {
     expect(normalizeServerUrl('192.168.1.20:8080')).toBe('http://192.168.1.20:8080');
     expect(normalizeServerUrl('nas')).toBe('http://nas');
     expect(normalizeServerUrl('music.example.com')).toBe('https://music.example.com');
+  });
+});
+
+describe('ServerMode lyrics', () => {
+  const dto = { synced: true, tags: {}, lines: [{ timeSeconds: 1, text: 'hello', translation: null }] };
+
+  it('fetches a track\'s lyrics, keeps them for offline, and answers none for a track without', async () => {
+    const { server, mode } = await signedIn();
+    server.handler = (path) => (path.endsWith(`${encodeTrackKey('Music:a.mp3')}/lyrics`) ? json(dto) : json({ message: 'none' }, 404));
+    expect(await mode.lyricsFor('Music:a.mp3')).toEqual(dto);
+    expect(await mode.lyricsFor('Music:b.mp3')).toBeNull();
+
+    // The server goes away: what was seen before still shows.
+    server.handler = () => Promise.reject(new TypeError('offline'));
+    expect(await mode.lyricsFor('Music:a.mp3')).toEqual(dto);
+    expect(await mode.lyricsFor('Music:b.mp3')).toBeNull();
+    expect(await mode.lyricsFor('Music:never-seen.mp3')).toBeNull();
+  });
+
+  it('is what loadAssignedLyrics returns in server mode, but signed out the local files are used', async () => {
+    const { store, server, mode } = await signedIn();
+    server.handler = () => json(dto);
+    const access = createModeAwareFileAccess({ readFileText: async () => '[00:09.00]local' } as unknown as FileAccess, mode);
+    expect(await loadAssignedLyrics(access, store, [], 'Music:a.mp3')).toEqual(dto);
+
+    await mode.signOut();
+    // No assignment known locally -> nothing, and no request to the server.
+    server.calls.length = 0;
+    expect(await loadAssignedLyrics(access, store, [], 'Music:a.mp3')).toBeNull();
+    expect(server.calls.filter((c) => c.path.includes('/lyrics'))).toEqual([]);
+  });
+
+  it('forgets kept lyrics when signing out', async () => {
+    const { store, server, mode } = await signedIn();
+    server.handler = () => json(dto);
+    await mode.lyricsFor('Music:a.mp3');
+    expect(store.settings.get('serverMode.lyrics:Music:a.mp3')).toBeTruthy();
+    await mode.signOut();
+    expect(store.settings.get('serverMode.lyrics:Music:a.mp3')).toBeFalsy();
+    expect(store.settings.get('serverMode.lyricsIndex')).toBeFalsy();
   });
 });
 

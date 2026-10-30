@@ -10,7 +10,7 @@ import {
   type MeDto,
 } from './auth';
 import { mutationsResponseSchema, type MutationDto, type MutationsResponseDto } from './mutations';
-import { API_VERSION, API_VERSION_HEADER, type Page, type TrackDto, pageSchema, trackSchema } from './schemas';
+import { API_VERSION, API_VERSION_HEADER, lyricsSchema, type LyricsDto, type Page, type TrackDto, pageSchema, trackSchema } from './schemas';
 import { syncChangesResponseSchema, syncSnapshotResponseSchema, type SyncChangesResponseDto, type SyncSnapshotResponseDto } from './sync';
 import { utf8Decode } from './encoding';
 import { encodeTrackKey } from './trackKey';
@@ -188,6 +188,16 @@ export class ApiClient {
   /** Address of a track's audio. Fetch it with `fetchBytes`/`fetchRange` so the auth header is sent. */
   streamPath(trackKey: string): string {
     return `/api/v1/tracks/${trackKey}/stream`;
+  }
+
+  /** The track's lyrics, or null if it has none. */
+  async lyrics(trackKey: string, signal?: AbortSignal): Promise<LyricsDto | null> {
+    try {
+      return await this.request('GET', `/api/v1/tracks/${trackKey}/lyrics`, lyricsSchema, { signal });
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null;
+      throw err;
+    }
   }
 
   coverPath(trackKey: string): string {

@@ -789,7 +789,8 @@ function AppContent() {
   // rather than opening invisibly behind the screen the user happened to
   // be on.
   const lyricsMenu =
-    playback.currentFileId && currentTrackHasLyrics
+    // Lyrics from a server are read-only here (the editor and picker write .lrc files).
+    playback.currentFileId && currentTrackHasLyrics && !fromServer
       ? {
           onOpenEditor: () => {
             openLyricsEditorFromMenu();
@@ -849,6 +850,7 @@ function AppContent() {
         fileAccess={fileAccess}
         libraryStore={libraryStore}
         lyricsScopes={lyricsScopes}
+        lyricsReadOnly={fromServer}
         headerRight={headerActionsEl}
         lyricsEditorOpen={lyricsEditorOpen}
         onLyricsEditorOpenChange={setLyricsEditorOpen}

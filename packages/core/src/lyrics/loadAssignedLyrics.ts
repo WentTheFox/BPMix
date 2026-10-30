@@ -136,6 +136,10 @@ export async function loadAssignedLyrics(
   scopes: LyricsScope[],
   trackFileId: string,
 ): Promise<ParsedLyrics | null> {
+  // A source that already has the lyrics parsed (the server) skips the file hunt entirely.
+  const readyMade = await fileAccess.loadLyrics?.(trackFileId);
+  if (readyMade !== undefined) return readyMade;
+
   const lrcFileId = await libraryStore.getLyricsAssignment(trackFileId);
   if (!lrcFileId) return null;
 

@@ -2,10 +2,12 @@ import {
   ApiClient,
   ApiError,
   decodeTrackKey,
+  encodeTrackKey,
   NetworkError,
   ResyncRequiredError,
   type DeviceSignInProgress,
   type DeviceSignInResult,
+  type LyricsDto,
   type MeDto,
   type SyncChangeDto,
 } from '@bpmix/api';
@@ -19,6 +21,9 @@ const CONFIG_KEY = 'serverMode.config';
 const CURSOR_KEY = 'serverMode.cursor';
 const ROOTS_KEY = 'serverMode.roots';
 const SYNCED_AT_KEY = 'serverMode.syncedAtMs';
+const LYRICS_CACHE_PREFIX = 'serverMode.lyrics:';
+const LYRICS_INDEX_KEY = 'serverMode.lyricsIndex';
+const MAX_CACHED_LYRICS = 2000;
 const PAGE_SIZE = 500;
 
 interface StoredConfig {
@@ -275,6 +280,49 @@ export class ServerMode {
     return true;
   }
 
+  /**
+   * A track's lyrics from the server. Each answer (including "none") is kept locally, so lyrics keep working
+   * offline for everything played before; when the server can't be reached the kept copy is used.
+   */
+  async lyricsFor(fileId: string): Promise<LyricsDto | null> {
+    const key = `${LYRICS_CACHE_PREFIX}${fileId}`;
+    const api = this.getApi();
+    if (api) {
+      try {
+        const lyrics = await api.lyrics(encodeTrackKey(fileId));
+        await this.deps.store.putSetting(key, lyrics ? JSON.stringify(lyrics) : '-');
+        await this.rememberCachedLyrics(fileId);
+        return lyrics;
+      } catch {
+        // Offline or unwell: fall back to what was kept.
+      }
+    }
+    const kept = await this.deps.store.getSetting(key);
+    if (!kept || kept === '-') return null;
+    try {
+      return JSON.parse(kept) as LyricsDto;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Remembers which tracks have kept lyrics (the store can't list settings by prefix), newest last, capped. */
+  private async rememberCachedLyrics(fileId: string): Promise<void> {
+    const index = await this.cachedLyricsIndex();
+    const next = [...index.filter((id) => id !== fileId), fileId];
+    for (const evicted of next.splice(0, Math.max(0, next.length - MAX_CACHED_LYRICS))) await this.deps.store.putSetting(`${LYRICS_CACHE_PREFIX}${evicted}`, '');
+    await this.deps.store.putSetting(LYRICS_INDEX_KEY, JSON.stringify(next));
+  }
+
+  private async cachedLyricsIndex(): Promise<string[]> {
+    try {
+      const parsed: unknown = JSON.parse((await this.deps.store.getSetting(LYRICS_INDEX_KEY)) || '[]');
+      return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : [];
+    } catch {
+      return [];
+    }
+  }
+
   /** Signs this device out (revoking its token on the server when reachable) and drops the synced library. */
   async signOut(): Promise<void> {
     // Cut the sign-in off server-side too, if the server can be reached (the session for a browser, the
@@ -294,6 +342,9 @@ export class ServerMode {
       for (const playlist of await store.listPlaylists(root.id)) await store.deletePlaylist(playlist.id);
     }
     this.cachedRoots = [];
+    // One account's lyrics aren't shown to the next.
+    for (const fileId of await this.cachedLyricsIndex()) await store.putSetting(`${LYRICS_CACHE_PREFIX}${fileId}`, '');
+    await store.putSetting(LYRICS_INDEX_KEY, '');
     // Changes queued under one account must never be sent to another.
     await this.mutations.clear();
     await Promise.all([store.putSetting(CURSOR_KEY, ''), store.putSetting(ROOTS_KEY, ''), store.putSetting(SYNCED_AT_KEY, '')]);

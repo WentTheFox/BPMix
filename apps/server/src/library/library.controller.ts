@@ -1,6 +1,6 @@
 import { BadRequestException, Controller, Get, NotFoundException, Param, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
-import { listTracksQuerySchema, type Page, type PlaylistDto, type RootDto, type TrackDto } from '@bpmix/api';
+import { listTracksQuerySchema, type LyricsDto, type Page, type PlaylistDto, type RootDto, type TrackDto } from '@bpmix/api';
 import { DeviceAccessible } from '../auth/principal.js';
 import { fileIdFromKey } from '../common/trackKeys.js';
 import { LibraryService } from './library.service.js';
@@ -38,6 +38,14 @@ export class LibraryController {
     await new Promise<void>((resolve, reject) => {
       res.sendFile(audioPath, { dotfiles: 'allow', acceptRanges: true, headers: { 'Cache-Control': 'private, no-cache' } }, (err) => (err ? reject(err) : resolve()));
     });
+  }
+
+  @Get('tracks/:key/lyrics')
+  async lyrics(@Param('key') key: string, @Res({ passthrough: true }) res: Response): Promise<LyricsDto> {
+    const lyrics = await this.library.getLyrics(fileIdFromKey(key));
+    if (!lyrics) throw new NotFoundException('No lyrics for this track');
+    res.set('Cache-Control', 'private, no-cache');
+    return lyrics;
   }
 
   @Get('tracks/:key/cover')

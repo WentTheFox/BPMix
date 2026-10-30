@@ -43,6 +43,15 @@ export const playlistSchema = z.object({
 });
 export type PlaylistDto = z.infer<typeof playlistSchema>;
 
+/** A track's lyrics, parsed (and matched with its translation) by the server: same shape as the app's ParsedLyrics. */
+export const lyricsSchema = z.object({
+  /** At least one line has a timestamp; false means plain text, one line per entry. */
+  synced: z.boolean(),
+  tags: z.record(z.string(), z.string()),
+  lines: z.array(z.object({ timeSeconds: z.number().nullable(), text: z.string(), translation: z.string().nullable().optional() })),
+});
+export type LyricsDto = z.infer<typeof lyricsSchema>;
+
 export function pageSchema<T extends z.ZodType>(item: T) {
   return z.object({ items: z.array(item), nextCursor: z.string().nullable() });
 }

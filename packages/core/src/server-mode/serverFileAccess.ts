@@ -67,5 +67,7 @@ export function createModeAwareFileAccess(local: FileAccess, serverMode: ServerM
     // Only meaningful for local folders (and the legacy web server): metadata comes from the sync in server mode.
     getStreamUrl: (ref) => (serverMode.isActive() ? undefined : local.getStreamUrl?.(ref)),
     getContentHash: async (ref) => (serverMode.isActive() ? null : ((await local.getContentHash?.(ref)) ?? null)),
+    // The server matched and parsed the lyrics; signed out, the local .lrc files are read as before (undefined = no say).
+    loadLyrics: (trackFileId) => (serverMode.isActive() ? serverMode.lyricsFor(trackFileId) : Promise.resolve(undefined)),
   };
 }

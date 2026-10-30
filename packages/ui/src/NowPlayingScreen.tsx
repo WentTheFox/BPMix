@@ -57,6 +57,8 @@ export interface NowPlayingScreenProps {
   fileAccess: FileAccess;
   libraryStore: LibraryStore;
   lyricsScopes: LyricsScope[];
+  /** Passed to LyricsSection: lyrics come from a server and can't be linked or edited. */
+  lyricsReadOnly?: boolean;
   /** Rendered right-aligned in the same row as the back button - the NotificationBell, so it sits inline rather than floating over content below it. */
   headerRight?: ReactNode;
   /** Controlled lyrics-editor/picker open state - lifted up to App.tsx since the trigger (the lyrics icon next to Settings - see HeaderActions/LyricsMenu) lives in the global header, a sibling of this whole screen, not a descendant of it. Threaded straight through to LyricsSection's own identically-named props. */
@@ -95,6 +97,7 @@ export function NowPlayingScreen({
   fileAccess,
   libraryStore,
   lyricsScopes,
+  lyricsReadOnly,
   headerRight,
   lyricsEditorOpen,
   onLyricsEditorOpenChange,
@@ -190,6 +193,7 @@ export function NowPlayingScreen({
               fileAccess={fileAccess}
               libraryStore={libraryStore}
               lyricsScopes={lyricsScopes}
+              readOnly={lyricsReadOnly}
               trackFileId={lyricsTrackKey}
               positionSeconds={displayPositionSeconds}
               durationSeconds={durationSeconds}

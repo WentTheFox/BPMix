@@ -699,7 +699,8 @@ function AppContent() {
   // See apps/mobile/App.tsx's identical lyricsMenu for why both actions
   // also force-open Now Playing.
   const lyricsMenu =
-    playback.currentFileId && currentTrackHasLyrics
+    // Lyrics from a server are read-only here (the editor and picker write .lrc files).
+    playback.currentFileId && currentTrackHasLyrics && !fromServer
       ? {
           onOpenEditor: () => {
             openLyricsEditorFromMenu();
@@ -760,6 +761,7 @@ function AppContent() {
         fileAccess={fileAccess}
         libraryStore={libraryStore}
         lyricsScopes={lyricsScopes}
+        lyricsReadOnly={fromServer}
         headerRight={headerActionsEl}
         lyricsEditorOpen={lyricsEditorOpen}
         onLyricsEditorOpenChange={setLyricsEditorOpen}

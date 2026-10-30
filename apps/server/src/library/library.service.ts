@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { encodeTrackKey, type ListTracksQuery, type Page, type PlaylistDto, type RootDto, type TrackDto } from '@bpmix/api';
+import { encodeTrackKey, type ListTracksQuery, type LyricsDto, type Page, type PlaylistDto, type RootDto, type TrackDto } from '@bpmix/api';
+import { loadAssignedLyrics } from '@bpmix/core';
 import { DatabaseService } from '../db/database.module.js';
 import { Prisma } from '../generated/prisma/client.js';
 import { FILE_ACCESS, type NodeFileAccess } from '../node/node.module.js';
@@ -53,6 +54,15 @@ export class LibraryService {
     private readonly db: DatabaseService,
     @Inject(FILE_ACCESS) private readonly fileAccess: NodeFileAccess,
   ) {}
+
+  /** The track's lyrics, parsed and merged with its translation sibling by the same code the apps used to run themselves. */
+  async getLyrics(fileId: string): Promise<LyricsDto | null> {
+    const store = this.db.libraryStore;
+    const scopes = await store.getLyricsScopes();
+    if (scopes.length === 0) return null;
+    const lyrics = await loadAssignedLyrics(this.fileAccess, store, scopes, fileId);
+    return lyrics ? { synced: lyrics.synced, tags: lyrics.tags, lines: lyrics.lines } : null;
+  }
 
   async listRoots(): Promise<RootDto[]> {
     const roots = await this.fileAccess.listGrantedRoots();

@@ -23,6 +23,8 @@ export interface LyricsSectionProps {
   fileAccess: FileAccess;
   libraryStore: LibraryStore;
   lyricsScopes: LyricsScope[];
+  /** The lyrics come from a server and can't be linked or edited here: no "Link a lyrics file". */
+  readOnly?: boolean;
   /** null while nothing is playing - the section renders nothing in that case. */
   trackFileId: string | null;
   /** Drives which synced line is highlighted/scrolled-to - ignored for unsynced lyrics. */
@@ -64,6 +66,7 @@ export function LyricsSection({
   fileAccess,
   libraryStore,
   lyricsScopes,
+  readOnly,
   trackFileId,
   positionSeconds,
   durationSeconds,
@@ -222,9 +225,11 @@ export function LyricsSection({
     return (
       <View style={[styles.container, styles.placeholderContainer]}>
         <Text style={[styles.placeholderText, { color: colors.subtleText }]}>Lyrics are not available for this song.</Text>
-        <Pressable onPress={() => onPickerOpenChange(true)}>
-          <IconLabel path={mdiSubtitles} text="Link a lyrics file" color={colors.accent} iconSize={16} textStyle={styles.linkText} />
-        </Pressable>
+        {!readOnly && (
+          <Pressable onPress={() => onPickerOpenChange(true)}>
+            <IconLabel path={mdiSubtitles} text="Link a lyrics file" color={colors.accent} iconSize={16} textStyle={styles.linkText} />
+          </Pressable>
+        )}
       </View>
     );
   }

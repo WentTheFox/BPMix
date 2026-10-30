@@ -1,3 +1,4 @@
+import type { ParsedLyrics } from '../lyrics/lrc';
 /**
  * Opaque handle to a file inside a user-granted root directory.
  * Shape is intentionally minimal - platform adapters attach whatever
@@ -128,6 +129,13 @@ export interface FileAccess {
    * any ref that resolves to the local one.
    */
   getStreamUrl?(ref: FileRef): string | undefined;
+
+  /**
+   * When present, hands over a track's lyrics ready-made instead of leaving the caller to find and parse
+   * .lrc files - the server-backed source, where the server already matched and parsed them. Resolves
+   * `undefined` when this source has no say (the caller then does it the file way), `null` for "no lyrics".
+   */
+  loadLyrics?(trackFileId: string): Promise<ParsedLyrics | null | undefined>;
 
   /**
    * When present, a real content hash for `ref` computed WITHOUT the
