@@ -21,6 +21,8 @@ allowBuilds:
   # (@prisma/adapter-pg), so no query-engine binary is involved in the app.
   prisma: true
   '@prisma/engines': true
+  # SWC's postinstall only selects its own platform binary (like esbuild).
+  '@swc/core': true
 
 # Supply-chain safety net: don't let anything install until it's been
 # public for at least 14 days, giving time for malicious/broken releases

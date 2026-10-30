@@ -3,10 +3,21 @@
   "compilerOptions": {
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": ["ES2022"],
-    "types": ["node"],
+    "lib": [
+      "ES2022"
+    ],
+    "types": [
+      "node"
+    ],
     "outDir": "dist",
-    "rootDir": "src"
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true
   },
-  "include": ["src"]
+  "include": [
+    "src",
+    "test",
+    "vitest.config.ts",
+    "tsup.config.ts",
+    "prisma.config.ts"
+  ]
 }

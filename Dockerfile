@@ -54,8 +54,12 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV BPMIX_LIBRARY_ROOT=/music
 ENV BPMIX_WEB_DIST=/app/web
+# Required at runtime, e.g. postgresql://bpmix:secret@postgres:5432/bpmix (see docker-compose.yml).
+ENV DATABASE_URL=
 COPY --from=build /out/server ./
 COPY --from=build /out/web ./web
 VOLUME ["/music"]
 EXPOSE 8080
-CMD ["node", "dist/index.js"]
+# Applies pending Prisma migrations (the prisma CLI is a production dependency
+# for exactly this) before the server starts. DATABASE_URL must point at Postgres.
+CMD ["sh", "-c", "node_modules/.bin/prisma migrate deploy && node dist/main.js"]

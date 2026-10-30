@@ -2,8 +2,29 @@
 # Add one bind mount per library folder you want to expose; each becomes a
 # library root named after its subdirectory under /music.
 services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: bpmix
+      POSTGRES_PASSWORD: ${BPMIX_DB_PASSWORD:-change-me}
+      POSTGRES_DB: bpmix
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U bpmix -d bpmix']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
   bpmix:
     build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://bpmix:${BPMIX_DB_PASSWORD:-change-me}@postgres:5432/bpmix
+      # BPMIX_LYRICS_ROOTS: Lyrics
     ports:
       - '8080:8080'
     volumes:
@@ -13,6 +34,7 @@ services:
       # treats it as a lyrics scope instead of a permanently-empty library.
       # See apps/server/README.md.
       # - ~/Music/Lyrics:/music/Lyrics:ro
-    # environment:
-    #   BPMIX_LYRICS_ROOTS: Lyrics
     restart: unless-stopped
+
+volumes:
+  pgdata:
