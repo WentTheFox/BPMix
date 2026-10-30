@@ -10,6 +10,7 @@ import { DatabaseModule } from './db/database.module.js';
 import { NodeModule } from './node/node.module.js';
 import { ScannerModule } from './scanner/scanner.module.js';
 import { LibraryModule } from './library/library.module.js';
+import { UserDataModule } from './userdata/userdata.module.js';
 import { SyncModule } from './sync/sync.module.js';
 import { HealthController } from './health/health.controller.js';
 
@@ -20,7 +21,7 @@ import { HealthController } from './health/health.controller.js';
     // A generous overall ceiling; the sign-in routes set their own, much stricter, limit (see auth.controller.ts).
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 1200 }]),
     DatabaseModule,
-    AuthModule, NodeModule, ScannerModule, LibraryModule, SyncModule],
+    AuthModule, NodeModule, ScannerModule, LibraryModule, UserDataModule, SyncModule],
   controllers: [HealthController],
   // Order matters: throttle first, then authenticate.
   providers: [

@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { decodeTrackKey, encodeTrackKey, type SyncChangeDto, type SyncChangesResponseDto, type SyncSnapshotResponseDto } from '@bpmix/api';
 import { DatabaseService } from '../db/database.module.js';
 import { LibraryService } from '../library/library.service.js';
+import { UserDataService } from '../userdata/userdata.service.js';
 
 const RETENTION_MS = 90 * 24 * 60 * 60_000;
 const FLOOR_SETTING = 'sync.floor';
@@ -29,8 +30,15 @@ export class SyncService {
   constructor(
     private readonly db: DatabaseService,
     private readonly library: LibraryService,
+    private readonly userData: UserDataService,
   ) {
-    this.providers = [this.trackProvider(), this.playlistProvider()];
+    this.providers = [
+      this.trackProvider(),
+      this.playlistProvider(),
+      this.userPlaylistProvider(),
+      this.playbackStateProvider(),
+      this.settingProvider(),
+    ];
   }
 
   private trackProvider(): EntityProvider {
@@ -61,6 +69,54 @@ export class SyncService {
       async page(afterKey, limit) {
         const rows = await library.playlistsAfter(afterKey, limit);
         return rows.map(({ id, dto }) => ({ key: id, change: { entity: 'playlist' as const, id: dto.id, playlist: dto } }));
+      },
+    };
+  }
+
+  private userPlaylistProvider(): EntityProvider {
+    const userData = this.userData;
+    return {
+      entity: 'userPlaylist',
+      async load(keys, userId) {
+        const playlists = await userData.getPlaylists(userId, keys);
+        return new Map([...playlists].map(([id, userPlaylist]) => [id, { entity: 'userPlaylist' as const, id, userPlaylist }]));
+      },
+      tombstone: (key) => ({ entity: 'userPlaylist', id: key, userPlaylist: null }),
+      async page(afterKey, limit, userId) {
+        const rows = await userData.playlistsAfter(userId, afterKey, limit);
+        return rows.map((userPlaylist) => ({ key: userPlaylist.id, change: { entity: 'userPlaylist' as const, id: userPlaylist.id, userPlaylist } }));
+      },
+    };
+  }
+
+  private playbackStateProvider(): EntityProvider {
+    const userData = this.userData;
+    return {
+      entity: 'playbackState',
+      async load(keys, userId) {
+        const states = await userData.getPlaybackStates(userId, keys);
+        return new Map([...states].map(([id, playbackState]) => [id, { entity: 'playbackState' as const, id, playbackState }]));
+      },
+      tombstone: (key) => ({ entity: 'playbackState', id: key, playbackState: null }),
+      async page(afterKey, limit, userId) {
+        const rows = await userData.playbackStatesAfter(userId, afterKey, limit);
+        return rows.map((playbackState) => ({ key: playbackState.deviceId, change: { entity: 'playbackState' as const, id: playbackState.deviceId, playbackState } }));
+      },
+    };
+  }
+
+  private settingProvider(): EntityProvider {
+    const userData = this.userData;
+    return {
+      entity: 'setting',
+      async load(keys, userId) {
+        const settings = await userData.getSettings(userId, keys);
+        return new Map([...settings].map(([id, setting]) => [id, { entity: 'setting' as const, id, setting }]));
+      },
+      tombstone: (key) => ({ entity: 'setting', id: key, setting: null }),
+      async page(afterKey, limit, userId) {
+        const rows = await userData.settingsAfter(userId, afterKey, limit);
+        return rows.map((setting) => ({ key: setting.key, change: { entity: 'setting' as const, id: setting.key, setting } }));
       },
     };
   }

@@ -7,11 +7,37 @@ import { playlistSchema, rootSchema, trackSchema, MAX_PAGE_SIZE } from './schema
  * if it no longer exists), so applying one is an idempotent upsert-or-delete and a repeated or
  * out-of-order delivery of the same entity can't corrupt anything.
  */
+/** A playlist the user built in the app (as opposed to a shared, m3u8-backed library playlist). */
+export const userPlaylistSchema = z.object({
+  /** The id the client chose when it created the playlist. */
+  id: z.string(),
+  name: z.string(),
+  /** Track keys in play order. */
+  trackIds: z.array(z.string()),
+  updatedAtMs: z.number(),
+});
+export type UserPlaylistDto = z.infer<typeof userPlaylistSchema>;
+
+/** What one device was last playing; opaque to the server (it is the client's own state). */
+export const playbackStateSchema = z.object({
+  deviceId: z.string(),
+  state: z.record(z.string(), z.unknown()),
+  updatedAtMs: z.number(),
+});
+export type PlaybackStateDto = z.infer<typeof playbackStateSchema>;
+
+export const userSettingSchema = z.object({ key: z.string(), value: z.string(), updatedAtMs: z.number() });
+export type UserSettingDto = z.infer<typeof userSettingSchema>;
+
 export const syncChangeSchema = z.discriminatedUnion('entity', [
   /** A library track, with its tags, analysis and flags. `track: null` means it was removed. */
   z.object({ entity: z.literal('track'), id: z.string(), track: trackSchema.nullable() }),
   /** A shared (m3u8-backed) library playlist. */
   z.object({ entity: z.literal('playlist'), id: z.string(), playlist: playlistSchema.nullable() }),
+  // The rest are the signed-in user's own data - nobody else's ever appears in their feed.
+  z.object({ entity: z.literal('userPlaylist'), id: z.string(), userPlaylist: userPlaylistSchema.nullable() }),
+  z.object({ entity: z.literal('playbackState'), id: z.string(), playbackState: playbackStateSchema.nullable() }),
+  z.object({ entity: z.literal('setting'), id: z.string(), setting: userSettingSchema.nullable() }),
 ]);
 export type SyncChangeDto = z.infer<typeof syncChangeSchema>;
 

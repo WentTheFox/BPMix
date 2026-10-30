@@ -73,3 +73,13 @@ export async function setUpAdmin(baseUrl: string, clock: TestClock, username = '
   const { secret, recoveryCodes } = await client.enrollPasswordAndTotp(clock);
   return { client, secret, recoveryCodes, me: await client.json<MeDto>('/api/v1/auth/me') };
 }
+
+/** An admin creates a user, who redeems the link and enrolls with password + TOTP: returns that user's signed-in client. */
+export async function setUpUser(admin: TestClient, baseUrl: string, clock: TestClock, username: string): Promise<{ client: TestClient; userId: string }> {
+  const { user, invite } = await admin.post<{ user: { id: string }; invite: { inviteToken: string } }>('/api/v1/users', { username, displayName: username });
+  const client = new TestClient(baseUrl);
+  await client.post('/api/v1/auth/invites/redeem', { inviteToken: invite.inviteToken });
+  clock.advance();
+  await client.enrollPasswordAndTotp(clock);
+  return { client, userId: user.id };
+}

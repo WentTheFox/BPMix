@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module.js';
+import { configureHttp } from './http.js';
 import { mountLegacyRoutes } from './legacy.js';
 import { mountWebApp } from './web.js';
 
@@ -29,6 +30,7 @@ const webDist = process.env.BPMIX_WEB_DIST ?? path.resolve(dirname, '../web');
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   app.enableShutdownHooks();
+  configureHttp(app);
 
   // Behind a reverse proxy, req.ip / req.protocol (rate limits, secure cookies) come from X-Forwarded-*,
   // but only if told how many proxies to trust: BPMIX_TRUST_PROXY=1, or a subnet name like loopback.

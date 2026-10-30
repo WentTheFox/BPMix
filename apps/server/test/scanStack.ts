@@ -24,6 +24,7 @@ export async function resetDatabase(prisma: PrismaClient = testPrisma): Promise<
     prisma.trackJobFailure.deleteMany(),
     prisma.keyValue.deleteMany(),
     // Users cascade to their credentials, recovery codes, sessions, device tokens and invites.
+    prisma.appliedMutation.deleteMany(),
     prisma.user.deleteMany(),
     prisma.authChallenge.deleteMany(),
     prisma.deviceGrant.deleteMany(),

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { encodeTrackKey, type Page, type PlaylistDto, type SyncChangeDto, type SyncChangesResponseDto, type SyncSnapshotResponseDto, type TrackDto } from '@bpmix/api';
+import { encodeTrackKey, type Page, type SyncChangesResponseDto, type SyncSnapshotResponseDto, type TrackDto } from '@bpmix/api';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.js';
 import { CLOCK } from '../src/auth/auth.service.js';
@@ -12,6 +12,7 @@ import { DatabaseService } from '../src/db/database.module.js';
 import { ScannerService } from '../src/scanner/scanner.service.js';
 import { SyncService } from '../src/sync/sync.service.js';
 import { ANALYZE_FILE } from '../src/scanner/tokens.js';
+import { LocalReplica, sorted } from './replica.js';
 import { realAnalyze, resetDatabase } from './scanStack.js';
 import { createTestClock, setUpAdmin, TestClient } from './testClient.js';
 import { TEST_DATABASE_URL } from './testDatabase.js';
@@ -23,59 +24,6 @@ let base: string;
 let prisma: DatabaseService['prisma'];
 let admin: TestClient;
 
-/** What a client holds: the entities it has been told about, and its place in the feed. */
-class LocalReplica {
-  tracks = new Map<string, TrackDto>();
-  playlists = new Map<string, PlaylistDto>();
-  cursor: string | null = null;
-  roots: { id: string }[] = [];
-  requests = 0;
-
-  apply(changes: SyncChangeDto[]): void {
-    for (const change of changes) {
-      if (change.entity === 'track') {
-        if (change.track) this.tracks.set(change.id, change.track);
-        else this.tracks.delete(change.id);
-      } else if (change.entity === 'playlist') {
-        if (change.playlist) this.playlists.set(change.id, change.playlist);
-        else this.playlists.delete(change.id);
-      }
-    }
-  }
-
-  /** The first sync, or after a 410: walk the snapshot, then continue from where it started. */
-  async snapshot(client: TestClient, limit = 500): Promise<void> {
-    this.tracks.clear();
-    this.playlists.clear();
-    let after: string | undefined;
-    let startedAt: string | undefined;
-    do {
-      const page = await client.json<SyncSnapshotResponseDto>(`/api/v1/sync/snapshot?limit=${limit}${after ? `&after=${encodeURIComponent(after)}` : ''}`);
-      this.requests++;
-      startedAt ??= page.cursor;
-      this.apply(page.entities);
-      this.roots = page.roots;
-      after = page.next ?? undefined;
-    } while (after);
-    this.cursor = startedAt!;
-  }
-
-  /** One check-in: pull until caught up. Falls back to a snapshot if the server says the position is stale. */
-  async checkIn(client: TestClient, limit = 500): Promise<void> {
-    if (this.cursor === null) return this.snapshot(client, limit);
-    for (;;) {
-      const res = await client.fetch(`/api/v1/sync/changes?since=${this.cursor}&limit=${limit}`);
-      this.requests++;
-      if (res.status === 410) return this.snapshot(client, limit);
-      const page = (await res.json()) as SyncChangesResponseDto;
-      this.apply(page.changes);
-      this.cursor = page.cursor;
-      this.roots = page.roots;
-      if (!page.hasMore) return;
-    }
-  }
-}
-
 async function serverTracks(): Promise<Map<string, TrackDto>> {
   const all = new Map<string, TrackDto>();
   let cursor: string | null = null;
@@ -86,8 +34,6 @@ async function serverTracks(): Promise<Map<string, TrackDto>> {
   } while (cursor);
   return all;
 }
-
-const sorted = <T>(map: Map<string, T>) => [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
 
 beforeAll(async () => {
   base = await mkdtemp(path.join(tmpdir(), 'bpmix-sync-'));
