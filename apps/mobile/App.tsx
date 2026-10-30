@@ -106,6 +106,7 @@ import {
   toRelativeDisplay,
 } from './src/adapters/fileAccess';
 import { createLibraryStore, setPriorityFileId } from './src/adapters/libraryStore';
+import { createSecretStore } from './src/adapters/secretStore';
 import { createOfflineBackend, supportsOfflineStorage } from './src/adapters/offlineBackend';
 import { MediaSessionBridge } from './src/MediaSessionBridge';
 import { MemoryOverlay } from './src/debug/MemoryOverlay';
@@ -126,6 +127,8 @@ const localLibraryStore = createLibraryStore();
 // wiring in AppContent) and this stays inactive there.
 const serverMode = new ServerMode({
   store: localLibraryStore,
+  // The device token lives in the Android Keystore, not in the library database.
+  secretStore: createSecretStore('server-token'),
   deviceName: () => {
     const constants = Platform.constants as { Brand?: string; Model?: string };
     return Platform.OS === 'android' && constants.Model ? `${constants.Brand ?? 'Android'} ${constants.Model}`.trim() : 'BPMix app';

@@ -27,6 +27,15 @@ interface StoredConfig {
   /** A native app's device token. Null on the web, which relies on its session cookie. */
   token: string | null;
   userName: string | null;
+  /** The token lives in the platform's secret storage (see ServerModeDeps.secretStore), not in this record. */
+  tokenInSecretStore?: boolean;
+}
+
+/** Hardware-backed storage for the device token (Android Keystore), so a copy of the app's data doesn't carry a working sign-in. */
+export interface SecretStore {
+  get(): Promise<string | null>;
+  /** Null removes it. */
+  set(value: string | null): Promise<void>;
 }
 
 export interface ServerStatus {
@@ -52,6 +61,8 @@ export interface ServerModeDeps {
   store: LibraryStore;
   /** Used to name this device when it asks to be signed in ("Pixel 8", "Windows PC"). */
   deviceName: () => string;
+  /** Where the device token is kept. Without one it is stored with the rest of the settings. */
+  secretStore?: SecretStore;
   fetch?: typeof fetch;
   now?: () => number;
   /** The web app served by the server itself: same address, cookie instead of a token. */
@@ -143,8 +154,8 @@ export class ServerMode {
     const [rawConfig, rawRoots, rawSynced] = await Promise.all([store.getSetting(CONFIG_KEY), store.getSetting(ROOTS_KEY), store.getSetting(SYNCED_AT_KEY)]);
     if (rawConfig) {
       try {
-        this.config = JSON.parse(rawConfig) as StoredConfig;
-        this.api = this.makeApi(this.config);
+        this.config = await this.revealToken(JSON.parse(rawConfig) as StoredConfig);
+        if (this.config) this.api = this.makeApi(this.config);
       } catch {
         this.config = null; // unreadable: treat as signed out rather than crash on startup
       }
@@ -164,11 +175,37 @@ export class ServerMode {
     });
   }
 
+  /**
+   * Fills in the token from secret storage. A token still sitting in the settings from before there was
+   * a secret store is moved there. Returns null (signed out) if the secret is gone, e.g. the Keystore
+   * key was wiped: a stored sign-in without its token can't do anything.
+   */
+  private async revealToken(stored: StoredConfig): Promise<StoredConfig | null> {
+    const secrets = this.deps.secretStore;
+    if (!secrets) return stored;
+    if (stored.tokenInSecretStore) {
+      const token = await secrets.get();
+      return token ? { ...stored, token } : null;
+    }
+    if (stored.token) {
+      await secrets.set(stored.token);
+      await this.deps.store.putSetting(CONFIG_KEY, JSON.stringify({ ...stored, token: null, tokenInSecretStore: true }));
+    }
+    return stored;
+  }
+
   private async saveConfig(config: StoredConfig | null): Promise<void> {
     this.config = config;
     this.api = config ? this.makeApi(config) : null;
+    const secrets = this.deps.secretStore;
+    let persisted = config;
+    if (secrets) {
+      // The secret goes in first, so a record never points at a token that was not written.
+      await secrets.set(config?.token ?? null);
+      if (config?.token) persisted = { ...config, token: null, tokenInSecretStore: true };
+    }
     // putSetting has no delete; an empty value is read back as "none" by loadSaved's JSON.parse guard.
-    await this.deps.store.putSetting(CONFIG_KEY, config ? JSON.stringify(config) : '');
+    await this.deps.store.putSetting(CONFIG_KEY, persisted ? JSON.stringify(persisted) : '');
     this.setStatus({ active: config !== null, url: config?.url ?? '', userName: config?.userName ?? null });
   }
 

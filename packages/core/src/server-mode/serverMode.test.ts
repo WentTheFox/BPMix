@@ -55,6 +55,60 @@ describe('normalizeServerUrl', () => {
   });
 });
 
+describe('ServerMode secret storage', () => {
+  const memorySecrets = (initial: string | null = null) => {
+    let value = initial;
+    return { get: async () => value, set: async (v: string | null) => void (value = v), peek: () => value };
+  };
+
+  it('keeps the device token out of the settings and restores it after a restart', async () => {
+    const store = new MemoryStore();
+    const secrets = memorySecrets();
+    const server = fakeServer();
+    server.handler = (path) => {
+      if (path === '/api/v1/auth/device/code') return json({ deviceCode: 'dc', userCode: 'ABCD-EFGH', verificationUri: 'https://x/device', expiresInSeconds: 600 }, 201);
+      if (path === '/api/v1/auth/device/wait') return json({ status: 'approved', token: 'bpd_secret', me });
+      return json({}, 404);
+    };
+    const mode = new ServerMode({ store, deviceName: () => 'x', fetch: server.fetch, secretStore: secrets });
+    await mode.ready;
+    await mode.signInWithDeviceCode('music.example.com', () => undefined);
+    expect(secrets.peek()).toBe('bpd_secret');
+    expect(store.settings.get('serverMode.config')).not.toContain('bpd_secret');
+
+    const restarted = new ServerMode({ store, deviceName: () => 'x', fetch: server.fetch, secretStore: secrets });
+    await restarted.ready;
+    expect(restarted.isActive()).toBe(true);
+    expect(restarted.getApi()).not.toBeNull();
+  });
+
+  it('moves a token saved before secret storage existed into it', async () => {
+    const store = new MemoryStore();
+    store.settings.set('serverMode.config', JSON.stringify({ url: 'https://music.example.com', token: 'bpd_old', userName: 'Sam' }));
+    const secrets = memorySecrets();
+    const mode = new ServerMode({ store, deviceName: () => 'x', secretStore: secrets });
+    await mode.ready;
+    expect(mode.isActive()).toBe(true);
+    expect(secrets.peek()).toBe('bpd_old');
+    expect(store.settings.get('serverMode.config')).not.toContain('bpd_old');
+  });
+
+  it('is signed out when the secret is gone, and sign-out clears it', async () => {
+    const store = new MemoryStore();
+    store.settings.set('serverMode.config', JSON.stringify({ url: 'https://music.example.com', token: null, tokenInSecretStore: true, userName: 'Sam' }));
+    const lost = new ServerMode({ store, deviceName: () => 'x', secretStore: memorySecrets(null) });
+    await lost.ready;
+    expect(lost.isActive()).toBe(false);
+
+    const secrets = memorySecrets('bpd_token');
+    const mode = new ServerMode({ store, deviceName: () => 'x', fetch: fakeServer().fetch, secretStore: secrets });
+    await mode.ready;
+    expect(mode.isActive()).toBe(true);
+    await mode.signOut();
+    expect(secrets.peek()).toBeNull();
+  });
+});
+
 describe('ServerMode sign-in', () => {
   it('is inactive until signed in, and a signed-in app comes back signed in after a restart', async () => {
     const store = new MemoryStore();

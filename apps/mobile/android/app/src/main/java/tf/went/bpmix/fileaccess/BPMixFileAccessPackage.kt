@@ -7,7 +7,7 @@ import com.facebook.react.uimanager.ViewManager
 
 class BPMixFileAccessPackage : ReactPackage {
   override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> =
-    listOf(BPMixFileAccessModule(reactContext))
+    listOf(BPMixFileAccessModule(reactContext), BPMixSecretStoreModule(reactContext))
 
   override fun createViewManagers(
     reactContext: ReactApplicationContext,
