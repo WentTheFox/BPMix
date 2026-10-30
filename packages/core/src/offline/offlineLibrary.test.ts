@@ -299,6 +299,66 @@ describe('OfflineLibrary storage', () => {
     expect(library.isAvailable('Music:keep.mp3')).toBe(true);
   });
 
+  describe('keeping what is played', () => {
+    it('is off until asked, and the choice survives a restart', async () => {
+      const { library, backend, store } = await setup();
+      backend.autoFinish = true;
+      expect(library.getState().cacheOnPlay).toBe(false);
+      expect(await library.fetchForPlayback('Music:a.mp3')).toBe(false);
+      expect(backend.started).toEqual([]);
+
+      await library.setCacheOnPlay(true);
+      expect(library.getState().cacheOnPlay).toBe(true);
+      const restarted = await setup({ store });
+      expect(restarted.library.getState().cacheOnPlay).toBe(true);
+    });
+
+    it('stores a played track once, unpinned, and shares one transfer between readers', async () => {
+      const { library, backend } = await setup();
+      backend.autoFinish = true;
+      await library.setCacheOnPlay(true);
+      const [first, second] = await Promise.all([library.fetchForPlayback('Music:a.mp3'), library.fetchForPlayback('Music:a.mp3')]);
+      expect([first, second]).toEqual([true, true]);
+      expect(backend.started).toEqual(['Music:a.mp3']);
+      expect(library.isAvailable('Music:a.mp3')).toBe(true);
+      expect(library.isPinned('Music:a.mp3')).toBe(false);
+      expect(await library.fetchForPlayback('Music:a.mp3')).toBe(true); // already kept
+      expect(backend.started).toHaveLength(1);
+    });
+
+    it('keeps played tracks under the limit, evicting the least recently played, but never what was asked for', async () => {
+      const { library, backend } = await setup();
+      backend.autoFinish = true;
+      await library.setCacheOnPlay(true);
+      library.request(['Music:chosen.mp3'], { pin: true });
+      await settle();
+      await library.setBudgetBytes(9); // two 4-byte files fit, a third pushes the oldest played out
+      for (const id of ['Music:one.mp3', 'Music:two.mp3', 'Music:three.mp3']) await library.fetchForPlayback(id);
+      await settle();
+      expect(library.isAvailable('Music:chosen.mp3')).toBe(true);
+      expect(library.isAvailable('Music:one.mp3')).toBe(false);
+      expect(library.isAvailable('Music:three.mp3')).toBe(true);
+    });
+
+    it('leaves no trace when the fetch fails, so playback just streams it', async () => {
+      const { library, backend } = await setup();
+      await library.setCacheOnPlay(true);
+      backend.failWith.set('Music:a.mp3', [new NetworkError(new Error('down'))]);
+      expect(await library.fetchForPlayback('Music:a.mp3')).toBe(false);
+      expect(library.getState()).toMatchObject({ paused: false, queuedCount: 0, activeCount: 0, failures: [] });
+      expect(library.isAvailable('Music:a.mp3')).toBe(false);
+    });
+
+    it('does not take over a track already queued as a download', async () => {
+      const { library, backend } = await setup({ concurrency: 1 });
+      await library.setCacheOnPlay(true);
+      library.request(['Music:first.mp3', 'Music:wanted.mp3'], { pin: true }); // first runs, wanted waits in the queue
+      await settle();
+      expect(await library.fetchForPlayback('Music:wanted.mp3')).toBe(false);
+      backend.complete('Music:first.mp3');
+    });
+  });
+
   it('removes and clears downloads', async () => {
     const { library, backend } = await setup();
     backend.autoFinish = true;

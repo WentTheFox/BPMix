@@ -113,6 +113,29 @@ describe('ServerMode lyrics', () => {
   });
 });
 
+describe('playing from the server with cache-on-play', () => {
+  const ref = { id: 'Music:a.mp3', name: 'a.mp3', relativePath: 'a.mp3', sizeBytes: 3, lastModifiedMs: 1 };
+
+  it('plays the copy it just stored, without a second transfer', async () => {
+    const { server, mode } = await signedIn();
+    server.handler = () => json({}, 500); // streaming must not be needed
+    const bytes = new Uint8Array([1, 2, 3]).buffer;
+    const offline = { read: vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(bytes), fetchForPlayback: vi.fn().mockResolvedValue(true) } as unknown as OfflineLibrary;
+    const access = createModeAwareFileAccess({} as FileAccess, mode, offline);
+    expect(await access.readFileBytes(ref)).toBe(bytes);
+    expect(server.calls).toEqual([]);
+  });
+
+  it('streams it as before when it could not be stored', async () => {
+    const { server, mode } = await signedIn();
+    server.handler = () => new Response(new Uint8Array([9, 9]), { status: 200 });
+    const offline = { read: vi.fn().mockResolvedValue(null), fetchForPlayback: vi.fn().mockResolvedValue(false) } as unknown as OfflineLibrary;
+    const access = createModeAwareFileAccess({} as FileAccess, mode, offline);
+    expect(new Uint8Array(await access.readFileBytes(ref))).toEqual(new Uint8Array([9, 9]));
+    expect(server.calls).toHaveLength(1);
+  });
+});
+
 describe('ServerMode Last.fm', () => {
   it('reports the link from the server, and falls back to the last answer when it cannot be reached', async () => {
     const { store, server, mode } = await signedIn();
@@ -539,7 +562,7 @@ describe('offline playback through the file access', () => {
     const mode = new ServerMode({ store, deviceName: () => 'x', fetch: server.fetch });
     await mode.ready;
     const stored = new Uint8Array([7, 7]).buffer;
-    const offline = { read: vi.fn(async (id: string) => (id === 'Music:a.mp3' ? stored : null)) } as unknown as OfflineLibrary;
+    const offline = { read: vi.fn(async (id: string) => (id === 'Music:a.mp3' ? stored : null)), fetchForPlayback: async () => false } as unknown as OfflineLibrary;
     server.handler = () => new Response(new Uint8Array([1, 2, 3]).buffer);
     const access = createModeAwareFileAccess(local, mode, offline);
 
@@ -557,7 +580,7 @@ describe('offline playback through the file access', () => {
     }) as unknown as typeof fetch;
     const mode = new ServerMode({ store, deviceName: () => 'x', fetch: server.fetch });
     await mode.ready;
-    const offline = { read: vi.fn(async () => null) } as unknown as OfflineLibrary;
+    const offline = { read: vi.fn(async () => null), fetchForPlayback: async () => false } as unknown as OfflineLibrary;
     await expect(createModeAwareFileAccess(local, mode, offline).readFileBytes(ref)).rejects.toMatchObject({ name: 'NetworkError' });
   });
 });

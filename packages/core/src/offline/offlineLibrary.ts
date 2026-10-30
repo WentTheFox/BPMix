@@ -6,6 +6,7 @@ import type { OfflineBackend, OfflineFailure, OfflineRecord, OfflineState } from
 
 const INDEX_KEY = 'offline.index';
 const BUDGET_KEY = 'offline.budgetBytes';
+const CACHE_ON_PLAY_KEY = 'offline.cacheOnPlay';
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 const MAX_FAILURES = 50;
 
@@ -45,6 +46,9 @@ export class OfflineLibrary {
   private readonly listeners = new Set<(state: OfflineState) => void>();
   private failures: OfflineFailure[] = [];
   private budgetBytes = 0;
+  private cacheOnPlay = false;
+  /** Playback fetches in flight, so two readers of one track share a single transfer. */
+  private readonly playFetches = new Map<string, Promise<boolean>>();
   private paused = false;
   private persistChain: Promise<void> = Promise.resolve();
   private state: OfflineState;
@@ -90,6 +94,7 @@ export class OfflineLibrary {
       activeCount: this.active.size,
       progress: Object.fromEntries(this.progress),
       budgetBytes: this.budgetBytes,
+      cacheOnPlay: this.cacheOnPlay,
       paused: this.paused,
       failures: [...this.failures],
     };
@@ -113,7 +118,7 @@ export class OfflineLibrary {
 
   private async load(): Promise<void> {
     const { store } = this.deps;
-    const [rawIndex, rawBudget] = await Promise.all([store.getSetting(INDEX_KEY), store.getSetting(BUDGET_KEY)]);
+    const [rawIndex, rawBudget, rawCacheOnPlay] = await Promise.all([store.getSetting(INDEX_KEY), store.getSetting(BUDGET_KEY), store.getSetting(CACHE_ON_PLAY_KEY)]);
     if (rawIndex) {
       try {
         const parsed = JSON.parse(rawIndex) as OfflineRecord[];
@@ -123,6 +128,7 @@ export class OfflineLibrary {
       }
     }
     this.budgetBytes = rawBudget ? Number(rawBudget) || 0 : 0;
+    this.cacheOnPlay = rawCacheOnPlay === '1';
     this.publish();
     void this.reconcile();
   }
@@ -253,6 +259,50 @@ export class OfflineLibrary {
     await this.deps.store.putSetting(BUDGET_KEY, String(this.budgetBytes));
     await this.evict();
     this.publish();
+  }
+
+  /** Whether tracks played from the server are kept (unpinned, so the budget can evict them). */
+  async setCacheOnPlay(on: boolean): Promise<void> {
+    await this.ready;
+    this.cacheOnPlay = on;
+    await this.deps.store.putSetting(CACHE_ON_PLAY_KEY, on ? '1' : '0');
+    this.publish();
+  }
+
+  /**
+   * For playback with cache-on-play: fetches the track into storage (unpinned) so one transfer both plays
+   * it and keeps it, instead of streaming it now and downloading it again. Resolves true when a copy is
+   * stored; any failure leaves no trace (no retry, no pause) and the caller streams it as it would have.
+   */
+  fetchForPlayback(fileId: string): Promise<boolean> {
+    const running = this.playFetches.get(fileId);
+    if (running) return running;
+    const run = (async () => {
+      await this.ready;
+      if (!this.cacheOnPlay) return false;
+      if (this.records.has(fileId)) return true;
+      // Already being fetched on purpose (queued or active as a download): leave that alone.
+      if (this.queue.includes(fileId) || this.active.has(fileId)) return false;
+      const controller = new AbortController();
+      this.active.set(fileId, controller);
+      this.progress.set(fileId, 0);
+      this.wantsPin.set(fileId, false);
+      this.publish();
+      try {
+        await this.download(fileId, controller.signal);
+        return true;
+      } catch {
+        this.wantsPin.delete(fileId);
+        return false;
+      } finally {
+        this.active.delete(fileId);
+        this.progress.delete(fileId);
+        this.publish();
+        this.pump();
+      }
+    })().finally(() => this.playFetches.delete(fileId));
+    this.playFetches.set(fileId, run);
+    return run;
   }
 
   /** Removes the least recently played unpinned copies until the total fits the budget. Pinned copies are never evicted. */

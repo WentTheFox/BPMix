@@ -46,6 +46,8 @@ export interface OfflineState {
   progress: Record<string, number>;
   /** 0 means no limit. Unpinned copies are evicted, least recently played first, to stay under it. */
   budgetBytes: number;
+  /** Tracks are kept (unpinned) as they are played from the server, instead of being streamed and forgotten. */
+  cacheOnPlay: boolean;
   /** Not transferring: the server can't be reached (or the sign-in lapsed). Resumes on its own when it can. */
   paused: boolean;
   /** Recent downloads that gave up, newest last. */

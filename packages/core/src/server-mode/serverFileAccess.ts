@@ -37,6 +37,11 @@ function createServerFileAccess(serverMode: ServerMode, offline?: OfflineLibrary
       // A downloaded (and still current) copy plays with no network at all.
       const stored = await offline?.read(ref.id);
       if (stored) return stored;
+      // Keeping what is played: one transfer to storage serves both the play and the copy.
+      if (offline && (await offline.fetchForPlayback(ref.id))) {
+        const kept = await offline.read(ref.id);
+        if (kept) return kept;
+      }
       const client = api();
       return client.fetchBytes(client.streamPathForFileId(ref.id));
     },

@@ -6,6 +6,7 @@ import type { UseOfflineResult } from '../offline/useOffline';
 import type { UseServerConnectionResult } from '../server/useServerConnection';
 import type { Colors } from '../theme';
 import { withAlpha } from '../theme';
+import { AppSwitch } from './AppSwitch';
 import { Section } from './SettingsScreen';
 
 /** "just now", "5 minutes ago", ... - good enough for a status line. */
@@ -25,6 +26,14 @@ export interface ServerSectionProps {
   /** Downloads for offline play, where the platform supports them. */
   offline?: UseOfflineResult | null;
 }
+
+/** Choices for how much the downloads that weren't asked for may take (0 = no limit). Decimal, like the sizes shown. */
+const STORAGE_LIMITS = [
+  { bytes: 0, label: 'No limit' },
+  { bytes: 1_000_000_000, label: '1 GB' },
+  { bytes: 5_000_000_000, label: '5 GB' },
+  { bytes: 20_000_000_000, label: '20 GB' },
+];
 
 /**
  * Where the app's library comes from: this device's own folders, or a BPMix server. Signing in uses a
@@ -69,6 +78,27 @@ export function ServerSection({ colors, server, offline }: ServerSectionProps) {
                   : `${offline.state.downloadedCount} track${offline.state.downloadedCount === 1 ? '' : 's'} downloaded (${formatBytes(offline.state.downloadedBytes)}).`}
                 {offline.state.activeCount + offline.state.queuedCount > 0 ? ` Downloading ${offline.state.activeCount + offline.state.queuedCount} more…` : ''}
               </Text>
+              <View style={styles.row}>
+                <Text style={[styles.rowLabel, { color: colors.text }]}>Keep played tracks</Text>
+                <AppSwitch value={offline.state.cacheOnPlay} onValueChange={offline.setCacheOnPlay} accentColor={colors.accent} />
+              </View>
+              <Text style={hint}>Tracks are saved on this device as you play them, and the least recently played go first when over the limit.</Text>
+              <Text style={[styles.rowLabel, { color: colors.text }]}>Storage limit</Text>
+              <View style={styles.choiceRow}>
+                {STORAGE_LIMITS.map(({ bytes, label }) => {
+                  const selected = offline.state.budgetBytes === bytes;
+                  return (
+                    <Pressable
+                      key={bytes}
+                      onPress={() => offline.setBudgetBytes(bytes)}
+                      style={[styles.choice, { borderColor: selected ? colors.accent : withAlpha(colors.text, 0.25) }, selected && { backgroundColor: colors.accent }]}
+                    >
+                      <Text style={[styles.choiceText, { color: selected ? '#fff' : colors.text }]}>{label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <Text style={hint}>Tracks you chose to download are never removed to make room.</Text>
               {offline.state.paused && offline.state.queuedCount > 0 && (
                 <Pressable onPress={offline.resume} style={styles.actionButton}>
                   <Text style={link()}>Downloads are waiting for the server - try again</Text>
@@ -170,5 +200,8 @@ const styles = StyleSheet.create({
   actionButton: { paddingVertical: 10 },
   hint: { fontSize: 13, marginBottom: 6 },
   error: { fontSize: 13, marginTop: 6 },
+  choiceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6, marginBottom: 8 },
+  choice: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 },
+  choiceText: { fontSize: 14, fontWeight: '600' },
   code: { fontSize: 32, fontWeight: '700', letterSpacing: 4, textAlign: 'center', paddingVertical: 12 },
 });
