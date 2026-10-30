@@ -129,6 +129,7 @@ model User {
   settings       UserSetting[]
   playbackStates PlaybackStateRow[]
   playlists      UserPlaylist[]
+  lastFm         LastFmConnection?
 
   @@map("users")
 }
@@ -376,6 +377,21 @@ model UserSetting {
 
   @@id([userId, key])
   @@map("user_settings")
+}
+
+/// A user's Last.fm link. The session key is sealed with the server secret key (like the TOTP secret);
+/// pendingToken is the unapproved token of a connect attempt in progress.
+model LastFmConnection {
+  userId        String    @id @map("user_id")
+  username      String?
+  sessionKeyEnc String?   @map("session_key_enc")
+  connectedAt   DateTime? @map("connected_at")
+  pendingToken  String?   @map("pending_token")
+  pendingAt     DateTime? @map("pending_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("lastfm_connections")
 }
 
 /// Which client operations have been applied, so a retry after a dropped connection can't apply one twice.

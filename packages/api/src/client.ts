@@ -9,6 +9,14 @@ import {
   type DeviceWaitResultDto,
   type MeDto,
 } from './auth';
+import {
+  lastFmConnectResultSchema,
+  lastFmStatusSchema,
+  type LastFmConnectResultDto,
+  type LastFmNowPlayingRequestDto,
+  type LastFmScrobbleEntryDto,
+  type LastFmStatusDto,
+} from './lastfm';
 import { mutationsResponseSchema, type MutationDto, type MutationsResponseDto } from './mutations';
 import { API_VERSION, API_VERSION_HEADER, lyricsSchema, type LyricsDto, type Page, type TrackDto, pageSchema, trackSchema } from './schemas';
 import { syncChangesResponseSchema, syncSnapshotResponseSchema, type SyncChangesResponseDto, type SyncSnapshotResponseDto } from './sync';
@@ -155,6 +163,35 @@ export class ApiClient {
   /** A native app signing itself out: revokes the token it is calling with. */
   async signOutThisDevice(): Promise<void> {
     await this.send('DELETE', '/api/v1/auth/me/token');
+  }
+
+  // ---------------------------------------------------------------- last.fm (the server holds the link)
+
+  lastFmStatus(): Promise<LastFmStatusDto> {
+    return this.request('GET', '/api/v1/lastfm', lastFmStatusSchema);
+  }
+
+  /** Starts linking: returns the Last.fm page to approve BPMix on. Then call lastFmComplete(). */
+  lastFmConnect(): Promise<LastFmConnectResultDto> {
+    return this.request('POST', '/api/v1/lastfm/connect', lastFmConnectResultSchema, { body: {} });
+  }
+
+  /** Finishes linking after approval. Throws ApiError(409, code 'not_authorized') while the approval hasn't happened yet. */
+  lastFmComplete(): Promise<LastFmStatusDto> {
+    return this.request('POST', '/api/v1/lastfm/complete', lastFmStatusSchema, { body: {} });
+  }
+
+  lastFmDisconnect(): Promise<LastFmStatusDto> {
+    return this.request('DELETE', '/api/v1/lastfm', lastFmStatusSchema);
+  }
+
+  async lastFmNowPlaying(track: LastFmNowPlayingRequestDto): Promise<void> {
+    await this.send('POST', '/api/v1/lastfm/now-playing', { body: track });
+  }
+
+  /** Throws ApiError 422 (code 'lastfm_rejected') when Last.fm refuses them for good, 502 ('lastfm_unreachable') when it couldn't be reached - the latter is worth retrying later. */
+  async lastFmScrobble(entries: LastFmScrobbleEntryDto[]): Promise<void> {
+    await this.send('POST', '/api/v1/lastfm/scrobbles', { body: { entries } });
   }
 
   // ---------------------------------------------------------------- library, sync, mutations

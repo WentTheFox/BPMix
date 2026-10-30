@@ -7,6 +7,7 @@ import {
   ResyncRequiredError,
   type DeviceSignInProgress,
   type DeviceSignInResult,
+  type LastFmStatusDto,
   type LyricsDto,
   type MeDto,
   type SyncChangeDto,
@@ -16,11 +17,13 @@ import type { LibraryStore } from '../library-store/types';
 import { errorMessage } from '../errorMessage';
 import { applyChange, USER_PLAYLIST_ID_PREFIX, type ApplyContext } from './applySync';
 import { MutationQueue } from './mutationQueue';
+import { SERVER_SCROBBLE_QUEUE_KEY } from './serverLastFm';
 
 const CONFIG_KEY = 'serverMode.config';
 const CURSOR_KEY = 'serverMode.cursor';
 const ROOTS_KEY = 'serverMode.roots';
 const SYNCED_AT_KEY = 'serverMode.syncedAtMs';
+const LASTFM_STATUS_KEY = 'serverMode.lastFmStatus';
 const LYRICS_CACHE_PREFIX = 'serverMode.lyrics:';
 const LYRICS_INDEX_KEY = 'serverMode.lyricsIndex';
 const MAX_CACHED_LYRICS = 2000;
@@ -306,6 +309,34 @@ export class ServerMode {
     }
   }
 
+  /**
+   * Where the user's Last.fm link stands, from the server. The last answer is kept, so scrobbling keeps
+   * going (and queueing) while the server can't be reached; null when it has never been fetched.
+   */
+  async lastFmStatus(): Promise<LastFmStatusDto | null> {
+    const api = this.getApi();
+    if (api) {
+      try {
+        const status = await api.lastFmStatus();
+        await this.cacheLastFmStatus(status);
+        return status;
+      } catch {
+        // Offline or unwell: fall back to the kept answer.
+      }
+    }
+    const kept = await this.deps.store.getSetting(LASTFM_STATUS_KEY);
+    if (!kept) return null;
+    try {
+      return JSON.parse(kept) as LastFmStatusDto;
+    } catch {
+      return null;
+    }
+  }
+
+  cacheLastFmStatus(status: LastFmStatusDto): Promise<void> {
+    return this.deps.store.putSetting(LASTFM_STATUS_KEY, JSON.stringify(status));
+  }
+
   /** Remembers which tracks have kept lyrics (the store can't list settings by prefix), newest last, capped. */
   private async rememberCachedLyrics(fileId: string): Promise<void> {
     const index = await this.cachedLyricsIndex();
@@ -345,6 +376,8 @@ export class ServerMode {
     // One account's lyrics aren't shown to the next.
     for (const fileId of await this.cachedLyricsIndex()) await store.putSetting(`${LYRICS_CACHE_PREFIX}${fileId}`, '');
     await store.putSetting(LYRICS_INDEX_KEY, '');
+    await store.putSetting(SERVER_SCROBBLE_QUEUE_KEY, '');
+    await store.putSetting(LASTFM_STATUS_KEY, '');
     // Changes queued under one account must never be sent to another.
     await this.mutations.clear();
     await Promise.all([store.putSetting(CURSOR_KEY, ''), store.putSetting(ROOTS_KEY, ''), store.putSetting(SYNCED_AT_KEY, '')]);

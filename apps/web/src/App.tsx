@@ -1,5 +1,6 @@
 import type { FileRef, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '@bpmix/core';
 import {
+  LOCAL_SCROBBLE_QUEUE_KEY,
   OfflineLibrary,
   ServerMode,
   createBackgroundFileAccess,
@@ -50,7 +51,9 @@ import {
   useLastFmConnection,
   useUserPlaylistActions,
   useOffline,
+  useLocalScrobbleSink,
   useServerConnection,
+  useServerLastFm,
   useLibraryRootActions,
   useOpenPlaylistMetadataScan,
   useMemoryUsageLogging,
@@ -614,9 +617,13 @@ function AppContent() {
   // Headless bridges: they subscribe to the live player state themselves (for the position), so the
   // per-tick re-render stays inside them. Kept mounted across every return below - a scrobbler that
   // remounted would lose its accumulated listen time.
-  const lastFm = useLastFmConnection(settings, updateSettings);
   const server = useServerConnection(serverMode);
   const fromServer = server?.status.active === true;
+  // Signed in to a server, Last.fm is linked there (once per user, for every device); otherwise this device holds its own link.
+  const localLastFm = useLastFmConnection(settings, updateSettings);
+  const localScrobbleSink = useLocalScrobbleSink(settings);
+  const serverLastFm = useServerLastFm(serverMode, fromServer);
+  const lastFm = fromServer ? serverLastFm.connection : localLastFm;
   const offline = useOffline(offlineLibrary);
   const userPlaylists = useUserPlaylistActions(colors);
   const playbackBridges = (
@@ -643,7 +650,8 @@ function AppContent() {
       />
       <ScrobbleBridge
         libraryStore={libraryStore}
-        settings={settings}
+        sink={fromServer ? serverLastFm.sink : localScrobbleSink}
+        queueKeyWhenDisconnected={fromServer ? undefined : LOCAL_SCROBBLE_QUEUE_KEY}
         crossfadeSeconds={settings.crossfadeSeconds}
         isPlaying={playback.status === 'playing'}
         info={
@@ -833,7 +841,7 @@ function AppContent() {
   // has to sit on top of it, not beside it.
   const externalConnectionsScreen = externalConnectionsOpen && (
     <ScreenLayer zIndex={21} colors={colors}>
-      <ExternalConnectionsScreen colors={colors} settings={settings} onUpdateSettings={updateSettings} lastFm={lastFm} server={server} offline={offline} onClose={() => closeExternalConnections()} />
+      <ExternalConnectionsScreen colors={colors} settings={settings} onUpdateSettings={updateSettings} lastFm={lastFm} lastFmServerManaged={fromServer} server={server} offline={offline} onClose={() => closeExternalConnections()} />
     </ScreenLayer>
   );
 

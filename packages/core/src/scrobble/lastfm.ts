@@ -41,6 +41,8 @@ export class LastFmError extends Error {
 export interface LastFmCredentials {
   apiKey: string;
   apiSecret: string;
+  /** Where requests go out through; the global fetch when absent (tests and the server swap it). */
+  fetch?: typeof fetch;
 }
 
 export interface LastFmSession {
@@ -83,7 +85,7 @@ async function callApi(
   fullParams.format = 'json';
 
   const body = new URLSearchParams(fullParams);
-  const response = await fetch(method === 'GET' ? `${API_ROOT}?${body.toString()}` : API_ROOT, {
+  const response = await (credentials.fetch ?? fetch)(method === 'GET' ? `${API_ROOT}?${body.toString()}` : API_ROOT, {
     method,
     headers: method === 'POST' ? { 'Content-Type': 'application/x-www-form-urlencoded' } : undefined,
     body: method === 'POST' ? body.toString() : undefined,

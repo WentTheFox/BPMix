@@ -71,6 +71,7 @@ Environment variables, all optional:
 | `DATABASE_URL`         | *(required)* | PostgreSQL connection string, e.g. `postgresql://user:password@host:5432/bpmix`. |
 | `BPMIX_ORIGIN`         | *(derived from the request)* | The public address of the site, e.g. `https://music.example.com` (comma-separated for several). Used for passkeys and to refuse cross-site writes. Set it. |
 | `BPMIX_TRUST_PROXY`    | *(off)*   | How many reverse proxies to trust for the client address and protocol (`1`), or a subnet name such as `loopback`. |
+| `BPMIX_LASTFM_API_KEY` / `BPMIX_LASTFM_API_SECRET` | *(BPMix's shared Last.fm app)* | Your own Last.fm API app (last.fm/api/account/create), if you'd rather not use the shared one. Each user links their own Last.fm account from the app's settings; the server keeps the session (encrypted) and does the scrobbling. |
 | `BPMIX_SETUP_TOKEN`    | *(generated)* | Secret required by the very first sign-up (the one that becomes the admin). If unset, the server makes a one-time token at startup and prints it in its log (`docker logs <container>`). `none` skips it, for a server on a private network. |
 | `BPMIX_SECRET_KEY`     | *(generated)* | Key used to encrypt authenticator secrets. If unset, a random one is created once in `BPMIX_DATA_DIR`. |
 | `BPMIX_DATA_DIR`       | `./data` (`/data` in the image) | Where the generated secret key lives. Keep it on a volume. |

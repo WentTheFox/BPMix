@@ -7,6 +7,7 @@ export * from './file-access/types';
 export * from './audio-engine/types';
 export * from './library-store/types';
 export * from './playlist/m3u8';
+export * from './scrobble/lastfm';
 export * from './lyrics/lrc';
 export * from './lyrics/matchLyrics';
 export * from './lyrics/scanLyricsRoot';

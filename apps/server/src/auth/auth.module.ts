@@ -25,6 +25,6 @@ import { UsersController } from './users.controller.js';
         new SecretBox(await loadSecretKey(config.get<string>('BPMIX_SECRET_KEY'), config.get<string>('BPMIX_DATA_DIR') ?? './data')),
     },
   ],
-  exports: [AuthService, AuthConfig, AuthGuard],
+  exports: [AuthService, AuthConfig, AuthGuard, SECRET_BOX],
 })
 export class AuthModule {}

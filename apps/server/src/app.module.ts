@@ -11,6 +11,7 @@ import { NodeModule } from './node/node.module.js';
 import { ScannerModule } from './scanner/scanner.module.js';
 import { LibraryModule } from './library/library.module.js';
 import { UserDataModule } from './userdata/userdata.module.js';
+import { LastFmModule } from './lastfm/lastfm.module.js';
 import { SyncModule } from './sync/sync.module.js';
 import { PagesModule } from './pages/pages.module.js';
 import { HealthController } from './health/health.controller.js';
@@ -23,7 +24,7 @@ import { HealthController } from './health/health.controller.js';
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 1200 }]),
     DatabaseModule,
     AuthModule,
-    PagesModule, NodeModule, ScannerModule, LibraryModule, UserDataModule, SyncModule],
+    PagesModule, NodeModule, ScannerModule, LibraryModule, UserDataModule, SyncModule, LastFmModule],
   controllers: [HealthController],
   // Order matters: throttle first, then authenticate.
   providers: [

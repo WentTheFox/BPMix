@@ -54,6 +54,7 @@ export * from './crossfade/equalPowerGain';
 export * from './discord/richPresence';
 export * from './scrobble/connectionStatus';
 export * from './scrobble/lastfm';
+export * from './scrobble/scrobbleSink';
 export * from './scrobble/scrobbleTracker';
 export * from './scrobble/scrobbleQueue';
 export * from './server-mode';

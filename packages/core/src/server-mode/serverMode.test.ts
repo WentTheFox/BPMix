@@ -7,6 +7,8 @@ import { loadAssignedLyrics } from '../lyrics/loadAssignedLyrics';
 import { withServerCoverArt } from './serverCovers';
 import { createModeAwareFileAccess, ServerModeUnsupportedError } from './serverFileAccess';
 import type { OfflineLibrary } from '../offline/offlineLibrary';
+import { createServerScrobbleSink } from './serverLastFm';
+import { NetworkError } from '@bpmix/api';
 import { normalizeServerUrl, ServerMode } from './serverMode';
 import { fakeServer, json, MemoryStore } from './testing';
 
@@ -108,6 +110,54 @@ describe('ServerMode lyrics', () => {
     await mode.signOut();
     expect(store.settings.get('serverMode.lyrics:Music:a.mp3')).toBeFalsy();
     expect(store.settings.get('serverMode.lyricsIndex')).toBeFalsy();
+  });
+});
+
+describe('ServerMode Last.fm', () => {
+  it('reports the link from the server, and falls back to the last answer when it cannot be reached', async () => {
+    const { store, server, mode } = await signedIn();
+    server.handler = (path) => (path === '/api/v1/lastfm' ? json({ connected: true, username: 'sam_fm' }) : json({}, 404));
+    expect(await mode.lastFmStatus()).toEqual({ connected: true, username: 'sam_fm' });
+    server.handler = () => Promise.reject(new TypeError('offline'));
+    expect(await mode.lastFmStatus()).toEqual({ connected: true, username: 'sam_fm' });
+
+    await mode.signOut();
+    expect(store.settings.get('serverMode.lastFmStatus')).toBeFalsy();
+  });
+});
+
+describe('scrobbling through the server', () => {
+  const entry = { artist: 'Ann', track: 'Song', timestamp: 1_700_000_000, album: null, durationSeconds: 200 };
+
+  it('sends scrobbles and now-playing to the server', async () => {
+    const { server, mode } = await signedIn();
+    const calls: { path: string; body: unknown }[] = [];
+    server.handler = (path, init) => {
+      calls.push({ path, body: JSON.parse(String(init?.body)) });
+      return new Response(null, { status: 204 });
+    };
+    const sink = createServerScrobbleSink(() => mode.getApi());
+    await sink.nowPlaying({ artist: 'Ann', title: 'Song', album: null, durationSeconds: 200 });
+    await sink.scrobble([entry]);
+    expect(calls).toEqual([
+      { path: '/api/v1/lastfm/now-playing', body: { artist: 'Ann', track: 'Song', album: null, durationSeconds: 200 } },
+      { path: '/api/v1/lastfm/scrobbles', body: { entries: [entry] } },
+    ]);
+    expect(sink.queueKey).toBe('serverMode.scrobbleQueue');
+  });
+
+  it('tells a refusal (final) from a failure worth retrying', async () => {
+    const { server, mode } = await signedIn();
+    const sink = createServerScrobbleSink(() => mode.getApi());
+    server.handler = () => json({ code: 'lastfm_rejected', message: 'Invalid session' }, 422);
+    await expect(sink.scrobble([entry])).rejects.toMatchObject({ name: 'LastFmError', code: 0 });
+    server.handler = () => json({ code: 'lastfm_unreachable', message: 'down' }, 502);
+    await expect(sink.scrobble([entry])).rejects.not.toMatchObject({ name: 'LastFmError' });
+    server.handler = () => Promise.reject(new TypeError('offline'));
+    await expect(sink.scrobble([entry])).rejects.toBeInstanceOf(NetworkError);
+    // Signed out: nothing to send through.
+    await mode.signOut();
+    await expect(sink.scrobble([entry])).rejects.toThrow('Not signed in');
   });
 });
 

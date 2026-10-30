@@ -19,6 +19,8 @@ export interface ExternalConnectionsScreenProps {
   settings: AppSettings;
   onUpdateSettings: (patch: Partial<AppSettings>) => void;
   lastFm: UseLastFmConnectionResult;
+  /** The Last.fm link is kept by the server (signed in to one): no app credentials to choose here. */
+  lastFmServerManaged?: boolean;
   /** Where the library comes from. Absent on a platform that has no server mode (yet), which hides the section. */
   server?: UseServerConnectionResult | null;
   /** Offline downloads, shown under the server section. */
@@ -45,7 +47,7 @@ export interface ExternalConnectionsScreenProps {
  * Last.fm API app instead", for a fork or self-hoster who'd rather use
  * their own app identity.
  */
-export function ExternalConnectionsScreen({ colors, settings, onUpdateSettings, lastFm, server, offline, onClose }: ExternalConnectionsScreenProps) {
+export function ExternalConnectionsScreen({ colors, settings, onUpdateSettings, lastFm, lastFmServerManaged, server, offline, onClose }: ExternalConnectionsScreenProps) {
   const usingDefaultCredentials = settings.lastFmApiKey === DEFAULT_LASTFM_API_KEY && settings.lastFmApiSecret === DEFAULT_LASTFM_API_SECRET;
   const [showOwnKey, setShowOwnKey] = useState(!usingDefaultCredentials);
   const [apiKeyDraft, setApiKeyDraft] = useState(settings.lastFmApiKey);
@@ -91,12 +93,16 @@ export function ExternalConnectionsScreen({ colors, settings, onUpdateSettings, 
                 <Text style={[styles.linkValue, { color: colors.accent }]}>Disconnect</Text>
               </Pressable>
             </>
-          ) : !showOwnKey ? (
+          ) : !showOwnKey || lastFmServerManaged ? (
             <>
               {connectionControls}
-              <Pressable onPress={() => setShowOwnKey(true)} style={styles.actionButton}>
-                <Text style={[styles.hint, styles.advancedLink, { color: colors.subtleText }]}>Use your own Last.fm API app instead</Text>
-              </Pressable>
+              {lastFmServerManaged ? (
+                <Text style={[styles.hint, { color: colors.subtleText }]}>Linked on the server, so every device you sign in on scrobbles to the same Last.fm account.</Text>
+              ) : (
+                <Pressable onPress={() => setShowOwnKey(true)} style={styles.actionButton}>
+                  <Text style={[styles.hint, styles.advancedLink, { color: colors.subtleText }]}>Use your own Last.fm API app instead</Text>
+                </Pressable>
+              )}
             </>
           ) : (
             <>

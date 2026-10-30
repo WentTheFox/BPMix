@@ -55,6 +55,8 @@ export * from './discord/useDiscordPresence';
 export * from './restoringSteps';
 export * from './scrobble/useLastFmConnection';
 export * from './scrobble/useLastFmScrobbling';
+export * from './scrobble/useLocalScrobbleSink';
+export * from './scrobble/useServerLastFm';
 export * from './formatSeconds';
 export * from './SeekBar';
 export * from './settings/AppSwitch';

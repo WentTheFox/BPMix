@@ -75,7 +75,9 @@ export function useLastFmConnection(settings: AppSettings, onUpdateSettings: (pa
 
   const finishWithToken = useCallback(
     (token: string) => {
-      const credentials = activeCredentialsRef.current;
+      // The app may have been killed while the person approved in the browser (Android does that), in
+      // which case nothing is in the ref any more - the credentials are in the settings all the same.
+      const credentials = activeCredentialsRef.current ?? (settings.lastFmApiKey && settings.lastFmApiSecret ? { apiKey: settings.lastFmApiKey, apiSecret: settings.lastFmApiSecret } : null);
       if (!credentials) return;
       setErrorMessage(null);
       setAttempt('confirming');
@@ -91,7 +93,7 @@ export function useLastFmConnection(settings: AppSettings, onUpdateSettings: (pa
         }
       })();
     },
-    [onUpdateSettings],
+    [onUpdateSettings, settings.lastFmApiKey, settings.lastFmApiSecret],
   );
 
   // bpmix://lastfm-callback?token=... arriving as an ordinary deep link - a
