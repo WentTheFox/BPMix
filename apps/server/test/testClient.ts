@@ -24,6 +24,8 @@ export const PASSWORD = 'a long enough password';
 /** A browser stand-in: keeps the session cookie and sends the CSRF header the API requires. */
 export class TestClient {
   cookie: string | undefined;
+  /** A native app's device token; sent as `Authorization: Bearer` (and no CSRF header, like an app would). */
+  bearer: string | undefined;
 
   constructor(readonly baseUrl: string) {}
 
@@ -33,6 +35,7 @@ export class TestClient {
       ...rest,
       headers: {
         ...(this.cookie ? { cookie: this.cookie } : {}),
+        ...(this.bearer ? { authorization: `Bearer ${this.bearer}` } : {}),
         ...(csrf ? { 'x-bpmix-api': String(API_VERSION) } : {}),
         ...(json !== undefined ? { 'content-type': 'application/json' } : {}),
         ...headers,

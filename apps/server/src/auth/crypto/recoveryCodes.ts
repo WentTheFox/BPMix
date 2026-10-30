@@ -5,6 +5,12 @@ import { hashToken } from './tokens.js';
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 export const RECOVERY_CODE_COUNT = 10;
 
+/** `XXXX-XXXX`: a short code a person reads off one screen and types into another (device sign-in). */
+export function generateUserCode(): string {
+  const pick = () => ALPHABET[randomInt(ALPHABET.length)]!;
+  return `${Array.from({ length: 4 }, pick).join('')}-${Array.from({ length: 4 }, pick).join('')}`;
+}
+
 /** `XXXXX-XXXXX`: 10 characters from a 31-symbol alphabet, about 49 bits. */
 export function generateRecoveryCode(): string {
   const pick = () => ALPHABET[randomInt(ALPHABET.length)]!;

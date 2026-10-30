@@ -5,6 +5,7 @@ import { AuthController } from './auth.controller.js';
 import { AuthGuard } from './auth.guard.js';
 import { AuthService, CLOCK, SECRET_BOX } from './auth.service.js';
 import { loadSecretKey, SecretBox } from './crypto/secretBox.js';
+import { DeviceService } from './device.service.js';
 import { PasskeyService } from './passkey.service.js';
 import { UsersController } from './users.controller.js';
 
@@ -14,6 +15,7 @@ import { UsersController } from './users.controller.js';
     AuthConfig,
     AuthService,
     PasskeyService,
+    DeviceService,
     AuthGuard,
     { provide: CLOCK, useValue: () => Date.now() },
     {

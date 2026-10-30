@@ -7,6 +7,7 @@ import type {
   TotpSetupDto,
   UserSummaryDto,
 } from '@bpmix/api';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { DatabaseService } from '../db/database.module.js';
 import type { Prisma } from '../generated/prisma/client.js';
 import { AuthConfig } from './auth.config.js';
@@ -84,6 +85,27 @@ export class AuthService implements OnApplicationBootstrap {
 
   private get prisma() {
     return this.db.prisma;
+  }
+
+  /**
+   * Housekeeping: expired sessions, challenges and sign-in codes, and long-spent invites and revoked
+   * tokens. Several routes are reachable before sign-in and create rows, so nothing is kept forever.
+   */
+  @Cron(CronExpression.EVERY_HOUR)
+  async purgeExpired(): Promise<void> {
+    const now = new Date();
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60_000);
+    const quarterAgo = new Date(now.getTime() - 90 * 24 * 60 * 60_000);
+    const [sessions, challenges, grants, invites, tokens] = await Promise.all([
+      this.prisma.session.deleteMany({ where: { expiresAt: { lt: now } } }),
+      this.prisma.authChallenge.deleteMany({ where: { expiresAt: { lt: now } } }),
+      this.prisma.deviceGrant.deleteMany({ where: { expiresAt: { lt: now } } }),
+      this.prisma.invite.deleteMany({ where: { OR: [{ usedAt: { lt: weekAgo } }, { expiresAt: { lt: weekAgo } }] } }),
+      // Revoked tokens linger a while so a "device was removed" trail exists, then go.
+      this.prisma.deviceToken.deleteMany({ where: { revokedAt: { lt: quarterAgo } } }),
+    ]);
+    const total = sessions.count + challenges.count + grants.count + invites.count + tokens.count;
+    if (total > 0) this.logger.log(`Purged ${total} expired auth row(s)`);
   }
 
   // ---------------------------------------------------------------- status & setup
@@ -187,6 +209,7 @@ export class AuthService implements OnApplicationBootstrap {
   private async authenticateDeviceToken(token: string): Promise<Principal | null> {
     const row = await this.prisma.deviceToken.findUnique({ where: { tokenHash: hashToken(token) }, include: { user: { include: WITH_CREDENTIAL_COUNT } } });
     if (!row || row.revokedAt || row.user.disabledAt) return null;
+    if (Date.now() - (row.lastUsedAt ?? row.createdAt).getTime() > this.config.deviceTokenIdleMs) return null;
     if (!row.lastUsedAt || Date.now() - row.lastUsedAt.getTime() > 60_000) {
       await this.prisma.deviceToken.update({ where: { id: row.id }, data: { lastUsedAt: new Date() } });
     }

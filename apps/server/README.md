@@ -74,6 +74,7 @@ Environment variables, all optional:
 | `BPMIX_SETUP_TOKEN`    | *(none)*  | If set, required by the very first sign-up (the one that becomes the admin). |
 | `BPMIX_SECRET_KEY`     | *(generated)* | Key used to encrypt authenticator secrets. If unset, a random one is created once in `BPMIX_DATA_DIR`. |
 | `BPMIX_DATA_DIR`       | `./data` (`/data` in the image) | Where the generated secret key lives. Keep it on a volume. |
+| `BPMIX_DEVICE_WAIT_MS` | `25000` | How long one "wait for approval" request is held open before the app is told to ask again. |
 | `BPMIX_AUTH_RATE_LIMIT` | `10`     | Sign-in attempts allowed per minute per address and username. |
 | `BPMIX_SCAN_ON_START`  | `true`    | Set to `false` to not scan the library when the server starts (scans can still be started from the API, and run daily at 04:00 as a safety net). |
 | `BPMIX_SCAN_WORKERS`   | `min(4, CPU cores)` | How many tracks are processed (tags, cover art, loudness analysis) at once. |
@@ -186,6 +187,18 @@ There is **no open registration**.
   codes) are stored only as hashes. Authenticator secrets are encrypted with
   `BPMIX_SECRET_KEY`, or with a key generated once into `BPMIX_DATA_DIR`
   (`/data` in the image — keep it on a volume, as the compose file does).
+
+**Native apps** sign in with a device code, which works on every platform:
+the app calls `POST /api/v1/auth/device/code` with a device name and shows the
+returned code (and a link to `/device?code=…` on your site); the user approves
+it in a browser where they are already signed in
+(`POST /api/v1/auth/device/approve`); the app, meanwhile, holds a
+`POST /api/v1/auth/device/wait` request open and receives a token the moment
+the user approves — no polling loop. The token (`Authorization: Bearer bpd_…`)
+can read the library and stream audio, but cannot administer anything or
+change credentials, and stops working as soon as it is revoked
+(`DELETE /api/v1/auth/devices/:id`), the account is disabled, or it has been
+unused for 180 days.
 
 Running behind a reverse proxy (recommended, for https): set `BPMIX_ORIGIN` to
 the public address, e.g. `https://music.example.com`, and `BPMIX_TRUST_PROXY`

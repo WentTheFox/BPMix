@@ -1,7 +1,10 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import type { Response } from 'express';
 import {
+  deviceApproveRequestSchema,
+  deviceCodeRequestSchema,
+  deviceWaitRequestSchema,
   passkeyLoginVerifyRequestSchema,
   passkeyRegisterVerifyRequestSchema,
   passkeyRenameRequestSchema,
@@ -13,6 +16,10 @@ import {
   totpLoginRequestSchema,
   type AuthStatusDto,
   type LoginResultDto,
+  type DeviceCodeResultDto,
+  type DeviceLookupDto,
+  type DeviceTokenSummaryDto,
+  type DeviceWaitResultDto,
   type MeDto,
   type PasskeyLoginOptionsDto,
   type PasskeySummaryDto,
@@ -22,6 +29,7 @@ import {
 import { parseInput } from '../common/zod.js';
 import { AuthConfig } from './auth.config.js';
 import { AuthService, type IssuedSession, type RequestMeta } from './auth.service.js';
+import { DeviceService } from './device.service.js';
 import { PasskeyService } from './passkey.service.js';
 import { authRateLimit } from './auth.throttler.js';
 import { SESSION_COOKIE } from './cookies.js';
@@ -38,6 +46,7 @@ export class AuthController {
   constructor(
     private readonly auth: AuthService,
     private readonly passkeys: PasskeyService,
+    private readonly devices: DeviceService,
     private readonly config: AuthConfig,
   ) {}
 
@@ -119,6 +128,52 @@ export class AuthController {
     const { challengeId, response } = parseInput(passkeyLoginVerifyRequestSchema, body);
     const { user, session } = await this.passkeys.verifyAuthentication(challengeId, response, req, metaOf(req));
     return this.signedIn(req, res, user, session);
+  }
+
+  // ---- Native apps: sign in by getting a code approved in a browser.
+
+  /** The app asks for a code to show the user. */
+  @Public()
+  @Throttle(attempts())
+  @Post('device/code')
+  deviceCode(@Body() body: unknown, @Req() req: AuthedRequest): Promise<DeviceCodeResultDto> {
+    return this.devices.requestCode(parseInput(deviceCodeRequestSchema, body).deviceName, req);
+  }
+
+  /** The app waits here. Held open until the user decides (or ~25s, then 'pending' and the app asks again). */
+  @Public()
+  @Throttle({ default: { limit: () => authRateLimit() * 12, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post('device/wait')
+  deviceWait(@Body() body: unknown): Promise<DeviceWaitResultDto> {
+    return this.devices.wait(parseInput(deviceWaitRequestSchema, body).deviceCode);
+  }
+
+  /** The browser shows which device is asking before the user approves it. */
+  @Throttle(attempts())
+  @Get('device/lookup')
+  deviceLookup(@Query('userCode') userCode?: string): Promise<DeviceLookupDto> {
+    return this.devices.lookup(userCode ?? '');
+  }
+
+  @Throttle(attempts())
+  @HttpCode(204)
+  @Post('device/approve')
+  async deviceApprove(@Body() body: unknown, @CurrentPrincipal() principal: Principal): Promise<void> {
+    this.auth.requireFreshAuth(principal);
+    const { userCode, approve } = parseInput(deviceApproveRequestSchema, body);
+    await this.devices.decide(userCode, approve, principal.user.id);
+  }
+
+  @Get('devices')
+  devicesList(@CurrentPrincipal() principal: Principal): Promise<DeviceTokenSummaryDto[]> {
+    return this.devices.listTokens(principal.user.id);
+  }
+
+  @HttpCode(204)
+  @Delete('devices/:id')
+  async deviceRevoke(@Param('id') id: string, @CurrentPrincipal() principal: Principal): Promise<void> {
+    await this.devices.revokeToken(principal.user.id, id);
   }
 
   @AllowUnenrolled()

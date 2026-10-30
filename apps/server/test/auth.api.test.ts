@@ -9,7 +9,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { AppModule } from '../src/app.module.js';
 import { mountLegacyRoutes } from '../src/legacy.js';
 import { mountWebApp } from '../src/web.js';
-import { CLOCK } from '../src/auth/auth.service.js';
+import { AuthService, CLOCK } from '../src/auth/auth.service.js';
 import { hashPassword } from '../src/auth/crypto/password.js';
 import { DatabaseService } from '../src/db/database.module.js';
 import { resetDatabase } from './scanStack.js';
@@ -400,5 +400,42 @@ describe('web app hosting', () => {
     } finally {
       await nest.close();
     }
+  });
+});
+
+describe('housekeeping', () => {
+  it('purges expired sessions, challenges, codes, spent invites and long-revoked tokens, and nothing else', async () => {
+    const { client: admin, me } = await setUpAdmin(url, clock);
+    const day = 24 * 60 * 60_000;
+    const past = (ms: number) => new Date(Date.now() - ms);
+    const future = (ms: number) => new Date(Date.now() + ms);
+    const { user } = await admin.post<CreateUserResultDto>('/api/v1/users', { username: 'old', displayName: 'Old' });
+
+    await prisma.session.create({ data: { id: 'expired-session', userId: me.id, expiresAt: past(1000) } });
+    await prisma.authChallenge.createMany({ data: [{ id: 'old-challenge', purpose: 'mfa', expiresAt: past(1000) }, { id: 'live-challenge', purpose: 'mfa', expiresAt: future(60_000) }] });
+    await prisma.deviceGrant.createMany({
+      data: [
+        { deviceCodeHash: 'a', userCode: 'AAAA-AAAA', deviceName: 'x', expiresAt: past(1000) },
+        { deviceCodeHash: 'b', userCode: 'BBBB-BBBB', deviceName: 'y', expiresAt: future(60_000) },
+      ],
+    });
+    await prisma.invite.create({ data: { tokenHash: 'stale-invite', userId: user.id, expiresAt: past(10 * day) } });
+    await prisma.deviceToken.createMany({
+      data: [
+        { userId: me.id, name: 'gone', tokenHash: 't1', revokedAt: past(100 * day) },
+        { userId: me.id, name: 'recently revoked', tokenHash: 't2', revokedAt: past(1 * day) },
+        { userId: me.id, name: 'active', tokenHash: 't3' },
+      ],
+    });
+
+    await app.get(AuthService).purgeExpired();
+
+    expect((await prisma.session.findMany({ select: { id: true } })).map((s) => s.id)).not.toContain('expired-session');
+    expect(await prisma.session.count()).toBe(1); // the admin's own, still valid
+    expect((await prisma.authChallenge.findMany()).map((c) => c.id)).toEqual(['live-challenge']);
+    expect((await prisma.deviceGrant.findMany()).map((g) => g.userCode)).toEqual(['BBBB-BBBB']);
+    expect(await prisma.invite.findMany({ where: { tokenHash: 'stale-invite' } })).toEqual([]);
+    expect((await prisma.invite.count())).toBe(1); // the fresh one created above
+    expect((await prisma.deviceToken.findMany({ orderBy: { name: 'asc' } })).map((t) => t.name)).toEqual(['active', 'recently revoked']);
   });
 });

@@ -124,3 +124,41 @@ export const passkeyLoginOptionsSchema = z.object({
   options: webauthnJsonSchema,
 });
 export type PasskeyLoginOptionsDto = z.infer<typeof passkeyLoginOptionsSchema>;
+
+// ---- Device sign-in for native apps (RFC 8628-style): the app shows a code, the user approves it in a signed-in browser.
+
+export const deviceNameSchema = z.string().trim().min(1).max(64);
+export const deviceCodeRequestSchema = z.object({ deviceName: deviceNameSchema });
+export const deviceCodeResultSchema = z.object({
+  /** Secret the app keeps and uses to wait for approval. Never shown to the user. */
+  deviceCode: z.string(),
+  /** Short code the user reads off the app and enters (or confirms) in the browser. */
+  userCode: z.string(),
+  /** Where to send the user, with the code filled in. */
+  verificationUri: z.string(),
+  expiresInSeconds: z.number(),
+});
+export type DeviceCodeResultDto = z.infer<typeof deviceCodeResultSchema>;
+
+export const deviceWaitRequestSchema = z.object({ deviceCode: z.string().min(1) });
+export const deviceWaitResultSchema = z.discriminatedUnion('status', [
+  /** Not decided yet - ask again straight away (the request is held open, so this is a long-poll, not a timer). */
+  z.object({ status: z.literal('pending') }),
+  /** Shown once: the bearer token for `Authorization: Bearer ...`. */
+  z.object({ status: z.literal('approved'), token: z.string(), me: meSchema }),
+  z.object({ status: z.literal('denied') }),
+  z.object({ status: z.literal('expired') }),
+]);
+export type DeviceWaitResultDto = z.infer<typeof deviceWaitResultSchema>;
+
+export const deviceLookupSchema = z.object({ deviceName: z.string(), requestedAtMs: z.number() });
+export type DeviceLookupDto = z.infer<typeof deviceLookupSchema>;
+export const deviceApproveRequestSchema = z.object({ userCode: z.string().trim().min(1).max(32), approve: z.boolean() });
+
+export const deviceTokenSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  createdAtMs: z.number(),
+  lastUsedAtMs: z.number().nullable(),
+});
+export type DeviceTokenSummaryDto = z.infer<typeof deviceTokenSummarySchema>;

@@ -23,6 +23,12 @@ export class AuthConfig {
   readonly maxMfaAttempts = 5;
   /** How long a first sign-up has to finish enrolling before another visitor may replace the unfinished account. */
   readonly setupGraceMs = 15 * 60_000;
+  /** How long a native app has to get its sign-in code approved. */
+  readonly deviceCodeTtlMs = 10 * 60_000;
+  /** A device token unused for this long stops working (it's re-issued by signing in again). */
+  readonly deviceTokenIdleMs = 180 * DAY_MS;
+  /** How long one 'wait for approval' request is held open before answering 'pending'. */
+  readonly deviceWaitMs: number;
 
   constructor(config: ConfigService) {
     this.origins = (config.get<string>('BPMIX_ORIGIN') ?? '')
@@ -30,6 +36,7 @@ export class AuthConfig {
       .map((o) => o.trim().replace(/\/+$/, ''))
       .filter((o) => o.length > 0);
     this.setupToken = config.get<string>('BPMIX_SETUP_TOKEN') || undefined;
+    this.deviceWaitMs = Number(config.get('BPMIX_DEVICE_WAIT_MS') ?? 25_000);
   }
 
   /** The origins a request may legitimately come from: the configured ones, else the one it was addressed to. */
