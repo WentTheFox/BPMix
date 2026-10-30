@@ -74,7 +74,10 @@ export function matchLibraryLyrics(
     return Promise.resolve();
   }
 
-  return new Promise((resolve) => {
+  // A failure past this point (a lyrics root that vanished, a store write error) must reject the
+  // returned promise - thrown inside a detached async function it would otherwise be an unhandled
+  // rejection while the promise stayed pending forever.
+  return new Promise((resolve, reject) => {
     void (async () => {
       let files;
       try {
@@ -150,10 +153,10 @@ export function matchLibraryLyrics(
             options.onSettled?.(matched, totalCount);
             resolve();
           }
-        })();
+        })().catch(reject);
       };
       requestIdle(runChunk, IDLE_CALLBACK_TIMEOUT_MS);
-    })();
+    })().catch(reject);
   });
 }
 
