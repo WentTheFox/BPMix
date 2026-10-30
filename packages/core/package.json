@@ -15,6 +15,7 @@
     "vitest": "^3.0.0"
   },
   "dependencies": {
+    "@bpmix/api": "workspace:*",
     "@reduxjs/toolkit": "^2.13.0",
     "jsmediatags": "^3.9.7"
   }

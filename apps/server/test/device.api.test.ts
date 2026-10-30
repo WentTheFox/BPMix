@@ -175,6 +175,18 @@ describe('device sign-in', () => {
     expect((await admin.fetch(`/api/v1/auth/devices/${devices[0]!.id}`, { method: 'DELETE' })).status).toBe(404);
   });
 
+  it('lets an app sign itself out, cutting off just its own token', async () => {
+    const { client: admin } = await setUpAdmin(url, clock);
+    const { device } = await signInDevice(admin, 'Phone');
+    const { device: other } = await signInDevice(admin, 'Tablet');
+    expect((await device.fetch('/api/v1/auth/me/token', { method: 'DELETE', csrf: false })).status).toBe(204);
+    expect((await device.fetch('/api/v1/tracks', { csrf: false })).status).toBe(401);
+    expect((await other.fetch('/api/v1/tracks', { csrf: false })).status).toBe(200);
+    expect((await admin.json<DeviceTokenSummaryDto[]>('/api/v1/auth/devices')).map((d) => d.name)).toEqual(['Tablet']);
+    // A browser session has no token to revoke this way.
+    expect((await admin.fetch('/api/v1/auth/me/token', { method: 'DELETE' })).status).toBe(400);
+  });
+
   it("won't let one user list or revoke another's devices", async () => {
     const { client: admin } = await setUpAdmin(url, clock);
     const { device } = await signInDevice(admin, 'Admin phone');

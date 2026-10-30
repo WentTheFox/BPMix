@@ -21,9 +21,17 @@ export interface LoadedRoot {
  * can load just the one root it needs to resume playback without pulling in
  * every other granted root first - see CLAUDE.md's note on that path.
  */
-export async function loadRootLibrary(fileAccess: FileAccess, store: LibraryStore, root: GrantedRoot): Promise<LoadedRoot> {
+export interface LoadRootLibraryOptions {
+  /**
+   * Scan the root's folders when nothing is stored for it yet (the default). Off when the library
+   * comes from a server: there are no folders to walk, and the sync fills the store instead.
+   */
+  scanIfEmpty?: boolean;
+}
+
+export async function loadRootLibrary(fileAccess: FileAccess, store: LibraryStore, root: GrantedRoot, options: LoadRootLibraryOptions = {}): Promise<LoadedRoot> {
   let [playlists, tracks] = await Promise.all([store.listPlaylists(root.id), store.listTracks(root.id)]);
-  if (playlists.length === 0 && tracks.length === 0) {
+  if (playlists.length === 0 && tracks.length === 0 && (options.scanIfEmpty ?? true)) {
     await scanRoot(fileAccess, store, root.id);
     [playlists, tracks] = await Promise.all([store.listPlaylists(root.id), store.listTracks(root.id)]);
   }

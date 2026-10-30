@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import type { Response } from 'express';
 import {
@@ -189,6 +189,15 @@ export class AuthController {
   @Get('me')
   me(@CurrentPrincipal() principal: Principal): Promise<MeDto> {
     return this.auth.me(principal);
+  }
+
+  /** A native app signing itself out: revokes the very token it is calling with, so it stops working server-side too. */
+  @DeviceAccessible()
+  @HttpCode(204)
+  @Delete('me/token')
+  async revokeOwnToken(@CurrentPrincipal() principal: Principal): Promise<void> {
+    if (principal.kind !== 'device' || !principal.deviceTokenId) throw new BadRequestException('Only an app signed in with a device token can sign itself out this way');
+    await this.devices.revokeToken(principal.user.id, principal.deviceTokenId);
   }
 
   @AllowUnenrolled()

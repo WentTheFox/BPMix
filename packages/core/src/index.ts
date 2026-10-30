@@ -56,6 +56,7 @@ export * from './scrobble/connectionStatus';
 export * from './scrobble/lastfm';
 export * from './scrobble/scrobbleTracker';
 export * from './scrobble/scrobbleQueue';
+export * from './server-mode';
 export * from './store/createStore';
 export * from './store/rootReducer';
 export * from './store/library/librarySlice';

@@ -45,7 +45,7 @@ export interface RestorePlaybackOptions {
  */
 export function restorePlayback({ isCancelled }: RestorePlaybackOptions): AppThunk<Promise<void>> {
   return async (dispatch, getState, services) => {
-    const { fileAccess, backgroundFileAccess, libraryStore, playlistPlayer, livePlayback, initialPlaybackState } = services;
+    const { fileAccess, backgroundFileAccess, libraryStore, playlistPlayer, livePlayback, initialPlaybackState, serverMode } = services;
     const tookOver = () => getState().restore.userTookOver;
     const onError = (err: unknown) => {
       dispatch(libraryErrorSet(errorMessage(err)));
@@ -58,6 +58,10 @@ export function restorePlayback({ isCancelled }: RestorePlaybackOptions): AppThu
       // level, earlier than this can possibly run) is also awaiting - not a
       // second one.
       const stored = await initialPlaybackState;
+      // Reads the saved server sign-in from local storage only - never the network - so a server being
+      // down or slow cannot hold up startup. In server mode the cached library is all this needs.
+      await serverMode?.ready;
+      const loadOptions = { scanIfEmpty: !serverMode?.isActive() };
       dispatch(restoreStepAdvanced('restoringPlayback'));
       if (isCancelled()) return;
       // From here on the persisted state is real (or a legitimate "nothing
@@ -100,7 +104,7 @@ export function restorePlayback({ isCancelled }: RestorePlaybackOptions): AppThu
           // the rest of restore.
           let loaded: { playlists: PlaylistRecord[]; tracksById: Map<string, TrackRecord> };
           try {
-            loaded = await loadRootLibrary(backgroundFileAccess, libraryStore, targetRoot);
+            loaded = await loadRootLibrary(backgroundFileAccess, libraryStore, targetRoot, loadOptions);
           } catch (err) {
             if (!(err instanceof FileAccessPermissionPendingError)) throw err;
             loaded = { playlists: [], tracksById: new Map() };
@@ -182,7 +186,7 @@ export function restorePlayback({ isCancelled }: RestorePlaybackOptions): AppThu
                 opened = null;
                 if (openedRoot) {
                   try {
-                    const openedLoaded = await loadRootLibrary(backgroundFileAccess, libraryStore, openedRoot);
+                    const openedLoaded = await loadRootLibrary(backgroundFileAccess, libraryStore, openedRoot, loadOptions);
                     if (isCancelled()) return;
                     const openedPlaylist = openedLoaded.playlists.find((p) => p.id === stored.openedPlaylistId);
                     if (openedPlaylist) opened = { root: openedRoot, playlist: openedPlaylist, tracksById: openedLoaded.tracksById };

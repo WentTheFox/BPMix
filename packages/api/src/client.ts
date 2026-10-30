@@ -12,6 +12,7 @@ import {
 import { mutationsResponseSchema, type MutationDto, type MutationsResponseDto } from './mutations';
 import { API_VERSION, API_VERSION_HEADER, type Page, type TrackDto, pageSchema, trackSchema } from './schemas';
 import { syncChangesResponseSchema, syncSnapshotResponseSchema, type SyncChangesResponseDto, type SyncSnapshotResponseDto } from './sync';
+import { utf8Decode } from './encoding';
 import { encodeTrackKey } from './trackKey';
 
 /** The server answered with an error status. `code` is the machine-readable reason when it gave one. */
@@ -141,7 +142,13 @@ export class ApiClient {
       if (result.status === 'denied') return { denied: true };
       if (result.status === 'expired') return { expired: true };
     }
-    throw new DOMException('Sign-in cancelled', 'AbortError');
+    // Not DOMException: React Native's JS engine doesn't provide it everywhere.
+    throw Object.assign(new Error('Sign-in cancelled'), { name: 'AbortError' });
+  }
+
+  /** A native app signing itself out: revokes the token it is calling with. */
+  async signOutThisDevice(): Promise<void> {
+    await this.send('DELETE', '/api/v1/auth/me/token');
   }
 
   // ---------------------------------------------------------------- library, sync, mutations
@@ -204,8 +211,18 @@ export class ApiClient {
     return response.arrayBuffer();
   }
 
+  /** Like fetchBytes, but also says what the server called the file (for cover art: image/webp, ...). */
+  async fetchFile(path: string, signal?: AbortSignal): Promise<{ bytes: ArrayBuffer; contentType: string }> {
+    const response = await this.doFetch(`${this.baseUrl}${path}`, { headers: await this.headers(), signal }).catch((err: unknown) => {
+      if (signal?.aborted) throw err;
+      throw new NetworkError(err);
+    });
+    if (!response.ok) throw new ApiError(response.status, response.statusText || `HTTP ${response.status}`);
+    return { bytes: await response.arrayBuffer(), contentType: response.headers.get('content-type') ?? 'application/octet-stream' };
+  }
+
   /** The text of a file at a path (e.g. lyrics). */
   async fetchText(path: string, signal?: AbortSignal): Promise<string> {
-    return new TextDecoder().decode(await this.fetchBytes(path, { signal }));
+    return utf8Decode(new Uint8Array(await this.fetchBytes(path, { signal })));
   }
 }

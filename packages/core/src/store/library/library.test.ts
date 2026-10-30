@@ -31,7 +31,7 @@ import {
 } from './librarySlice';
 import { playingContextSet } from '../navigation/navigationSlice';
 import { playbackStateRead } from '../persistence/persistenceSlice';
-import { refreshLibrary } from './refreshLibrary';
+import { refreshLibrary, syncServerLibrary } from './refreshLibrary';
 
 const track = (fileId: string, over: Partial<TrackRecord> = {}) => ({ fileId, rootId: 'r1', relativePath: `${fileId}.mp3`, ...over }) as unknown as TrackRecord;
 const playlist = (id: string, trackFileIds: string[]) => ({ id, rootId: 'r1', fileId: id, name: id, trackFileIds }) as unknown as PlaylistRecord;
@@ -44,6 +44,7 @@ interface Setup {
   settings?: Record<string, string>;
   alwaysRescan?: (id: string) => boolean;
   currentPlaylistId?: string | null;
+  serverMode?: { ready: Promise<void>; isActive: () => boolean; sync: () => Promise<{ kind: string; changed: boolean }> };
 }
 
 function setup(opts: Setup = {}) {
@@ -74,6 +75,7 @@ function setup(opts: Setup = {}) {
     livePlayback: live,
     coverArtResizer: {},
     alwaysRescanRoot: opts.alwaysRescan ?? (() => false),
+    serverMode: opts.serverMode,
   } as unknown as Services;
   return { store: createStore(services), fileAccess, libraryStore, playlistPlayer, live };
 }
@@ -136,6 +138,53 @@ describe('refreshLibrary', () => {
     const always = setup({ alwaysRescan: (id) => id === 'r1' });
     await always.store.dispatch(refreshLibrary());
     expect(mocks.scanRootCoordinated).toHaveBeenCalledTimes(1);
+  });
+
+  describe('in server mode', () => {
+    const serverMode = (changed: boolean) => ({
+      ready: Promise.resolve(),
+      isActive: () => true,
+      sync: vi.fn(async () => ({ kind: 'delta', changed })),
+    });
+
+    it('shows the cached library without scanning folders or reading file metadata, then checks in with the server', async () => {
+      const mode = serverMode(false);
+      // An empty cache (first launch after signing in) is not a reason to scan folders that do not exist.
+      const s = setup({ data: { r1: { playlists: [], tracks: [] } }, serverMode: mode });
+      await s.store.dispatch(refreshLibrary());
+      await Promise.resolve();
+      expect(mocks.scanRootCoordinated).not.toHaveBeenCalled();
+      expect(mocks.scanLibraryMetadataQueued).not.toHaveBeenCalled();
+      expect(mode.sync).toHaveBeenCalledTimes(1);
+    });
+
+    it('reloads the library from the store when the check-in changed something - without checking in again', async () => {
+      const mode = serverMode(true);
+      const s = setup({ serverMode: mode });
+      await s.store.dispatch(syncServerLibrary());
+      expect(mode.sync).toHaveBeenCalledTimes(1); // the reload passes syncServer: false, so no loop
+      expect(s.libraryStore.listTracks).toHaveBeenCalled();
+    });
+
+    it('leaves the screen alone when nothing changed', async () => {
+      const mode = serverMode(false);
+      const s = setup({ serverMode: mode });
+      await s.store.dispatch(syncServerLibrary());
+      expect(s.libraryStore.listTracks).not.toHaveBeenCalled();
+    });
+
+    it('does nothing at all when there is no server support', async () => {
+      const s = setup();
+      expect(await s.store.dispatch(syncServerLibrary())).toBeNull();
+    });
+  });
+
+  it('still scans and reads metadata exactly as before when signed out of any server', async () => {
+    const mode = { ready: Promise.resolve(), isActive: () => false, sync: vi.fn(async () => ({ kind: 'inactive', changed: false })) };
+    const s = setup({ data: { r1: { playlists: [], tracks: [] } }, serverMode: mode });
+    await s.store.dispatch(refreshLibrary());
+    expect(mocks.scanRootCoordinated).toHaveBeenCalledTimes(1);
+    expect(mode.sync).not.toHaveBeenCalled();
   });
 
   it('isolates a failing root: reports it, drops it, keeps the others', async () => {

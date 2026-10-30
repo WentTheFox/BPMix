@@ -5,6 +5,7 @@ import type { FileAccess } from '../file-access/types';
 import type { LibraryStore, PlaybackState } from '../library-store/types';
 import type { CoverArtResizer } from '../metadata/coverArtResizer';
 import type { PlaylistPlayer } from '../playback/playlistPlayer';
+import type { ServerMode } from '../server-mode/serverMode';
 import type { LivePlayback } from './playback/livePlayback';
 
 /**
@@ -41,5 +42,10 @@ export interface Services {
   coverArtResizer: CoverArtResizer;
   appUpdateBridge: AppUpdateNativeBridge | null;
   discordPresenceBridge: DiscordPresenceBridge | null;
+  /**
+   * Takes the library from a BPMix server when signed in to one. Optional so a build without server
+   * support (and tests) simply runs in the original local-folders mode.
+   */
+  serverMode?: ServerMode;
   now: () => number;
 }

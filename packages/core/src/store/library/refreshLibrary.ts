@@ -6,6 +6,7 @@ import { scanRootCoordinated } from '../../library-scan/scanCoordinator';
 import { LYRICS_MATCHED_COUNT_SETTING_KEY, matchLibraryLyricsQueued } from '../../lyrics/matchLibraryLyrics';
 import { scanLibraryMetadataQueued } from '../../metadata/scanLibraryMetadata';
 import { logLibraryAction } from '../../playback/playbackLog';
+import type { SyncOutcome } from '../../server-mode/serverMode';
 import { playingContextRefreshed } from '../navigation/navigationSlice';
 import { playbackPatched } from '../persistence/persistenceSlice';
 import { lyricsScopesKnown, restoreStepAdvanced } from '../restore/restoreSlice';
@@ -40,8 +41,16 @@ const realTracks = (roots: RootWithLibrary[]) => roots.flatMap(({ tracksById }) 
  * after restore) with no user gesture behind it, so it must never trigger a
  * permission prompt.
  */
-export function refreshLibrary(): AppThunk<Promise<RootWithLibrary[]>> {
-  return async (dispatch, getState, { fileAccess, backgroundFileAccess, libraryStore, playlistPlayer, livePlayback, coverArtResizer, alwaysRescanRoot }) => {
+export interface RefreshLibraryOptions {
+  /** In server mode, check in with the server afterwards (the default). The sync itself passes false so it doesn't loop. */
+  syncServer?: boolean;
+}
+
+export function refreshLibrary(options: RefreshLibraryOptions = {}): AppThunk<Promise<RootWithLibrary[]>> {
+  return async (dispatch, getState, { fileAccess, backgroundFileAccess, libraryStore, playlistPlayer, livePlayback, coverArtResizer, alwaysRescanRoot, serverMode }) => {
+    // Local storage only - see restorePlayback. Server mode shows what was last synced, and checks in afterwards.
+    await serverMode?.ready;
+    const serverActive = serverMode?.isActive() ?? false;
     dispatch(restoreStepAdvanced('listingFolders'));
     let roots;
     try {
@@ -92,7 +101,8 @@ export function refreshLibrary(): AppThunk<Promise<RootWithLibrary[]>> {
             // always rescanned, since their files can change on disk with
             // zero app interaction and there's no OS permission prompt to
             // worry about triggering outside a gesture.
-            if ((playlists.length === 0 && tracks.length === 0) || alwaysRescanRoot(root.id)) {
+            // (Server mode never scans: there are no folders, and the sync below fills the store.)
+            if (!serverActive && ((playlists.length === 0 && tracks.length === 0) || alwaysRescanRoot(root.id))) {
               await scanRootCoordinated(backgroundFileAccess, libraryStore, root.id, root.displayName);
               [playlists, tracks] = await Promise.all([libraryStore.listPlaylists(root.id), libraryStore.listTracks(root.id)]);
             }
@@ -179,12 +189,16 @@ export function refreshLibrary(): AppThunk<Promise<RootWithLibrary[]>> {
     // screen on reading every file's tag bytes. Cheap to repeat - fresh tracks
     // are skipped. Chunked against real idle time and queued as a background
     // task (see taskQueue.ts), so it pauses while a folder scan runs.
-    void scanLibraryMetadataQueued({ id: 'metadata-scan', label: 'Scanning track metadata' }, backgroundFileAccess, libraryStore, realTracks(withLibrary), {
-      resizer: coverArtResizer,
-      // Bumps what's on screen (now playing + up next) ahead of the rest of the
-      // library, evaluated fresh each step.
-      getPriorityFileIds,
-    });
+    // Skipped in server mode: the sync already delivered every track's metadata, and this would
+    // download each file just to read it.
+    if (!serverActive) {
+      void scanLibraryMetadataQueued({ id: 'metadata-scan', label: 'Scanning track metadata' }, backgroundFileAccess, libraryStore, realTracks(withLibrary), {
+        resizer: coverArtResizer,
+        // Bumps what's on screen (now playing + up next) ahead of the rest of the
+        // library, evaluated fresh each step.
+        getPriorityFileIds,
+      });
+    }
 
     // The now-playing playlist's .m3u8 may have been rescanned (this refresh,
     // a manual Rescan, or a sync tool dropping in a file) since playback
@@ -205,6 +219,23 @@ export function refreshLibrary(): AppThunk<Promise<RootWithLibrary[]>> {
       }
     }
 
+    // Checked in last and in the background: the cached library above is already on screen.
+    if (serverActive && options.syncServer !== false) void dispatch(syncServerLibrary());
+
     return withLibrary;
+  };
+}
+
+/**
+ * Checks in with the server and, if that changed anything, reloads the library from the store so the
+ * screens pick it up. Offline and other failures are quiet here (ServerMode keeps them in its status
+ * for the settings screen); the cached library simply stays.
+ */
+export function syncServerLibrary(): AppThunk<Promise<SyncOutcome | null>> {
+  return async (dispatch, _getState, { serverMode }) => {
+    if (!serverMode) return null;
+    const outcome = await serverMode.sync();
+    if (outcome.changed) await dispatch(refreshLibrary({ syncServer: false })).catch((err) => logLibraryAction('syncServerLibrary:reloadFailed', { error: String(err) }));
+    return outcome;
   };
 }

@@ -45,6 +45,7 @@ interface Opts {
   isCancelled?: () => boolean;
   onListRoots?: () => void;
   loadPromise?: Promise<unknown>;
+  serverMode?: { ready: Promise<void>; isActive: () => boolean };
 }
 
 function setup(opts: Opts = {}) {
@@ -83,6 +84,7 @@ function setup(opts: Opts = {}) {
     playlistPlayer,
     livePlayback: live,
     initialPlaybackState: Promise.resolve(opts.stored === undefined ? stored() : opts.stored),
+    serverMode: opts.serverMode,
   } as unknown as Services;
   const store = createStore(services);
   const run = () => store.dispatch(restorePlayback({ isCancelled: opts.isCancelled ?? (() => false) }));
@@ -197,7 +199,20 @@ describe('restorePlayback', () => {
     s.libraryStore.listPlaylists.mockImplementation(async () => [playlist('p1', [])]);
     await s.run();
     expect(s.playlistPlayer.loadPlaylist).toHaveBeenCalled();
-    expect(mocks.loadRootLibrary).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ id: 'r0' }));
+    expect(mocks.loadRootLibrary).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ id: 'r0' }), { scanIfEmpty: true });
+  });
+
+  it('in server mode never scans folders for an empty cache, and waits only for the saved sign-in (local storage), not the network', async () => {
+    let signInRead = false;
+    const ready = Promise.resolve().then(() => {
+      signInRead = true;
+    });
+    const s = setup({ serverMode: { ready, isActive: () => signInRead } });
+    await s.run();
+    // The sign-in had been read before anything was loaded, so the cached library is used as-is.
+    expect(mocks.loadRootLibrary).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ id: 'r1' }), { scanIfEmpty: false });
+    expect(s.playlistPlayer.loadPlaylist).toHaveBeenCalled();
+    expect(s.store.getState().restore.isRestoring).toBe(false);
   });
 
   it('resumes nothing if no root holds the playlist, but still refreshes', async () => {
