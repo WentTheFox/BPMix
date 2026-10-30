@@ -62,7 +62,13 @@ export async function findUnplaylistedTracks(
   // A `missing:` placeholder is a different, intentional case (see
   // TrackRecord.missing) and is left alone here, same as the existing
   // return filter already did.
-  const ghostFileIds = existingTracks.filter((t) => !t.missing && !referenced.has(t.fileId) && !walkedPaths.has(t.relativePath)).map((t) => t.fileId);
+  // ...but a walk that found no files at all is not evidence that every file is gone - it's a root
+  // that couldn't be listed (a revoked grant, an unmounted drive, a server-backed root with no
+  // folders). Deleting every stored track on that basis is not recoverable, so it never happens.
+  const ghostFileIds =
+    files.length === 0
+      ? []
+      : existingTracks.filter((t) => !t.missing && !referenced.has(t.fileId) && !walkedPaths.has(t.relativePath)).map((t) => t.fileId);
   await Promise.all(ghostFileIds.map((fileId) => libraryStore.deleteTrack(fileId)));
   for (const fileId of ghostFileIds) byFileId.delete(fileId);
 
@@ -88,6 +94,17 @@ export async function findUnplaylistedTracks(
   );
 
   return [...byFileId.values()].filter((track) => !referenced.has(track.fileId) && !track.missing);
+}
+
+/**
+ * "Songs not in a playlist" when the library comes from a server: every track is already in the
+ * store (the sync put it there), so this is just the ones no playlist references. Never walks
+ * folders and never deletes anything - the server decides what exists.
+ */
+export async function findUnplaylistedTracksInStore(libraryStore: LibraryStore, rootId: string): Promise<TrackRecord[]> {
+  const [playlists, tracks] = await Promise.all([libraryStore.listPlaylists(rootId), libraryStore.listTracks(rootId)]);
+  const referenced = new Set(playlists.flatMap((playlist) => playlist.trackFileIds));
+  return tracks.filter((track) => !track.missing && !referenced.has(track.fileId));
 }
 
 /**

@@ -1,11 +1,13 @@
 import { DEFAULT_LASTFM_API_KEY, DEFAULT_LASTFM_API_SECRET } from '@bpmix/core';
 import { useState } from 'react';
-import { Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { BackButton } from '../BackButton';
 import { HeaderRow } from '../HeaderRow';
 import type { UseLastFmConnectionResult } from '../scrobble/useLastFmConnection';
+import type { UseServerConnectionResult } from '../server/useServerConnection';
 import type { Colors } from '../theme';
 import { withAlpha } from '../theme';
+import { ServerSection } from './ServerSection';
 import { Section } from './SettingsScreen';
 import type { AppSettings } from './types';
 
@@ -16,6 +18,8 @@ export interface ExternalConnectionsScreenProps {
   settings: AppSettings;
   onUpdateSettings: (patch: Partial<AppSettings>) => void;
   lastFm: UseLastFmConnectionResult;
+  /** Where the library comes from. Absent on a platform that has no server mode (yet), which hides the section. */
+  server?: UseServerConnectionResult | null;
   onClose: () => void;
 }
 
@@ -38,7 +42,7 @@ export interface ExternalConnectionsScreenProps {
  * Last.fm API app instead", for a fork or self-hoster who'd rather use
  * their own app identity.
  */
-export function ExternalConnectionsScreen({ colors, settings, onUpdateSettings, lastFm, onClose }: ExternalConnectionsScreenProps) {
+export function ExternalConnectionsScreen({ colors, settings, onUpdateSettings, lastFm, server, onClose }: ExternalConnectionsScreenProps) {
   const usingDefaultCredentials = settings.lastFmApiKey === DEFAULT_LASTFM_API_KEY && settings.lastFmApiSecret === DEFAULT_LASTFM_API_SECRET;
   const [showOwnKey, setShowOwnKey] = useState(!usingDefaultCredentials);
   const [apiKeyDraft, setApiKeyDraft] = useState(settings.lastFmApiKey);
@@ -71,7 +75,8 @@ export function ExternalConnectionsScreen({ colors, settings, onUpdateSettings, 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <HeaderRow style={styles.header} left={<BackButton text="External connections" color={colors.text} onPress={onClose} />} />
-      <View style={styles.content}>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        {server && <ServerSection colors={colors} server={server} />}
         <Section title="Last.fm" colors={colors}>
           {lastFm.status === 'connected' ? (
             <>
@@ -153,7 +158,7 @@ export function ExternalConnectionsScreen({ colors, settings, onUpdateSettings, 
             </>
           )}
         </Section>
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -166,6 +171,9 @@ const styles = StyleSheet.create({
   header: {
     maxWidth: 480,
     alignSelf: 'center',
+  },
+  scroll: {
+    flex: 1,
   },
   content: {
     width: '100%',

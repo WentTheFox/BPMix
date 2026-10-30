@@ -24,7 +24,8 @@ function h(tag, props, ...children) {
   return el;
 }
 
-const mount = (...nodes) => app.replaceChildren(...nodes);
+// (replaceChildren would render a null argument as the text "null", so drop the empty ones.)
+const mount = (...nodes) => app.replaceChildren(...nodes.filter(Boolean));
 const panel = (...children) => h('section', { class: 'panel' }, ...children);
 const errorLine = (text) => h('p', { class: 'error', role: 'alert' }, text);
 const when = (ms) => (ms ? new Date(ms).toLocaleString() : 'never');
@@ -90,7 +91,8 @@ async function api(method, path, body) {
 /** Sensitive changes need a recent sign-in: send the person to do that and come back here. */
 function needsFreshSignIn(err) {
   if (err instanceof ApiFailure && err.code === 'reauth_required') {
-    location.assign(`/login?next=${encodeURIComponent(location.pathname + location.search)}`);
+    // reauth=1: show the sign-in form even though a (stale) session exists, instead of bouncing straight back here.
+    location.assign(`/login?reauth=1&next=${encodeURIComponent(location.pathname + location.search)}`);
     return true;
   }
   return false;
@@ -512,7 +514,8 @@ async function boot() {
     case '/setup':
       return setupPage(status);
     case '/login':
-      return me?.enrolled ? location.assign(safeNext('/account')) : loginPage(status);
+      // Already signed in -> nothing to do here, unless this visit is a request to sign in again.
+      return me?.enrolled && !here.searchParams.has('reauth') ? location.assign(safeNext('/account')) : loginPage(status);
     case '/enroll':
       return enrollPage();
     case '/device':

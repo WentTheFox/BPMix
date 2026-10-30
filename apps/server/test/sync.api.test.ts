@@ -138,6 +138,14 @@ describe('sync feed', () => {
     expect(replica.tracks.has(encodeTrackKey('Music:d.mp3'))).toBe(false);
   });
 
+  it('reports how many tracks and shared playlists exist, so a client can notice rows it lost', async () => {
+    await app.get(ScannerService).scanAll();
+    const page = await admin.json<SyncChangesResponseDto>('/api/v1/sync/changes?since=0');
+    expect(page.totals).toEqual({ tracks: 4, playlists: 1 });
+    await prisma.track.delete({ where: { fileId: 'Music:d.mp3' } });
+    expect((await admin.json<SyncChangesResponseDto>(`/api/v1/sync/changes?since=${page.cursor}`)).totals).toEqual({ tracks: 3, playlists: 1 });
+  });
+
   it('does not re-send a track when a write changed nothing', async () => {
     await app.get(ScannerService).scanAll();
     const { cursor } = await admin.json<SyncChangesResponseDto>('/api/v1/sync/changes?since=0');

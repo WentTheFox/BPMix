@@ -16,6 +16,12 @@ function normalizePathDrive(p) {
   return p;
 }
 
+// @bpmix/api is the only importer of zod; resolve it from there (pnpm keeps each package's deps private).
+const zodCommonJsEntry = path.join(
+  path.dirname(require.resolve('zod/package.json', {paths: [path.resolve(workspaceRoot, 'packages/api')]})),
+  'index.cjs',
+);
+
 const rnwPath = normalizePathDrive(fs.realpathSync(
   path.resolve(require.resolve('react-native-windows/package.json'), '..'),
 ));
@@ -48,6 +54,15 @@ const config = {
     extraNodeModules: {
       'react-native-reanimated': path.resolve(projectRoot, 'metro-stubs/react-native-reanimated.js'),
       'react-native-gesture-handler': path.resolve(projectRoot, 'metro-stubs/react-native-gesture-handler.js'),
+    },
+    // zod (used by @bpmix/api, which @bpmix/core depends on) ships ESM that uses `export * as ns from`,
+    // which this React Native preset can't transform, and Metro's package-exports handling picks that
+    // ESM entry. Its CommonJS build needs no transform, so point `zod` straight at it.
+    resolveRequest: (context, moduleName, platform) => {
+      if (moduleName === 'zod') {
+        return {type: 'sourceFile', filePath: zodCommonJsEntry};
+      }
+      return context.resolveRequest(context, moduleName, platform);
     },
     blockList: [
       // This stops "npx @react-native-community/cli run-windows" from causing the metro server to crash if its already running

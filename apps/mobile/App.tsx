@@ -8,8 +8,11 @@ import type { FileRef, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '
 import {
   BUILD_VERSION,
   DEFAULT_DISCORD_APPLICATION_ID,
+  ServerMode,
   addError,
+  createModeAwareFileAccess,
   createStore,
+  withServerCoverArt,
   playerAdvanced,
   LivePlayback,
   persistPositionIfDue,
@@ -52,6 +55,7 @@ import {
   ExternalConnectionsScreen,
   useDiscordPresence,
   useLastFmConnection,
+  useServerConnection,
   useLibraryRootActions,
   useOpenPlaylistMetadataScan,
   useMemoryUsageLogging,
@@ -80,7 +84,7 @@ import {
 import { mdiSubtitles } from '@mdi/js';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Linking, Pressable, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { Linking, Platform, Pressable, StatusBar, StyleSheet, Text, View } from 'react-native';
 import {
   SafeAreaProvider,
   useSafeAreaInsets,
@@ -109,8 +113,21 @@ const SHOW_MEMORY_OVERLAY = false;
 
 const TRANSPORT_THROTTLE_MS = 300;
 
-const fileAccess = createFileAccess();
-const libraryStore = createLibraryStore();
+const localFileAccess = createFileAccess();
+const localLibraryStore = createLibraryStore();
+// Signed in to a BPMix server, the library (and the audio) comes from there; otherwise from the local
+// folders exactly as before. Android only for now: the Windows audio engine decodes files by local
+// path and can't play from a server yet, so Windows never offers the sign-in (see the Server section
+// wiring in AppContent) and this stays inactive there.
+const serverMode = new ServerMode({
+  store: localLibraryStore,
+  deviceName: () => {
+    const constants = Platform.constants as { Brand?: string; Model?: string };
+    return Platform.OS === 'android' && constants.Model ? `${constants.Brand ?? 'Android'} ${constants.Model}`.trim() : 'BPMix app';
+  },
+});
+const fileAccess = createModeAwareFileAccess(localFileAccess, serverMode);
+const libraryStore = withServerCoverArt(localLibraryStore, serverMode);
 // Kicked off immediately at module load - the earliest this can possibly
 // start, well before any component mounts - and shared by both
 // playlistPlayer.awaitInitialVolume() below and usePlaybackPersistence's
@@ -205,6 +222,7 @@ const store = createStore({
   // gesture-gated permission model, so background work uses the plain adapter.
   backgroundFileAccess: fileAccess,
   alwaysRescanRoot: () => false,
+  serverMode,
   now: Date.now,
 });
 
@@ -660,6 +678,8 @@ function AppContent() {
   // per-tick re-render stays inside them. Kept mounted across every return below - a scrobbler that
   // remounted would lose its accumulated listen time.
   const lastFm = useLastFmConnection(settings, updateSettings);
+  const server = useServerConnection(Platform.OS === 'android' ? serverMode : undefined);
+  const fromServer = server?.status.active === true;
   const playbackBridges = (
     <>
       <MediaSessionBridge
@@ -891,6 +911,7 @@ function AppContent() {
         settings={settings}
         onUpdateSettings={updateSettings}
         lastFm={lastFm}
+        server={server}
         onClose={() => closeExternalConnections()}
       />
     </ScreenLayer>
@@ -1111,10 +1132,12 @@ function AppContent() {
         isLoadingRoots={isLoadingRoots}
         isAddingFolder={isAddingFolder}
         isRootScanning={isRootScanning}
+        // Signed in to a server: no folders to add or rescan, no playlist files to write; "Rescan" syncs.
+        hideAddFolder={fromServer}
         onAddFolder={addFolder}
-        onRescan={rescan}
+        onRescan={fromServer ? () => server?.syncNow() : rescan}
         onRemoveRoot={(rootId) => void removeRoot(rootId)}
-        onCreatePlaylist={(rootId) => startCreatePlaylist(rootId)}
+        onCreatePlaylist={fromServer ? undefined : (rootId) => startCreatePlaylist(rootId)}
         onShowUnplaylisted={handleShowUnplaylisted}
         nowPlayingRootId={playingContext?.root.id ?? null}
         onShowNowPlaying={playingContext ? handleShowNowPlaying : undefined}
@@ -1134,17 +1157,19 @@ function AppContent() {
           <FolderPickerButton colors={colors} icon={mdiSubtitles} text="Add Lyrics Folder" onPress={addLyricsFolder} />
         }
         lyricsSection={
-          <LyricsFolderSection
-            colors={colors}
-            scopes={lyricsScopes}
-            rootDisplayName={(rootId) => grantedRoots.find((r) => r.id === rootId)?.displayName ?? toRelativeDisplay(rootId)}
-            scopeRemovable={(rootId) => grantedRoots.find((r) => r.id === rootId)?.removable !== false}
-            matchedTrackCount={matchedLyricsCount}
-            totalTrackCount={rootsWithLibrary.reduce((sum, { tracksById }) => sum + tracksById.size, 0)}
-            busyScopeKey={busyLyricsScopeKey}
-            onRemoveScope={(rootId, relativePath) => void removeLyricsScope(rootId, relativePath)}
-            onRescan={(rootId, relativePath) => void rescanLyricsScope(rootId, relativePath)}
-          />
+          fromServer ? undefined : (
+            <LyricsFolderSection
+              colors={colors}
+              scopes={lyricsScopes}
+              rootDisplayName={(rootId) => grantedRoots.find((r) => r.id === rootId)?.displayName ?? toRelativeDisplay(rootId)}
+              scopeRemovable={(rootId) => grantedRoots.find((r) => r.id === rootId)?.removable !== false}
+              matchedTrackCount={matchedLyricsCount}
+              totalTrackCount={rootsWithLibrary.reduce((sum, { tracksById }) => sum + tracksById.size, 0)}
+              busyScopeKey={busyLyricsScopeKey}
+              onRemoveScope={(rootId, relativePath) => void removeLyricsScope(rootId, relativePath)}
+              onRescan={(rootId, relativePath) => void rescanLyricsScope(rootId, relativePath)}
+            />
+          )
         }
       />
   );

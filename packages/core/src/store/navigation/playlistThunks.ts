@@ -2,7 +2,7 @@ import type { ThunkAction, UnknownAction } from '@reduxjs/toolkit';
 import { errorMessage } from '../../errorMessage';
 import { addTracksToPlaylist } from '../../library-scan/addTracksToPlaylist';
 import { movePlaylistTracks, removePlaylistTracks } from '../../library-scan/editPlaylistTracks';
-import { findUnplaylistedTracksQueued } from '../../library-scan/findUnplaylistedTracks';
+import { findUnplaylistedTracksInStore, findUnplaylistedTracksQueued } from '../../library-scan/findUnplaylistedTracks';
 import type { PlaylistRecord, TrackRecord } from '../../library-store/types';
 import { trackDisplayName } from '../../library-store/trackDisplayName';
 import { addError } from '../notifications/notificationsThunks';
@@ -82,7 +82,7 @@ export function showNowPlaying(callbacks: OpenedCallbacks = {}): AppThunk {
  * latest request and the screen is still this playlist.
  */
 export function showUnplaylisted(rootId: string, callbacks: OpenedCallbacks = {}): AppThunk<Promise<void>> {
-  return async (dispatch, getState, { fileAccess, backgroundFileAccess, libraryStore, coverArtResizer }) => {
+  return async (dispatch, getState, { fileAccess, backgroundFileAccess, libraryStore, coverArtResizer, serverMode }) => {
     const state = getState();
     const playlistId = unplaylistedPlaylistId(rootId);
     // Already viewing this root's Unplaylisted - re-walking on every click just re-shows "Finding…" for no reason.
@@ -95,10 +95,14 @@ export function showUnplaylisted(rootId: string, callbacks: OpenedCallbacks = {}
     dispatch(unplaylistedRequested());
     const requestId = getState().navigation.unplaylistedRequestId;
     try {
-      const tracks = await findUnplaylistedTracksQueued(fileAccess, libraryStore, rootId, root.displayName, {
-        fileAccess: backgroundFileAccess,
-        resizer: coverArtResizer,
-      });
+      // A server-backed library has no folders to walk (and walking would find nothing): its tracks are
+      // already in the store, so the answer comes from there.
+      const tracks = serverMode?.isActive()
+        ? await findUnplaylistedTracksInStore(libraryStore, rootId)
+        : await findUnplaylistedTracksQueued(fileAccess, libraryStore, rootId, root.displayName, {
+            fileAccess: backgroundFileAccess,
+            resizer: coverArtResizer,
+          });
       if (getState().navigation.unplaylistedRequestId !== requestId) return;
       dispatch(unplaylistedLoaded({ playlist: { ...empty, trackFileIds: tracks.map((t) => t.fileId) }, tracks }));
     } finally {

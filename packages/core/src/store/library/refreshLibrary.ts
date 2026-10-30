@@ -136,7 +136,9 @@ export function refreshLibrary(options: RefreshLibraryOptions = {}): AppThunk<Pr
 
     // Lyrics scopes are subfolders of an already-granted root (see
     // LyricsScope's doc), so just walk each configured scope for .lrc files.
-    const scopes = await libraryStore.getLyricsScopes();
+    // (Server mode: lyrics aren't served to the app yet, and scopes left over from local folders would only
+    // point at roots that no longer exist.)
+    const scopes = serverActive ? [] : await libraryStore.getLyricsScopes();
     dispatch(lyricsScopesLoaded(scopes));
     dispatch(lyricsScopesKnown(scopes.length > 0));
 

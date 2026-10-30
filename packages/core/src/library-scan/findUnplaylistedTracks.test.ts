@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DirectoryEntry, FileAccess, FileRef, GrantedRoot } from '../file-access/types';
 import type { AnalysisResult, LibraryStore, LyricsScope, PlaybackState, PlaylistRecord, TrackRecord } from '../library-store/types';
 import type { TrackMetadata } from '../metadata/types';
-import { findUnplaylistedTracks } from './findUnplaylistedTracks';
+import { findUnplaylistedTracks, findUnplaylistedTracksInStore } from './findUnplaylistedTracks';
 
 /** Same shape as scan.test.ts's identical fake - an in-memory FileAccess over a flat { relativePath: content } map. */
 class FakeFileAccess implements FileAccess {
@@ -217,6 +217,17 @@ describe('findUnplaylistedTracks', () => {
     ]);
   });
 
+  it('never deletes the stored tracks when the walk finds no files at all - a root that cannot be listed is not an empty one', async () => {
+    const store = new FakeLibraryStore();
+    await store.upsertTrack({ fileId: 'a.mp3', rootId: 'root-1', relativePath: 'a.mp3', sizeBytes: 1, lastModifiedMs: 0 });
+    await store.upsertTrack({ fileId: 'b.mp3', rootId: 'root-1', relativePath: 'b.mp3', sizeBytes: 1, lastModifiedMs: 0 });
+
+    const result = await findUnplaylistedTracks(new FakeFileAccess({}), store, 'root-1');
+
+    expect(result.map((t) => t.fileId).sort()).toEqual(['a.mp3', 'b.mp3']);
+    expect((await store.listTracks('root-1')).map((t) => t.fileId).sort()).toEqual(['a.mp3', 'b.mp3']);
+  });
+
   it('leaves a ghost row alone if some playlist still references it - not this function\'s cleanup to do', async () => {
     const fileAccess = new FakeFileAccess({});
     const store = new FakeLibraryStore();
@@ -237,5 +248,17 @@ describe('findUnplaylistedTracks', () => {
 
     expect(result).toEqual([]);
     expect(await store.listTracks('root-1')).toEqual([]);
+  });
+});
+
+describe('findUnplaylistedTracksInStore', () => {
+  it('answers from the store alone: unreferenced, real tracks - and changes nothing', async () => {
+    const store = new FakeLibraryStore();
+    const track = (fileId: string, over: Partial<TrackRecord> = {}): TrackRecord => ({ fileId, rootId: 'r', relativePath: fileId, sizeBytes: 1, lastModifiedMs: 0, ...over });
+    for (const t of [track('in-list.mp3'), track('loose-1.mp3'), track('loose-2.mp3'), track('gone.mp3', { missing: true }), track('other-root.mp3', { rootId: 'elsewhere' })]) await store.upsertTrack(t);
+    await store.upsertPlaylist({ id: 'p', rootId: 'r', fileId: 'p', name: 'p', trackFileIds: ['in-list.mp3', 'gone.mp3'] });
+
+    expect((await findUnplaylistedTracksInStore(store, 'r')).map((t) => t.fileId).sort()).toEqual(['loose-1.mp3', 'loose-2.mp3']);
+    expect(store.tracks.size).toBe(5);
   });
 });

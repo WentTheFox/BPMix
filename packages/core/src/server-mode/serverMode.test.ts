@@ -218,14 +218,14 @@ describe('ServerMode sync', () => {
 
     server.handler = (path) => {
       expect(path).toBe('/api/v1/sync/changes?since=10&limit=500');
-      return json({ changes: [trackChange(track('a', { title: 'Renamed' })), trackChange(null, 'b')], cursor: '12', hasMore: false, roots: [ROOT] });
+      return json({ changes: [trackChange(track('a', { title: 'Renamed' })), trackChange(null, 'b')], cursor: '12', hasMore: false, roots: [ROOT], totals: { tracks: 1, playlists: 0 } });
     };
     expect(await mode.sync()).toEqual({ kind: 'delta', changed: true });
     expect(store.metadata.get('Music:a.mp3')!.title).toBe('Renamed');
     expect(store.tracks.has('Music:b.mp3')).toBe(false);
     expect(store.settings.get('serverMode.cursor')).toBe('12');
 
-    server.handler = () => json({ changes: [], cursor: '12', hasMore: false, roots: [ROOT] });
+    server.handler = () => json({ changes: [], cursor: '12', hasMore: false, roots: [ROOT], totals: { tracks: 1, playlists: 0 } });
     expect(await mode.sync()).toEqual({ kind: 'delta', changed: false });
   });
 
@@ -236,7 +236,7 @@ describe('ServerMode sync', () => {
     let page = 0;
     server.handler = () => {
       page++;
-      if (page === 1) return json({ changes: [trackChange(track('a'))], cursor: '8', hasMore: true, roots: [ROOT] });
+      if (page === 1) return json({ changes: [trackChange(track('a'))], cursor: '8', hasMore: true, roots: [ROOT], totals: { tracks: 1, playlists: 0 } });
       return json({ message: 'boom' }, 500);
     };
     expect((await mode.sync()).kind).toBe('failed');
@@ -274,6 +274,26 @@ describe('ServerMode sync', () => {
     expect(await mode.sync()).toEqual({ kind: 'snapshot', changed: true });
     expect([...store.tracks.keys()].sort()).toEqual(['Music:a.mp3', 'Other:z.mp3']);
     expect(store.settings.get('serverMode.cursor')).toBe('99');
+  });
+
+  it('repairs itself with a snapshot when its local counts no longer match the server, however the rows were lost', async () => {
+    const { store, server, mode } = await signedIn();
+    server.handler = () => json({ entities: [trackChange(track('a')), trackChange(track('b'))], next: null, cursor: '10', roots: [ROOT] });
+    await mode.sync();
+
+    // Something deleted a row locally (the feed will never mention it again: it didn't change on the server).
+    await store.deleteTrack('Music:b.mp3');
+    server.handler = (path) =>
+      path.startsWith('/api/v1/sync/changes')
+        ? json({ changes: [], cursor: '10', hasMore: false, roots: [ROOT], totals: { tracks: 2, playlists: 0 } })
+        : json({ entities: [trackChange(track('a')), trackChange(track('b'))], next: null, cursor: '10', roots: [ROOT] });
+    expect(await mode.sync()).toEqual({ kind: 'snapshot', changed: true });
+    expect([...store.tracks.keys()].sort()).toEqual(['Music:a.mp3', 'Music:b.mp3']);
+
+    // Counts agree again: back to cheap deltas. (The user's own playlists don't count towards the server's total.)
+    await store.upsertPlaylist({ id: 'user:mine-0001', rootId: 'Music', fileId: 'user:mine-0001', name: 'Mine', trackFileIds: [] });
+    server.handler = () => json({ changes: [], cursor: '10', hasMore: false, roots: [ROOT], totals: { tracks: 2, playlists: 0 } });
+    expect(await mode.sync()).toEqual({ kind: 'delta', changed: false });
   });
 
   it('pages a snapshot, and only ever runs one check-in at a time', async () => {
@@ -316,7 +336,7 @@ describe('ServerMode sync', () => {
     server.handler = () => json({ entities: [trackChange(track('a'))], next: null, cursor: '1', roots: [ROOT] });
     await mode.sync();
     await store.putCoverArt('Music:a.mp3', { mimeType: 'image/webp', data: new Uint8Array([1]) });
-    server.handler = () => json({ changes: [trackChange(track('a', { contentHash: 'b'.repeat(64) }))], cursor: '2', hasMore: false, roots: [ROOT] });
+    server.handler = () => json({ changes: [trackChange(track('a', { contentHash: 'b'.repeat(64) }))], cursor: '2', hasMore: false, roots: [ROOT], totals: { tracks: 1, playlists: 0 } });
     await mode.sync();
     expect(store.covers.has('Music:a.mp3')).toBe(false);
   });

@@ -165,7 +165,8 @@ export class SyncService {
       return loaded.get(row.entity)?.get(row.key) ?? provider.tombstone(row.key);
     });
     const cursor = hasMore ? page[page.length - 1]!.rev : head;
-    return { changes, cursor: cursor.toString(), hasMore, roots: await this.library.listRoots() };
+    const [roots, tracks, playlists] = await Promise.all([this.library.listRoots(), this.db.prisma.track.count(), this.db.prisma.playlist.count()]);
+    return { changes, cursor: cursor.toString(), hasMore, roots, totals: { tracks, playlists } };
   }
 
   /**

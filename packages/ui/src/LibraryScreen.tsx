@@ -50,6 +50,11 @@ export interface LibraryScreenProps {
    * whichever screen the user's actually looking at, not just this one.
    */
   isRootScanning: (rootId: string) => boolean;
+  /**
+   * Hides the Add Folder row. True when the library comes from a server: there are no folders to
+   * add, and the root's "Rescan" (see onRescan) becomes a sync.
+   */
+  hideAddFolder?: boolean;
   onAddFolder: () => Promise<void>;
   onRescan: (rootId: string) => void;
   /** Revokes the root's grant and drops it from the library screen - if omitted, no Remove action is shown for roots. */
@@ -100,6 +105,7 @@ export function LibraryScreen({
   isAddingFolder = false,
   isLoadingRoots = false,
   isRootScanning,
+  hideAddFolder,
   onAddFolder,
   onRescan,
   onRemoveRoot,
@@ -121,17 +127,19 @@ export function LibraryScreen({
   return (
     <>
       <HeaderRow left={<AppTitle color={colors.text} accentColor={colors.accent} />} right={headerRight} />
-      <View style={styles.addButtonRow}>
-        <FolderPickerButton
-          colors={colors}
-          icon={mdiFolderMusic}
-          text="Add Folder"
-          onPress={onAddFolder}
-          busy={isAddingFolder}
-          busyText="Scanning folder…"
-        />
-        {secondaryAddButton}
-      </View>
+      {!hideAddFolder && (
+        <View style={styles.addButtonRow}>
+          <FolderPickerButton
+            colors={colors}
+            icon={mdiFolderMusic}
+            text="Add Folder"
+            onPress={onAddFolder}
+            busy={isAddingFolder}
+            busyText="Scanning folder…"
+          />
+          {secondaryAddButton}
+        </View>
+      )}
       {bannerContent}
       {lyricsSection}
       {error && <Text style={styles.error}>{error}</Text>}

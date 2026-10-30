@@ -49,6 +49,12 @@ export const syncChangesResponseSchema = z.object({
   hasMore: z.boolean(),
   /** Library roots (tiny, so sent with every check-in rather than tracked by revision). */
   roots: z.array(rootSchema),
+  /**
+   * How many tracks and shared playlists exist on the server right now. A client compares them with
+   * what it holds after applying the changes: a difference means it has lost (or gained) rows some way
+   * a change feed can't repair, and it should take a snapshot instead.
+   */
+  totals: z.object({ tracks: z.number(), playlists: z.number() }),
 });
 export type SyncChangesResponseDto = z.infer<typeof syncChangesResponseSchema>;
 

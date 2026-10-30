@@ -312,6 +312,15 @@ export class ServerMode {
     return { kind: 'snapshot', changed: true };
   }
 
+  private async countsAgree(totals: { tracks: number; playlists: number }): Promise<boolean> {
+    const { store } = this.deps;
+    const rootIds = new Set(this.cachedRoots.map((r) => r.id));
+    const tracks = (await store.listAllTracks()).filter((t) => rootIds.has(t.rootId)).length;
+    // The user's own playlists live in the same store but are not part of the server's shared-playlist total.
+    const playlists = (await store.listAllPlaylists()).filter((p) => rootIds.has(p.rootId) && !p.id.startsWith(USER_PLAYLIST_ID_PREFIX)).length;
+    return tracks === totals.tracks && playlists === totals.playlists;
+  }
+
   private async deltas(api: ApiClient, since: string): Promise<SyncOutcome> {
     let cursor = since;
     let changed = false;
@@ -324,7 +333,12 @@ export class ServerMode {
       cursor = page.cursor;
       // Saved page by page, so an interrupted check-in resumes instead of starting over.
       await this.deps.store.putSetting(CURSOR_KEY, cursor);
-      if (!page.hasMore) return { kind: 'delta', changed };
+      if (!page.hasMore) {
+        // A change feed can't put back what this device lost (a bug, cleared storage, a crash mid-write).
+        // If the counts no longer agree with the server's, start over from a snapshot.
+        if (!(await this.countsAgree(page.totals))) return this.snapshot(api);
+        return { kind: 'delta', changed };
+      }
     }
   }
 }
