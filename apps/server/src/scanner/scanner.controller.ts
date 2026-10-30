@@ -1,6 +1,5 @@
 import { BadRequestException, Controller, Get, HttpCode, Post, Query } from '@nestjs/common';
 import {
-  decodeTrackKey,
   listScanFailuresQuerySchema,
   listScanJobsQuerySchema,
   type Page,
@@ -9,15 +8,8 @@ import {
   type ScanStatusDto,
 } from '@bpmix/api';
 import { Roles } from '../auth/principal.js';
+import { fileIdFromKey } from '../common/trackKeys.js';
 import { ScannerService } from './scanner.service.js';
-
-function fileIdFromKey(key: string): string {
-  try {
-    return decodeTrackKey(key);
-  } catch {
-    throw new BadRequestException('Malformed track key');
-  }
-}
 
 @Roles('ADMIN')
 @Controller('api/v1/scan')

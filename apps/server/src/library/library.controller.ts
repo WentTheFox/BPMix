@@ -1,16 +1,9 @@
 import { BadRequestException, Controller, Get, NotFoundException, Param, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
-import { decodeTrackKey, listTracksQuerySchema, type Page, type PlaylistDto, type RootDto, type TrackDto } from '@bpmix/api';
+import { listTracksQuerySchema, type Page, type PlaylistDto, type RootDto, type TrackDto } from '@bpmix/api';
 import { DeviceAccessible } from '../auth/principal.js';
+import { fileIdFromKey } from '../common/trackKeys.js';
 import { LibraryService } from './library.service.js';
-
-function fileIdFromKey(key: string): string {
-  try {
-    return decodeTrackKey(key);
-  } catch {
-    throw new BadRequestException('Malformed track key');
-  }
-}
 
 // Any signed-in user, including a native app's device token.
 @DeviceAccessible()
