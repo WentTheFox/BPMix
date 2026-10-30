@@ -33,8 +33,9 @@ export class MemoryStore implements LibraryStore {
   async getLyricsScopes() { return []; }
   async addLyricsScope() {}
   async removeLyricsScope() {}
-  async getLyricsAssignment() { return null; }
-  async putLyricsAssignment() {}
+  lyricsAssignments = new Map<string, string | null>();
+  async getLyricsAssignment(fileId: string) { return this.lyricsAssignments.get(fileId) ?? null; }
+  async putLyricsAssignment(fileId: string, lrcFileId: string | null) { this.lyricsAssignments.set(fileId, lrcFileId); }
   async getSetting(key: string) { return this.settings.get(key) ?? null; }
   async putSetting(key: string, value: string) { this.settings.set(key, value); }
 }

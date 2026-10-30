@@ -621,6 +621,8 @@ function AppContent() {
   // remounted would lose its accumulated listen time.
   const server = useServerConnection(serverMode);
   const fromServer = server?.status.active === true;
+  // Admins (and, until the role is known, anyone - the server decides) may change the shared library's lyrics.
+  const canEditServerLyrics = server?.status.isAdmin !== false;
   // Signed in to a server, Last.fm is linked there (once per user, for every device); otherwise this device holds its own link.
   const localLastFm = useLastFmConnection(settings, updateSettings);
   const localScrobbleSink = useLocalScrobbleSink(settings);
@@ -711,8 +713,8 @@ function AppContent() {
   // See apps/mobile/App.tsx's identical lyricsMenu for why both actions
   // also force-open Now Playing.
   const lyricsMenu =
-    // Lyrics from a server are read-only here (the editor and picker write .lrc files).
-    playback.currentFileId && currentTrackHasLyrics && !fromServer
+    // Lyrics from a server are changed on the server, by admins; anyone else just reads them.
+    playback.currentFileId && currentTrackHasLyrics && (!fromServer || canEditServerLyrics)
       ? {
           onOpenEditor: () => {
             openLyricsEditorFromMenu();
@@ -773,7 +775,8 @@ function AppContent() {
         fileAccess={fileAccess}
         libraryStore={libraryStore}
         lyricsScopes={lyricsScopes}
-        lyricsReadOnly={fromServer}
+        lyricsReadOnly={fromServer && !canEditServerLyrics}
+        serverLyricsEditing={fromServer && canEditServerLyrics ? serverMode.lyricsEditing : undefined}
         headerRight={headerActionsEl}
         lyricsEditorOpen={lyricsEditorOpen}
         onLyricsEditorOpenChange={setLyricsEditorOpen}

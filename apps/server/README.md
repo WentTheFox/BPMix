@@ -138,6 +138,11 @@ docker run -p 8080:8080 \
   bpmix
 ```
 
+Mount it without `:ro` if admins should be able to link, fix and re-time
+lyrics from the apps (that writes the `.lrc` files, and the container user
+needs write access to the folder); read-only is fine if you only want to
+serve them.
+
 Without `BPMIX_LYRICS_ROOTS`, that mount would show up as its own
 permanently-empty "Lyrics" library. With it, the client recognizes it as a
 lyrics-only scope and matches its `.lrc` files against tracks in every

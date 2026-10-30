@@ -18,6 +18,9 @@ export interface ApplyContext {
   deviceId: string;
 }
 
+/** Stands in for the .lrc file the server has assigned to a track: the app only needs to know there is one. */
+export const SERVER_LYRICS_ASSIGNMENT = 'server:lyrics';
+
 /** A key that doesn't decode is skipped rather than failing the whole sync. */
 function fileIdOf(key: string): string | null {
   try {
@@ -63,6 +66,8 @@ export async function applyTrack(ctx: ApplyContext, fileId: string, dto: TrackDt
     contentHash: dto.contentHash,
   };
   await ctx.store.putMetadata(metadata);
+  // The track list's lyrics indicator and the lyrics menu read this; the lyrics themselves are fetched from the server.
+  await ctx.store.putLyricsAssignment(fileId, dto.hasLyrics ? SERVER_LYRICS_ASSIGNMENT : null);
 
   if (dto.normalizationGain !== null) {
     await ctx.store.putAnalysis({

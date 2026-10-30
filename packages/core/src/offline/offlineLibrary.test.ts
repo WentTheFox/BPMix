@@ -77,7 +77,7 @@ class FakeBackend implements OfflineBackend {
 }
 
 function fakeServer(signedIn = true) {
-  let status: ServerStatus = { active: signedIn, url: 'https://s.example', userName: 'Sam', lastSyncedAtMs: 1, syncing: false, offline: false, error: null };
+  let status: ServerStatus = { active: signedIn, url: 'https://s.example', userName: 'Sam', isAdmin: true, lastSyncedAtMs: 1, syncing: false, offline: false, error: null };
   const listeners = new Set<(s: ServerStatus) => void>();
   const api = new ApiClient({ baseUrl: 'https://s.example', getToken: () => 'bpd_tok' });
   return {

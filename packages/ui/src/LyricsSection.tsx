@@ -7,6 +7,7 @@ import {
   type LibraryStore,
   type LyricLine,
   type LyricsScope,
+  type ServerLyricsEditing,
 } from '@bpmix/core';
 import { mdiSubtitles } from '@mdi/js';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -25,6 +26,8 @@ export interface LyricsSectionProps {
   lyricsScopes: LyricsScope[];
   /** The lyrics come from a server and can't be linked or edited here: no "Link a lyrics file". */
   readOnly?: boolean;
+  /** Lyrics live on a server and this person may change them: linking and editing go through it instead of .lrc files on this device. */
+  serverEditing?: ServerLyricsEditing;
   /** null while nothing is playing - the section renders nothing in that case. */
   trackFileId: string | null;
   /** Drives which synced line is highlighted/scrolled-to - ignored for unsynced lyrics. */
@@ -67,6 +70,7 @@ export function LyricsSection({
   libraryStore,
   lyricsScopes,
   readOnly,
+  serverEditing,
   trackFileId,
   positionSeconds,
   durationSeconds,
@@ -86,6 +90,8 @@ export function LyricsSection({
   // picker looking idle/tappable-again in that gap.
   const [assigning, setAssigning] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  // Why the last attempt to change lyrics on the server failed (not an admin, a read-only folder, no connection).
+  const [editError, setEditError] = useState<string | null>(null);
 
   useEffect(() => {
     // "active" here means "the full-screen lyrics editor is open" - a
@@ -118,25 +124,38 @@ export function LyricsSection({
     if (!pickerOpen || !trackFileId) return;
     let cancelled = false;
     setCandidates(null);
-    Promise.all([getLyricsFileIndex(fileAccess, libraryStore, lyricsScopes), libraryStore.getLyricsAssignment(trackFileId)]).then(([files, assignment]) => {
-      if (cancelled) return;
-      setCandidates(files);
-      setCurrentAssignmentId(assignment);
-    });
+    const load = serverEditing
+      ? serverEditing.source(trackFileId).then(({ assigned, candidates: files }) => [files, assigned] as const)
+      : Promise.all([getLyricsFileIndex(fileAccess, libraryStore, lyricsScopes), libraryStore.getLyricsAssignment(trackFileId)]);
+    load
+      .then(([files, assignment]) => {
+        if (cancelled) return;
+        setCandidates(files);
+        setCurrentAssignmentId(assignment);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setEditError(errorText(err));
+        onPickerOpenChange(false);
+      });
     return () => {
       cancelled = true;
     };
-  }, [pickerOpen, fileAccess, libraryStore, lyricsScopes, trackFileId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickerOpen, fileAccess, libraryStore, lyricsScopes, trackFileId, serverEditing]);
 
   const assign = (lrcFileId: string | null) => {
     if (!trackFileId || assigning) return;
     setAssigning(true);
-    libraryStore.putLyricsAssignment(trackFileId, lrcFileId).then(() => {
-      invalidateHasLyricsCache(trackFileId);
-      setAssigning(false);
-      onPickerOpenChange(false);
-      setReloadToken((t) => t + 1);
-    });
+    setEditError(null);
+    (serverEditing ? serverEditing.assign(trackFileId, lrcFileId) : libraryStore.putLyricsAssignment(trackFileId, lrcFileId))
+      .catch((err: unknown) => setEditError(errorText(err)))
+      .then(() => {
+        invalidateHasLyricsCache(trackFileId);
+        setAssigning(false);
+        onPickerOpenChange(false);
+        setReloadToken((t) => t + 1);
+      });
   };
 
   // Writes a hand-synced or hand-edited result back to the assigned .lrc
@@ -149,11 +168,19 @@ export function LyricsSection({
   const completeEdit = async (lines: LyricLine[]) => {
     if (!trackFileId || syncing) return;
     setSyncing(true);
+    setEditError(null);
     try {
-      const resolved = await resolveAssignedLyricsFile(fileAccess, libraryStore, lyricsScopes, trackFileId);
-      if (resolved) {
-        await fileAccess.writeFileText(resolved.rootId, resolved.file.relativePath, formatLrc(lines));
+      if (serverEditing) {
+        await serverEditing.save(trackFileId, lines);
+      } else {
+        const resolved = await resolveAssignedLyricsFile(fileAccess, libraryStore, lyricsScopes, trackFileId);
+        if (resolved) {
+          await fileAccess.writeFileText(resolved.rootId, resolved.file.relativePath, formatLrc(lines));
+        }
       }
+    } catch (err) {
+      if (!serverEditing) throw err;
+      setEditError(errorText(err));
     } finally {
       setSyncing(false);
       onEditorOpenChange(false);
@@ -225,6 +252,7 @@ export function LyricsSection({
     return (
       <View style={[styles.container, styles.placeholderContainer]}>
         <Text style={[styles.placeholderText, { color: colors.subtleText }]}>Lyrics are not available for this song.</Text>
+        {editError && <Text style={[styles.placeholderText, { color: '#dc2626' }]}>{editError}</Text>}
         {!readOnly && (
           <Pressable onPress={() => onPickerOpenChange(true)}>
             <IconLabel path={mdiSubtitles} text="Link a lyrics file" color={colors.accent} iconSize={16} textStyle={styles.linkText} />
@@ -234,7 +262,17 @@ export function LyricsSection({
     );
   }
 
-  return <LyricsList colors={colors} rows={rows} synced={lyrics.synced} positionSeconds={positionSeconds} onSeekTo={onSeekTo} />;
+  return (
+    <View style={styles.listWrapper}>
+      {editError && <Text style={[styles.placeholderText, { color: '#dc2626', marginTop: 16 }]}>{editError}</Text>}
+      <LyricsList colors={colors} rows={rows} synced={lyrics.synced} positionSeconds={positionSeconds} onSeekTo={onSeekTo} />
+    </View>
+  );
+}
+
+/** What to tell the person when a change to the server's lyrics didn't go through. */
+function errorText(err: unknown): string {
+  return err instanceof Error && err.message ? err.message : 'Could not change the lyrics.';
 }
 
 // styles.line's lineHeight (24) + its top+bottom paddingVertical (6+6) - kept
@@ -489,6 +527,10 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
     marginTop: 16,
+  },
+  listWrapper: {
+    flex: 1,
+    minHeight: 0,
   },
   placeholderContainer: {
     alignItems: 'center',

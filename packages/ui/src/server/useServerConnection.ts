@@ -109,4 +109,4 @@ export function useServerConnection(serverMode: ServerMode | undefined): UseServ
   return { status, usesBrowserSession: serverMode.usesBrowserSession, phase, pendingCode, errorMessage, signIn, cancelSignIn, openApprovalPage, syncNow, signOut };
 }
 
-const NO_SERVER: ServerStatus = { active: false, url: '', userName: null, lastSyncedAtMs: null, syncing: false, offline: false, error: null };
+const NO_SERVER: ServerStatus = { active: false, url: '', userName: null, isAdmin: null, lastSyncedAtMs: null, syncing: false, offline: false, error: null };

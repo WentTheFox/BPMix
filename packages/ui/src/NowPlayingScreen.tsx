@@ -1,4 +1,4 @@
-import type { FileAccess, LibraryStore, LyricsScope } from '@bpmix/core';
+import type { FileAccess, LibraryStore, LyricsScope, ServerLyricsEditing } from '@bpmix/core';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
@@ -59,6 +59,8 @@ export interface NowPlayingScreenProps {
   lyricsScopes: LyricsScope[];
   /** Passed to LyricsSection: lyrics come from a server and can't be linked or edited. */
   lyricsReadOnly?: boolean;
+  /** Passed to LyricsSection: lyrics come from a server and this person may change them there. */
+  serverLyricsEditing?: ServerLyricsEditing;
   /** Rendered right-aligned in the same row as the back button - the NotificationBell, so it sits inline rather than floating over content below it. */
   headerRight?: ReactNode;
   /** Controlled lyrics-editor/picker open state - lifted up to App.tsx since the trigger (the lyrics icon next to Settings - see HeaderActions/LyricsMenu) lives in the global header, a sibling of this whole screen, not a descendant of it. Threaded straight through to LyricsSection's own identically-named props. */
@@ -98,6 +100,7 @@ export function NowPlayingScreen({
   libraryStore,
   lyricsScopes,
   lyricsReadOnly,
+  serverLyricsEditing,
   headerRight,
   lyricsEditorOpen,
   onLyricsEditorOpenChange,
@@ -194,6 +197,7 @@ export function NowPlayingScreen({
               libraryStore={libraryStore}
               lyricsScopes={lyricsScopes}
               readOnly={lyricsReadOnly}
+              serverEditing={serverLyricsEditing}
               trackFileId={lyricsTrackKey}
               positionSeconds={displayPositionSeconds}
               durationSeconds={durationSeconds}

@@ -18,7 +18,7 @@ import {
   type LastFmStatusDto,
 } from './lastfm';
 import { mutationsResponseSchema, type MutationDto, type MutationsResponseDto } from './mutations';
-import { API_VERSION, API_VERSION_HEADER, lyricsSchema, type LyricsDto, type Page, type TrackDto, pageSchema, trackSchema } from './schemas';
+import { API_VERSION, API_VERSION_HEADER, lyricsSchema, lyricsSourceSchema, type LyricsDto, type LyricsSaveRequestDto, type LyricsSourceDto, type Page, type TrackDto, pageSchema, trackSchema } from './schemas';
 import { syncChangesResponseSchema, syncSnapshotResponseSchema, type SyncChangesResponseDto, type SyncSnapshotResponseDto } from './sync';
 import { utf8Decode } from './encoding';
 import { encodeTrackKey } from './trackKey';
@@ -235,6 +235,21 @@ export class ApiClient {
       if (err instanceof ApiError && err.status === 404) return null;
       throw err;
     }
+  }
+
+  /** Admin only. The file assigned to the track's lyrics and every file it could be assigned. */
+  lyricsSource(trackKey: string): Promise<LyricsSourceDto> {
+    return this.request('GET', `/api/v1/tracks/${trackKey}/lyrics/source`, lyricsSourceSchema);
+  }
+
+  /** Admin only. Links the track to a lyrics file (or, with null, to none). */
+  async assignLyrics(trackKey: string, lrcFileId: string | null): Promise<void> {
+    await this.send('PUT', `/api/v1/tracks/${trackKey}/lyrics/assignment`, { body: { lrcFileId } });
+  }
+
+  /** Admin only. Writes the lines back to the track's assigned .lrc file. Throws ApiError 409 (code 'lyrics_read_only') when the server's lyrics folder can't be written to. */
+  async saveLyrics(trackKey: string, lines: LyricsSaveRequestDto['lines']): Promise<void> {
+    await this.send('PUT', `/api/v1/tracks/${trackKey}/lyrics`, { body: { lines } });
   }
 
   coverPath(trackKey: string): string {

@@ -1,6 +1,6 @@
-import { Injectable } from '@nestjs/common';
-import { encodeTrackKey, type ListTracksQuery, type LyricsDto, type Page, type PlaylistDto, type RootDto, type TrackDto } from '@bpmix/api';
-import { loadAssignedLyrics } from '@bpmix/core';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { encodeTrackKey, type ListTracksQuery, type LyricsDto, type LyricsSaveRequestDto, type LyricsSourceDto, type Page, type PlaylistDto, type RootDto, type TrackDto } from '@bpmix/api';
+import { formatLrc, getLyricsFileIndex, loadAssignedLyrics, parseLrc, resolveAssignedLyricsFile } from '@bpmix/core';
 import { DatabaseService } from '../db/database.module.js';
 import { Prisma } from '../generated/prisma/client.js';
 import { FILE_ACCESS, type NodeFileAccess } from '../node/node.module.js';
@@ -62,6 +62,54 @@ export class LibraryService {
     if (scopes.length === 0) return null;
     const lyrics = await loadAssignedLyrics(this.fileAccess, store, scopes, fileId);
     return lyrics ? { synced: lyrics.synced, tags: lyrics.tags, lines: lyrics.lines } : null;
+  }
+
+  private async lyricsScopes() {
+    const scopes = await this.db.libraryStore.getLyricsScopes();
+    if (scopes.length === 0) throw new ConflictException({ code: 'no_lyrics_folder', message: 'This server has no lyrics folder (see BPMIX_LYRICS_ROOTS)' });
+    return scopes;
+  }
+
+  private async assertTrack(fileId: string): Promise<void> {
+    if (!(await this.db.prisma.track.findUnique({ where: { fileId }, select: { fileId: true } }))) throw new NotFoundException('No such track');
+  }
+
+  /** What an admin picks from when linking a lyrics file: the one assigned now, and every candidate. */
+  async lyricsSource(fileId: string): Promise<LyricsSourceDto> {
+    await this.assertTrack(fileId);
+    const store = this.db.libraryStore;
+    const scopes = await this.lyricsScopes();
+    const [files, assigned] = await Promise.all([getLyricsFileIndex(this.fileAccess, store, scopes), store.getLyricsAssignment(fileId)]);
+    return { assigned, candidates: files.map((f) => ({ id: f.id, name: f.name, relativePath: f.relativePath, rootId: f.rootId })) };
+  }
+
+  /** Links the track to one of the lyrics files the server knows (or, with null, unlinks it). */
+  async assignLyrics(fileId: string, lrcFileId: string | null): Promise<void> {
+    await this.assertTrack(fileId);
+    const store = this.db.libraryStore;
+    if (lrcFileId !== null) {
+      const files = await getLyricsFileIndex(this.fileAccess, store, await this.lyricsScopes());
+      if (!files.some((f) => f.id === lrcFileId)) throw new NotFoundException('No such lyrics file');
+    }
+    await store.putLyricsAssignment(fileId, lrcFileId);
+  }
+
+  /** Writes hand-synced or hand-edited lines back to the track's assigned .lrc, keeping the file's own tags ([lang:pt] and the like). */
+  async saveLyrics(fileId: string, lines: LyricsSaveRequestDto['lines']): Promise<void> {
+    await this.assertTrack(fileId);
+    const store = this.db.libraryStore;
+    const resolved = await resolveAssignedLyricsFile(this.fileAccess, store, await this.lyricsScopes(), fileId);
+    if (!resolved) throw new ConflictException({ code: 'no_lyrics_assigned', message: 'This track has no lyrics file to save into; link one first' });
+    const tags = parseLrc(await this.fileAccess.readFileText(resolved.file)).tags;
+    try {
+      await this.fileAccess.writeFileText(resolved.rootId, resolved.file.relativePath, formatLrc(lines, tags));
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'EROFS' || code === 'EACCES' || code === 'EPERM') {
+        throw new ConflictException({ code: 'lyrics_read_only', message: 'The server\'s lyrics folder is read-only; mount it writable to edit lyrics' });
+      }
+      throw err;
+    }
   }
 
   async listRoots(): Promise<RootDto[]> {

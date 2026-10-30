@@ -17,6 +17,7 @@ import type { LibraryStore, PlaybackState } from '../library-store/types';
 import { errorMessage } from '../errorMessage';
 import { applyChange, USER_PLAYLIST_ID_PREFIX, type ApplyContext } from './applySync';
 import { DEVICE_PLAYBACK_KEY, listDevicePlayback, playbackPayload, type RemotePlayback } from './devicePlayback';
+import type { ServerLyricsEditing } from './lyricsEditing';
 import { MutationQueue } from './mutationQueue';
 import { randomId } from './randomId';
 import { SERVER_SCROBBLE_QUEUE_KEY } from './serverLastFm';
@@ -40,6 +41,8 @@ interface StoredConfig {
   /** A native app's device token. Null on the web, which relies on its session cookie. */
   token: string | null;
   userName: string | null;
+  /** The account is an admin (and so may change the shared library's lyrics). Absent for a sign-in saved before this was recorded; refreshed at the next check-in. */
+  role?: 'ADMIN' | 'USER';
   /** The token lives in the platform's secret storage (see ServerModeDeps.secretStore), not in this record. */
   tokenInSecretStore?: boolean;
 }
@@ -56,6 +59,8 @@ export interface ServerStatus {
   active: boolean;
   url: string;
   userName: string | null;
+  /** Whether the account is an admin; null until known. */
+  isAdmin: boolean | null;
   lastSyncedAtMs: number | null;
   syncing: boolean;
   /** The last sync could not reach the server; the cached library is being shown. */
@@ -80,6 +85,10 @@ export interface ServerModeDeps {
   now?: () => number;
   /** The web app served by the server itself: same address, cookie instead of a token. */
   sameOrigin?: boolean;
+}
+
+function adminFlag(config: StoredConfig | null): boolean | null {
+  return config?.role ? config.role === 'ADMIN' : null;
 }
 
 /** Normalises what a person typed into an address: adds a scheme if missing, drops trailing slashes and any path. */
@@ -145,7 +154,7 @@ export class ServerMode {
   private pendingPush: { state: PlaybackState; playing: boolean } | null = null;
   private pushTimer: ReturnType<typeof setTimeout> | null = null;
   private cachedRoots: GrantedRoot[] = [];
-  private status: ServerStatus = { active: false, url: '', userName: null, lastSyncedAtMs: null, syncing: false, offline: false, error: null };
+  private status: ServerStatus = { active: false, url: '', userName: null, isAdmin: null, lastSyncedAtMs: null, syncing: false, offline: false, error: null };
   private api: ApiClient | null = null;
   private current: Promise<SyncOutcome> | null = null;
   private readonly listeners = new Set<(status: ServerStatus) => void>();
@@ -220,6 +229,7 @@ export class ServerMode {
       active: this.config !== null,
       url: this.config?.url ?? '',
       userName: this.config?.userName ?? null,
+      isAdmin: adminFlag(this.config),
       lastSyncedAtMs: rawSynced ? Number(rawSynced) : null,
     });
   }
@@ -255,7 +265,7 @@ export class ServerMode {
     }
     // putSetting has no delete; an empty value is read back as "none" by loadSaved's JSON.parse guard.
     await this.deps.store.putSetting(CONFIG_KEY, persisted ? JSON.stringify(persisted) : '');
-    this.setStatus({ active: config !== null, url: config?.url ?? '', userName: config?.userName ?? null });
+    this.setStatus({ active: config !== null, url: config?.url ?? '', userName: config?.userName ?? null, isAdmin: adminFlag(config) });
   }
 
   // ---------------------------------------------------------------- signing in and out
@@ -271,7 +281,7 @@ export class ServerMode {
     const result = await api.signInWithDeviceCode(this.deps.deviceName(), onProgress, signal);
     if ('token' in result) {
       await this.resetLocalCopy();
-      await this.saveConfig({ url, token: result.token, userName: result.me.displayName });
+      await this.saveConfig({ url, token: result.token, userName: result.me.displayName, role: result.me.role === 'ADMIN' ? 'ADMIN' : 'USER' });
       this.setStatus({ offline: false, error: null });
     }
     return result;
@@ -290,7 +300,7 @@ export class ServerMode {
     if (!me.enrolled) return false;
     if (this.config?.url !== '' || this.config?.userName !== me.displayName) {
       await this.resetLocalCopy();
-      await this.saveConfig({ url: '', token: null, userName: me.displayName });
+      await this.saveConfig({ url: '', token: null, userName: me.displayName, role: me.role === 'ADMIN' ? 'ADMIN' : 'USER' });
     }
     return true;
   }
@@ -351,6 +361,29 @@ export class ServerMode {
     } catch {
       return null;
     }
+  }
+
+  /** Changing the shared library's lyrics on the server (admins; the server enforces it). */
+  get lyricsEditing(): ServerLyricsEditing {
+    const api = () => {
+      const client = this.getApi();
+      if (!client) throw new Error('Not signed in to a server');
+      return client;
+    };
+    return {
+      source: async (trackFileId) => {
+        const { assigned, candidates } = await api().lyricsSource(encodeTrackKey(trackFileId));
+        return { assigned, candidates: candidates.map((c) => ({ id: c.id, name: c.name, relativePath: c.relativePath, sizeBytes: 0, lastModifiedMs: 0 })) };
+      },
+      assign: async (trackFileId, lrcFileId) => {
+        await api().assignLyrics(encodeTrackKey(trackFileId), lrcFileId);
+        // What this device shows (the lyrics indicator, the next load) follows at once; the sync will confirm it.
+        await this.deps.store.putLyricsAssignment(trackFileId, lrcFileId);
+      },
+      save: async (trackFileId, lines) => {
+        await api().saveLyrics(encodeTrackKey(trackFileId), lines);
+      },
+    };
   }
 
   /**
@@ -445,12 +478,24 @@ export class ServerMode {
     return run;
   }
 
+  /** A sign-in saved before the role was recorded learns it here; a failure just leaves it unknown for now. */
+  private async refreshRole(api: ApiClient): Promise<void> {
+    if (!this.config || this.config.role) return;
+    try {
+      const me = await api.me();
+      if (this.config) await this.saveConfig({ ...this.config, role: me.role === 'ADMIN' ? 'ADMIN' : 'USER' });
+    } catch {
+      // offline or unwell: the sync itself will say so
+    }
+  }
+
   private async runSync(): Promise<SyncOutcome> {
     await this.ready;
     const api = this.getApi();
     if (!api) return { kind: 'inactive', changed: false };
     this.setStatus({ syncing: true, error: null });
     try {
+      await this.refreshRole(api);
       // Our own changes go first, so the version of them the server hands back is what we then pull.
       await this.mutations.flush();
       const cursor = (await this.deps.store.getSetting(CURSOR_KEY)) || null;

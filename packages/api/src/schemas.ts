@@ -52,6 +52,25 @@ export const lyricsSchema = z.object({
 });
 export type LyricsDto = z.infer<typeof lyricsSchema>;
 
+/** A lyrics file the server found in its lyrics folders: what "Link a lyrics file" lets an admin choose from. */
+export const lyricsFileSchema = z.object({ id: z.string(), name: z.string(), relativePath: z.string(), rootId: z.string() });
+export type LyricsFileDto = z.infer<typeof lyricsFileSchema>;
+
+/** Where a track's lyrics come from: the file assigned to it (null = none) and every file it could be assigned. */
+export const lyricsSourceSchema = z.object({ assigned: z.string().nullable(), candidates: z.array(lyricsFileSchema) });
+export type LyricsSourceDto = z.infer<typeof lyricsSourceSchema>;
+
+export const lyricsAssignRequestSchema = z.object({ lrcFileId: z.string().min(1).max(2048).nullable() });
+
+export const MAX_LYRICS_LINES = 5000;
+/** The lines of a hand-synced or hand-edited lyrics file, written back to the track's assigned .lrc. */
+export const lyricsSaveRequestSchema = z.object({
+  lines: z
+    .array(z.object({ timeSeconds: z.number().min(0).max(86_400).nullable(), text: z.string().max(2000) }))
+    .max(MAX_LYRICS_LINES),
+});
+export type LyricsSaveRequestDto = z.infer<typeof lyricsSaveRequestSchema>;
+
 export function pageSchema<T extends z.ZodType>(item: T) {
   return z.object({ items: z.array(item), nextCursor: z.string().nullable() });
 }

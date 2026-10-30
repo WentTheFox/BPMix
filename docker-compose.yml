@@ -39,7 +39,9 @@ services:
       # A folder of .lrc files with no matching audio - list its name in
       # BPMIX_LYRICS_ROOTS (comma-separated for more than one) so the client
       # treats it as a lyrics scope instead of a permanently-empty library.
-      # See apps/server/README.md.
+      # See apps/server/README.md. Admins can fix and re-time lyrics from the apps;
+      # that writes these files, so drop the `:ro` if you want it (otherwise the
+      # app says the folder is read-only).
       # - ~/Music/Lyrics:/music/Lyrics:ro
     restart: unless-stopped
 

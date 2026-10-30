@@ -39,7 +39,7 @@ const trackChange = (t: TrackDto | null, name?: string): SyncChangeDto => ({ ent
 const me = { id: 'u', username: 'sam', displayName: 'Sam', role: 'USER', enrolled: true, hasPassword: true, totpEnabled: true, passkeys: [], recoveryCodesRemaining: 3, authenticatedAtMs: null, via: 'device' };
 
 async function signedIn(store = new MemoryStore(), server = fakeServer()) {
-  store.settings.set('serverMode.config', JSON.stringify({ url: 'https://music.example.com', token: 'bpd_token', userName: 'Sam' }));
+  store.settings.set('serverMode.config', JSON.stringify({ url: 'https://music.example.com', token: 'bpd_token', userName: 'Sam', role: 'USER' }));
   const mode = new ServerMode({ store, deviceName: () => 'Test phone', fetch: server.fetch, now: () => 1_000 });
   await mode.ready;
   return { store, server, mode };
@@ -275,6 +275,51 @@ describe('continuing on another device', () => {
         vi.useRealTimers();
       }
     });
+  });
+});
+
+describe('changing lyrics on the server', () => {
+  it('knows whether the account is an admin, learning it at the next check-in for an older sign-in', async () => {
+    const store = new MemoryStore();
+    store.settings.set('serverMode.config', JSON.stringify({ url: 'https://music.example.com', token: 'bpd_token', userName: 'Sam' })); // saved without a role
+    const server = fakeServer();
+    const mode = new ServerMode({ store, deviceName: () => 'x', fetch: server.fetch });
+    await mode.ready;
+    expect(mode.getStatus().isAdmin).toBeNull();
+    store.settings.set('serverMode.cursor', '1');
+    store.settings.set('serverMode.roots', JSON.stringify([ROOT]));
+    server.handler = (path) => (path === '/api/v1/auth/me' ? json({ ...me, role: 'ADMIN' }) : json({ changes: [], cursor: '1', hasMore: false, roots: [ROOT], totals: { tracks: 0, playlists: 0 } }));
+    await mode.sync();
+    expect(mode.getStatus().isAdmin).toBe(true);
+    expect(JSON.parse(store.settings.get('serverMode.config')!)).toMatchObject({ role: 'ADMIN' });
+  });
+
+  it('lists candidates, assigns (remembering it here at once) and saves through the server', async () => {
+    const { store, server, mode } = await signedIn();
+    const calls: { method: string; path: string; body: unknown }[] = [];
+    const key = encodeTrackKey('Music:a.mp3');
+    server.handler = (path, init) => {
+      calls.push({ method: init?.method ?? 'GET', path, body: init?.body ? JSON.parse(String(init.body)) : null });
+      if (path.endsWith('/lyrics/source')) return json({ assigned: 'Lyrics:a.lrc', candidates: [{ id: 'Lyrics:a.lrc', name: 'a.lrc', relativePath: 'a.lrc', rootId: 'Lyrics' }] });
+      return new Response(null, { status: 204 });
+    };
+    const editing = mode.lyricsEditing;
+    expect(await editing.source('Music:a.mp3')).toEqual({ assigned: 'Lyrics:a.lrc', candidates: [{ id: 'Lyrics:a.lrc', name: 'a.lrc', relativePath: 'a.lrc', sizeBytes: 0, lastModifiedMs: 0 }] });
+    await editing.assign('Music:a.mp3', 'Lyrics:b.lrc');
+    expect(await store.getLyricsAssignment('Music:a.mp3')).toBe('Lyrics:b.lrc');
+    await editing.save('Music:a.mp3', [{ timeSeconds: 1, text: 'hi' }]);
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([`GET /api/v1/tracks/${key}/lyrics/source`, `PUT /api/v1/tracks/${key}/lyrics/assignment`, `PUT /api/v1/tracks/${key}/lyrics`]);
+    expect(calls[2]!.body).toEqual({ lines: [{ timeSeconds: 1, text: 'hi' }] });
+  });
+
+  it('shows the lyrics indicator for tracks the server says have lyrics', async () => {
+    const { store, server, mode } = await signedIn();
+    store.settings.set('serverMode.cursor', '1');
+    store.settings.set('serverMode.roots', JSON.stringify([ROOT]));
+    server.handler = () => json({ changes: [trackChange(track('a', { hasLyrics: true })), trackChange(track('b', { hasLyrics: false }))], cursor: '2', hasMore: false, roots: [ROOT], totals: { tracks: 2, playlists: 0 } });
+    await mode.sync();
+    expect(await store.getLyricsAssignment('Music:a.mp3')).toBe('server:lyrics');
+    expect(await store.getLyricsAssignment('Music:b.mp3')).toBeNull();
   });
 });
 
