@@ -51,6 +51,8 @@ RUN cp -r apps/web/dist /out/web
 
 FROM node:22-alpine AS runtime
 WORKDIR /app
+# ffmpeg decodes tracks for loudness analysis (apps/server/src/scanner/ffmpegDecoder.ts).
+RUN apk add --no-cache ffmpeg
 ENV NODE_ENV=production
 ENV BPMIX_LIBRARY_ROOT=/music
 ENV BPMIX_WEB_DIST=/app/web

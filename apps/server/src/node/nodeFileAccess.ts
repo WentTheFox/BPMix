@@ -12,13 +12,18 @@ export function toFileRef(rootId: string, relativePath: string, name: string, si
   return { id: `${rootId}:${relativePath}`, name, relativePath, sizeBytes, lastModifiedMs };
 }
 
+export type NodeFileAccess = FileAccess & {
+  /** The file's real path on disk (symlink-checked), for handing to ffmpeg and the like. */
+  absolutePathOf(ref: FileRef): Promise<string>;
+};
+
 /**
  * FileAccess over the server's own disk, so the scan/metadata/lyrics code in
  * @bpmix/core runs unchanged on the server. Roots come from the volume
  * mounts under baseDir (see discoverRoots), never from a user prompt, hence
  * requestRoot/revokeRoot are not supported.
  */
-export function createNodeFileAccess(baseDir: string, lyricsRootIds: ReadonlySet<string> = new Set()): FileAccess {
+export function createNodeFileAccess(baseDir: string, lyricsRootIds: ReadonlySet<string> = new Set()): NodeFileAccess {
   async function rootPath(rootId: string): Promise<string> {
     const root = (await discoverRoots(baseDir, lyricsRootIds)).find((r) => r.id === rootId);
     if (!root) throw new Error(`No library root "${rootId}"`);
@@ -31,6 +36,8 @@ export function createNodeFileAccess(baseDir: string, lyricsRootIds: ReadonlySet
   }
 
   return {
+    absolutePathOf,
+
     async requestRoot() {
       throw new Error('Server roots are defined by volume mounts, not requested');
     },
