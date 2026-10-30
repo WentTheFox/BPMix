@@ -7,6 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createPrismaClient } from '../src/db/prisma.js';
 import { createPrismaLibraryStore } from '../src/db/prismaLibraryStore.js';
 import { decodeWithFfmpeg } from '../src/scanner/ffmpegDecoder.js';
+import { createNodeFileAccess } from '../src/node/nodeFileAccess.js';
 import { ScannerService } from '../src/scanner/scanner.service.js';
 import { TEST_DATABASE_URL } from './testDatabase.js';
 
@@ -19,10 +20,10 @@ function tone(file: string, title: string, hz: number): void {
 
 function makeScanner(): ScannerService {
   const db = { prisma, libraryStore: createPrismaLibraryStore(prisma) };
-  const env: Record<string, string> = { BPMIX_LIBRARY_ROOT: base, BPMIX_LYRICS_ROOTS: 'Lyrics' };
+  const env: Record<string, string> = {};
   // In-process analysis; production runs the same decode+analyze on a worker thread.
   const analyze = async (absolutePath: string) => analyzeTrack(await decodeWithFfmpeg(absolutePath));
-  return new ScannerService(db as never, { get: (key: string) => env[key] } as never, analyze);
+  return new ScannerService(db as never, { get: (key: string) => env[key] } as never, createNodeFileAccess(base, new Set(['Lyrics'])), analyze);
 }
 
 beforeAll(async () => {
@@ -73,6 +74,7 @@ describe('ScannerService', () => {
 
     const metadata = await prisma.trackMetadata.findUnique({ where: { fileId: 'Music:Album/one.mp3' } });
     expect(metadata).toMatchObject({ title: 'One', artists: ['Test Artist'] });
+    expect(metadata?.contentHash).toMatch(/^[0-9a-f]{64}$/);
     expect(metadata?.durationSeconds).toBeGreaterThan(2);
     expect((await prisma.trackAnalysis.findUnique({ where: { fileId: 'Music:two.mp3' } }))?.normalizationGain).toBeGreaterThan(0);
     expect(await prisma.playlist.findMany()).toMatchObject([{ name: 'List', trackFileIds: ['Music:Album/one.mp3', 'missing:Music:missing/gone.mp3'] }]);
@@ -87,6 +89,13 @@ describe('ScannerService', () => {
     expect(await prisma.track.findUnique({ where: { fileId: 'Music:two.mp3' } })).toBeNull();
     expect(await prisma.trackMetadata.findUnique({ where: { fileId: 'Music:two.mp3' } })).toBeNull();
     expect(await prisma.trackAnalysis.findUnique({ where: { fileId: 'Music:two.mp3' } })).toBeNull();
+  });
+
+  it('drops a lyrics scope whose root is gone instead of failing or hanging the scan', async () => {
+    await prisma.lyricsScope.create({ data: { rootId: 'Unmounted', relativePath: '' } });
+    const summary = await makeScanner().scanAll();
+    expect(summary.tracks).toBe(3);
+    expect(await prisma.lyricsScope.findMany({ where: { rootId: 'Unmounted' } })).toEqual([]);
   });
 
   it('joins a scan that is already running instead of starting another', async () => {

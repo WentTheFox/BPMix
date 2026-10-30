@@ -135,6 +135,9 @@ importers:
 
   apps/server:
     dependencies:
+      '@bpmix/api':
+        specifier: workspace:*
+        version: link:../../packages/api
       '@bpmix/core':
         specifier: workspace:*
         version: link:../../packages/core

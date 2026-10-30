@@ -16,7 +16,7 @@ import {
   type TrackRecord,
 } from '@bpmix/core';
 import { DatabaseService } from '../db/database.module.js';
-import { createNodeFileAccess, type NodeFileAccess } from '../node/nodeFileAccess.js';
+import { FILE_ACCESS, type NodeFileAccess } from '../node/node.module.js';
 import type { AnalyzeFile } from './analysisPool.js';
 import { probeDurationSeconds } from './ffprobeDuration.js';
 import { sharpCoverArtResizer } from './sharpCoverArtResizer.js';
@@ -38,6 +38,7 @@ export interface ScanStatus {
 }
 
 const METADATA_CONCURRENCY = 4;
+const SHA256_HEX = /^[0-9a-f]{64}$/;
 
 function toFileRef(track: TrackRecord): FileRef {
   return {
@@ -82,23 +83,15 @@ async function mapLimit<T>(
 @Injectable()
 export class ScannerService implements OnApplicationBootstrap {
   private readonly logger = new Logger(ScannerService.name);
-  private readonly fileAccess: NodeFileAccess;
   private current: Promise<ScanSummary> | null = null;
   private last: ScanSummary | null = null;
 
   constructor(
     private readonly db: DatabaseService,
     private readonly config: ConfigService,
+    @Inject(FILE_ACCESS) private readonly fileAccess: NodeFileAccess,
     @Inject(ANALYZE_FILE) private readonly analyzeFile: AnalyzeFile,
-  ) {
-    const lyricsRoots = new Set(
-      (config.get<string>('BPMIX_LYRICS_ROOTS') ?? '')
-        .split(',')
-        .map((id) => id.trim())
-        .filter((id) => id.length > 0),
-    );
-    this.fileAccess = createNodeFileAccess(config.get<string>('BPMIX_LIBRARY_ROOT') ?? '/music', lyricsRoots);
-  }
+  ) {}
 
   onApplicationBootstrap(): void {
     if (this.config.get<string>('BPMIX_SCAN_ON_START') === 'false') return;
@@ -184,6 +177,11 @@ export class ScannerService implements OnApplicationBootstrap {
         await store.addLyricsScope({ rootId: root.id, relativePath: '' });
       }
     }
+    // A scope whose volume was unmounted or renamed would make every lyrics match fail.
+    const rootIds = new Set(roots.map((r) => r.id));
+    for (const scope of existingScopes) {
+      if (!rootIds.has(scope.rootId)) await store.removeLyricsScope(scope.rootId, scope.relativePath);
+    }
 
     for (const root of libraryRoots) {
       await scanRoot(this.fileAccess, store, root.id);
@@ -197,16 +195,26 @@ export class ScannerService implements OnApplicationBootstrap {
     const metadataFailures = await mapLimit(tracks, METADATA_CONCURRENCY, async (track) => {
       const ref = toFileRef(track);
       const metadata = await ensureTrackMetadata(store, this.fileAccess, ref, sharpCoverArtResizer);
+      const patch: { durationSeconds?: number; contentHash?: string } = {};
       // Core reads the duration from the file header; formats it can't (Ogg/Opus, MP4 with a trailing moov, ...) come back null.
       if (metadata.durationSeconds === null) {
         const durationSeconds = await probeDurationSeconds(await this.fileAccess.absolutePathOf(ref));
-        if (durationSeconds !== null) await store.putMetadata({ ...metadata, durationSeconds });
+        if (durationSeconds !== null) patch.durationSeconds = durationSeconds;
       }
+      // Core's own hash is a cheap 32-bit FNV; clients verifying a download need a real digest.
+      if (!SHA256_HEX.test(metadata.contentHash ?? '')) {
+        const contentHash = await this.fileAccess.getContentHash?.(ref);
+        if (contentHash) patch.contentHash = contentHash;
+      }
+      if (Object.keys(patch).length > 0) await store.putMetadata({ ...metadata, ...patch });
     }, (track, err) => this.logger.warn(`Metadata failed for ${track.fileId}: ${String(err)}`));
 
     const scopes: LyricsScope[] = await store.getLyricsScopes();
     if (scopes.length > 0) {
-      await matchLibraryLyrics(this.fileAccess, store, scopes, tracks);
+      // A lyrics problem shouldn't cost the rest of the scan (analysis still has to run).
+      await matchLibraryLyrics(this.fileAccess, store, scopes, tracks).catch((err: unknown) =>
+        this.logger.warn(`Lyrics matching failed: ${String(err)}`),
+      );
     }
 
     // Analysis already spreads across worker threads inside analyzeFile; keep the feed to it modest.

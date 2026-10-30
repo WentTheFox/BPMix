@@ -1,3 +1,4 @@
+import { encodeTrackKey } from '@bpmix/api';
 import type { LibraryStore, LyricsScope, PlaybackState, PlaylistRecord, TrackMetadata, TrackRecord } from '@bpmix/core';
 import type { PrismaClient } from './prisma.js';
 
@@ -104,7 +105,7 @@ export function createPrismaLibraryStore(db: PrismaClient): LibraryStore {
 
     async getCoverArt(fileId) {
       const present = await db.coverArt.findUnique({ where: { fileId }, select: { fileId: true } });
-      return present ? `/api/v1/tracks/${encodeURIComponent(fileId)}/cover` : null;
+      return present ? `/api/v1/tracks/${encodeTrackKey(fileId)}/cover` : null;
     },
     async putCoverArt(fileId, art) {
       if (!art) {

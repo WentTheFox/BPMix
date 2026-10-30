@@ -35,7 +35,7 @@ export default defineConfig({
   outDir: 'dist',
   clean: true,
   sourcemap: true,
-  noExternal: ['@bpmix/core'],
+  noExternal: ['@bpmix/core', '@bpmix/api'],
   esbuildOptions(options) {
     options.alias = { ...options.alias, '@bpmix/core': path.resolve(dirname, '../../packages/core/src/server.ts') };
   },

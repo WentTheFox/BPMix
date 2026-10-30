@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { encodeTrackKey } from '@bpmix/api';
 import { createPrismaClient } from '../src/db/prisma.js';
 import { createPrismaLibraryStore } from '../src/db/prismaLibraryStore.js';
 import { TEST_DATABASE_URL } from './testDatabase.js';
@@ -57,7 +58,7 @@ describe('PrismaLibraryStore', () => {
   it('serves cover art as a URL and removes it on null', async () => {
     expect(await store.getCoverArt('a:x.mp3')).toBeNull();
     await store.putCoverArt('a:x.mp3', { mimeType: 'image/png', data: new Uint8Array([1, 2, 3]) });
-    expect(await store.getCoverArt('a:x.mp3')).toBe('/api/v1/tracks/a%3Ax.mp3/cover');
+    expect(await store.getCoverArt('a:x.mp3')).toBe(`/api/v1/tracks/${encodeTrackKey('a:x.mp3')}/cover`);
     await store.putCoverArt('a:x.mp3', null);
     expect(await store.getCoverArt('a:x.mp3')).toBeNull();
   });

@@ -25,7 +25,7 @@ export const trackSchema = z.object({
   artists: z.array(z.string()),
   album: z.string().nullable(),
   durationSeconds: z.number().nullable(),
-  /** sha256 of the file once scanned; lets a client verify a download or detect a changed file. */
+  /** sha256 (hex) of the file once scanned; lets a client verify a download or detect a changed file. */
   contentHash: z.string().nullable(),
   /** Linear gain that brings the track to the reference loudness, once analysed. */
   normalizationGain: z.number().nullable(),
