@@ -125,6 +125,7 @@ model User {
   recoveryCodes RecoveryCode[]
   sessions      Session[]
   deviceTokens  DeviceToken[]
+  invites       Invite[]
 
   @@map("users")
 }
@@ -194,19 +195,21 @@ model DeviceToken {
   @@map("device_tokens")
 }
 
-/// First-run admin setup, user invites and credential-reset links.
+/// One-time enrollment link for an existing user: an admin creates the user, then hands them this
+/// link to register their first passkey (or a replacement, as a credential reset). There is no open
+/// registration - the only way to get an account is the very first sign-up, or one of these.
 model Invite {
   id          String    @id @default(uuid())
   tokenHash   String    @unique @map("token_hash")
-  role        Role      @default(USER)
+  userId      String    @map("user_id")
   createdById String?   @map("created_by_id")
-  /// Set for a reset link: registers a new passkey for this existing user instead of creating one.
-  forUserId   String?   @map("for_user_id")
-  label       String?
   expiresAt   DateTime  @map("expires_at")
   usedAt      DateTime? @map("used_at")
   createdAt   DateTime  @default(now()) @map("created_at")
 
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
   @@map("invites")
 }
 
