@@ -11,9 +11,17 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.bridge.ReadableMap
+import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.facebook.react.bridge.WritableArray
 import com.facebook.react.bridge.WritableMap
 import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URL
+import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Plain java.io.File access over the whole of external storage, gated on
@@ -192,5 +200,123 @@ class BPMixFileAccessModule(private val reactContext: ReactApplicationContext) :
     } catch (e: Exception) {
       promise.reject("DELETE_LOCAL_ERROR", e)
     }
+  }
+
+  // --- Offline downloads (see apps/mobile/src/adapters/offlineBackend.android.ts) ---
+  //
+  // Tracks are streamed straight from the network to a file under filesDir/offline and hashed on the way
+  // through, so a 40MB file never crosses the JS bridge (or gets base64'd) just to be saved. A file's name is
+  // the SHA-256 of its track id (ids are long paths); the download goes to a ".part" file and is renamed once
+  // complete, so a file that exists is a complete one.
+
+  private val activeDownloads = ConcurrentHashMap<String, HttpURLConnection>()
+  private val cancelledDownloads = ConcurrentHashMap.newKeySet<String>()
+
+  private fun offlineFile(fileId: String, suffix: String = ""): File {
+    val name = MessageDigest.getInstance("SHA-256").digest(fileId.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+    return File(File(reactContext.filesDir, "offline").apply { mkdirs() }, name + suffix)
+  }
+
+  // Required by NativeEventEmitter; progress events are emitted whether or not anything listens.
+  @ReactMethod fun addListener(eventName: String) {}
+  @ReactMethod fun removeListeners(count: Int) {}
+
+  /**
+   * Rejects with code NETWORK (could not reach / lost the server), HTTP_<status> (the server said no) or
+   * ABORTED (offlineCancel was called). Progress goes out as "BPMixOfflineProgress" {requestId, bytes}, at most
+   * every 250ms.
+   */
+  @ReactMethod
+  fun offlineDownload(requestId: String, fileId: String, url: String, headers: ReadableMap, promise: Promise) {
+    Thread {
+      val part = offlineFile(fileId, ".part")
+      try {
+        val connection = URL(url).openConnection() as HttpURLConnection
+        activeDownloads[requestId] = connection
+        connection.instanceFollowRedirects = true
+        connection.connectTimeout = 15_000
+        connection.readTimeout = 30_000
+        val keys = headers.keySetIterator()
+        while (keys.hasNextKey()) {
+          val key = keys.nextKey()
+          connection.setRequestProperty(key, headers.getString(key))
+        }
+        connection.connect()
+        val status = connection.responseCode
+        if (status !in 200..299) {
+          connection.disconnect()
+          promise.reject("HTTP_$status", "HTTP $status")
+          return@Thread
+        }
+        val digest = MessageDigest.getInstance("SHA-256")
+        var total = 0L
+        var lastEmit = 0L
+        connection.inputStream.use { input ->
+          FileOutputStream(part).use { output ->
+            val buffer = ByteArray(64 * 1024)
+            var read: Int
+            while (input.read(buffer).also { read = it } != -1) {
+              output.write(buffer, 0, read)
+              digest.update(buffer, 0, read)
+              total += read
+              val now = System.currentTimeMillis()
+              if (now - lastEmit >= 250) {
+                lastEmit = now
+                val event: WritableMap = Arguments.createMap()
+                event.putString("requestId", requestId)
+                event.putDouble("bytes", total.toDouble())
+                reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java).emit("BPMixOfflineProgress", event)
+              }
+            }
+          }
+        }
+        val dest = offlineFile(fileId)
+        dest.delete()
+        if (!part.renameTo(dest)) throw IOException("Could not move the download into place")
+        val result: WritableMap = Arguments.createMap()
+        result.putDouble("sizeBytes", total.toDouble())
+        result.putString("sha256", digest.digest().joinToString("") { "%02x".format(it) })
+        promise.resolve(result)
+      } catch (e: Exception) {
+        part.delete()
+        if (cancelledDownloads.remove(requestId)) promise.reject("ABORTED", "Download cancelled")
+        else promise.reject("NETWORK", e.message, e)
+      } finally {
+        activeDownloads.remove(requestId)
+      }
+    }.start()
+  }
+
+  @ReactMethod
+  fun offlineCancel(requestId: String) {
+    val connection = activeDownloads[requestId] ?: return
+    cancelledDownloads.add(requestId)
+    // Closing the socket from another thread is how a blocked read is interrupted; it must not be the JS thread's problem.
+    Thread { connection.disconnect() }.start()
+  }
+
+  /** The stored bytes as base64, or null if there is no copy. Same shape as readFileBytesBase64, which is how local tracks reach the audio engine. */
+  @ReactMethod
+  fun offlineReadBase64(fileId: String, promise: Promise) {
+    try {
+      val file = offlineFile(fileId)
+      promise.resolve(if (file.isFile) Base64.encodeToString(file.readBytes(), Base64.NO_WRAP) else null)
+    } catch (e: Exception) {
+      promise.reject("READ_FILE_ERROR", e)
+    }
+  }
+
+  /** Stored size in bytes, or -1 if there is no copy. */
+  @ReactMethod
+  fun offlineSize(fileId: String, promise: Promise) {
+    val file = offlineFile(fileId)
+    promise.resolve(if (file.isFile) file.length().toDouble() else -1.0)
+  }
+
+  @ReactMethod
+  fun offlineRemove(fileId: String, promise: Promise) {
+    offlineFile(fileId).delete()
+    offlineFile(fileId, ".part").delete()
+    promise.resolve(null)
   }
 }

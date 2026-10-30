@@ -8,6 +8,7 @@ import type { FileRef, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '
 import {
   BUILD_VERSION,
   DEFAULT_DISCORD_APPLICATION_ID,
+  OfflineLibrary,
   ServerMode,
   addError,
   createModeAwareFileAccess,
@@ -55,6 +56,8 @@ import {
   ExternalConnectionsScreen,
   useDiscordPresence,
   useLastFmConnection,
+  offlinePlaylistControl,
+  useOffline,
   useServerConnection,
   useUserPlaylistActions,
   useLibraryRootActions,
@@ -103,6 +106,7 @@ import {
   toRelativeDisplay,
 } from './src/adapters/fileAccess';
 import { createLibraryStore, setPriorityFileId } from './src/adapters/libraryStore';
+import { createOfflineBackend, supportsOfflineStorage } from './src/adapters/offlineBackend';
 import { MediaSessionBridge } from './src/MediaSessionBridge';
 import { MemoryOverlay } from './src/debug/MemoryOverlay';
 
@@ -127,7 +131,9 @@ const serverMode = new ServerMode({
     return Platform.OS === 'android' && constants.Model ? `${constants.Brand ?? 'Android'} ${constants.Model}`.trim() : 'BPMix app';
   },
 });
-const fileAccess = createModeAwareFileAccess(localFileAccess, serverMode);
+// Downloaded tracks (Android: native streaming downloader; Windows has none yet) play with no network.
+const offlineLibrary = supportsOfflineStorage() ? new OfflineLibrary({ backend: createOfflineBackend(), store: localLibraryStore, server: serverMode }) : undefined;
+const fileAccess = createModeAwareFileAccess(localFileAccess, serverMode, offlineLibrary);
 const libraryStore = withServerCoverArt(localLibraryStore, serverMode);
 // Kicked off immediately at module load - the earliest this can possibly
 // start, well before any component mounts - and shared by both
@@ -680,6 +686,7 @@ function AppContent() {
   // remounted would lose its accumulated listen time.
   const lastFm = useLastFmConnection(settings, updateSettings);
   const server = useServerConnection(Platform.OS === 'android' ? serverMode : undefined);
+  const offline = useOffline(offlineLibrary);
   const fromServer = server?.status.active === true;
   const userPlaylists = useUserPlaylistActions(colors);
   const playbackBridges = (
@@ -914,6 +921,7 @@ function AppContent() {
         onUpdateSettings={updateSettings}
         lastFm={lastFm}
         server={server}
+        offline={offline}
         onClose={() => closeExternalConnections()}
       />
     </ScreenLayer>
@@ -1130,6 +1138,7 @@ function AppContent() {
           onEditRaw={isRealPlaylistScreen && !fromServer ? () => setEditingPlaylistFile({ root: screen.root, playlist: screen.playlist }) : undefined}
           onRename={isUserPlaylistScreen ? () => userPlaylists.startRename(screen.playlist.name) : undefined}
           onDelete={isUserPlaylistScreen ? () => userPlaylists.startDelete(screen.playlist.name) : undefined}
+          offline={fromServer && offline ? offlinePlaylistControl(offline, screen.playlist.trackFileIds) : undefined}
         />
       </>
     ) : null;
