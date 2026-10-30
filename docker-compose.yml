@@ -27,7 +27,8 @@ services:
       # The public address, for passkeys and cross-site protection (set when serving over https):
       # BPMIX_ORIGIN: https://music.example.com
       # BPMIX_TRUST_PROXY: 1
-      # Require a secret for the very first sign-up (the one that becomes the admin):
+      # The very first sign-up (the one that becomes the admin) needs a setup token. By default the server
+      # prints a generated one in its log (`docker compose logs bpmix`); set your own, or `none` to skip it:
       # BPMIX_SETUP_TOKEN: change-me
       # BPMIX_LYRICS_ROOTS: Lyrics
     ports:

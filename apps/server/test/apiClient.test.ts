@@ -49,7 +49,8 @@ beforeAll(async () => {
   for (const [file, hz] of [['a.mp3', 220], ['b.mp3', 330]] as const) {
     execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `sine=frequency=${hz}:duration=2`, '-metadata', `title=${file}`, path.join(base, 'Music', file)]);
   }
-  for (const k of ['BPMIX_SETUP_TOKEN', 'BPMIX_ORIGIN']) delete process.env[k];
+  delete process.env.BPMIX_ORIGIN;
+  process.env.BPMIX_SETUP_TOKEN = 'none'; // open first sign-up, as most tests set up an admin directly
   Object.assign(process.env, { DATABASE_URL: TEST_DATABASE_URL, BPMIX_LIBRARY_ROOT: base, BPMIX_SCAN_ON_START: 'false', BPMIX_DATA_DIR: path.join(base, 'data'), BPMIX_AUTH_RATE_LIMIT: '1000', BPMIX_DEVICE_WAIT_MS: '1500', BPMIX_SCAN_BACKOFF_MS: '0' });
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).overrideProvider(CLOCK).useValue(clock.now).overrideProvider(ANALYZE_FILE).useValue(realAnalyze).compile();
   app = moduleRef.createNestApplication<NestExpressApplication>();

@@ -15,6 +15,8 @@ export class AuthConfig {
   readonly rpName = 'BPMix';
   /** If set, the very first sign-up must present it, so nobody can race the owner to a freshly deployed public server. */
   readonly setupToken: string | undefined;
+  /** BPMIX_SETUP_TOKEN=none: anyone may make the first account (no generated token either). For a server on a private network. */
+  readonly openSetup: boolean;
   readonly sessionTtlMs = 30 * DAY_MS;
   readonly mfaTtlMs = 5 * 60_000;
   readonly inviteTtlMs = 7 * DAY_MS;
@@ -41,7 +43,9 @@ export class AuthConfig {
       .split(',')
       .map((o) => o.trim().replace(/\/+$/, ''))
       .filter((o) => o.length > 0);
-    this.setupToken = config.get<string>('BPMIX_SETUP_TOKEN') || undefined;
+    const setup = config.get<string>('BPMIX_SETUP_TOKEN') || undefined;
+    this.openSetup = setup?.toLowerCase() === 'none';
+    this.setupToken = this.openSetup ? undefined : setup;
     this.deviceWaitMs = Number(config.get('BPMIX_DEVICE_WAIT_MS') ?? 25_000);
   }
 

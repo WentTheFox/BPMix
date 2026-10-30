@@ -207,7 +207,7 @@ function setupPage(status) {
       h('h2', {}, 'Create the first account'),
       h('p', { class: 'muted' }, 'It becomes the administrator. After this, only an admin can add people.'),
       form(
-        h('div', {}, field('Username', 'username', { autocomplete: 'username' }), field('Display name', 'displayName', { autocomplete: 'name' }), status.setupTokenRequired ? field('Setup token', 'setupToken', { autocomplete: 'off' }) : null),
+        h('div', {}, field('Username', 'username', { autocomplete: 'username' }), field('Display name', 'displayName', { autocomplete: 'name' }), status.setupTokenRequired ? field('Setup token (printed in the server log when it started)', 'setupToken', { autocomplete: 'off' }) : null),
         'Continue',
         async (values) => {
           const me = await api('POST', '/auth/setup', values);

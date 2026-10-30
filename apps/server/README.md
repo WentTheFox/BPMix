@@ -71,7 +71,7 @@ Environment variables, all optional:
 | `DATABASE_URL`         | *(required)* | PostgreSQL connection string, e.g. `postgresql://user:password@host:5432/bpmix`. |
 | `BPMIX_ORIGIN`         | *(derived from the request)* | The public address of the site, e.g. `https://music.example.com` (comma-separated for several). Used for passkeys and to refuse cross-site writes. Set it. |
 | `BPMIX_TRUST_PROXY`    | *(off)*   | How many reverse proxies to trust for the client address and protocol (`1`), or a subnet name such as `loopback`. |
-| `BPMIX_SETUP_TOKEN`    | *(none)*  | If set, required by the very first sign-up (the one that becomes the admin). |
+| `BPMIX_SETUP_TOKEN`    | *(generated)* | Secret required by the very first sign-up (the one that becomes the admin). If unset, the server makes a one-time token at startup and prints it in its log (`docker logs <container>`). `none` skips it, for a server on a private network. |
 | `BPMIX_SECRET_KEY`     | *(generated)* | Key used to encrypt authenticator secrets. If unset, a random one is created once in `BPMIX_DATA_DIR`. |
 | `BPMIX_DATA_DIR`       | `./data` (`/data` in the image) | Where the generated secret key lives. Keep it on a volume. |
 | `BPMIX_DEVICE_WAIT_MS` | `25000` | How long one "wait for approval" request is held open before the app is told to ask again. |
@@ -176,9 +176,11 @@ volume mount and restarting the container is the equivalent.
 There is **no open registration**.
 
 - **First run:** the first person to open the app and sign up becomes the
-  admin. After that, sign-up is closed for good. On a server reachable by
-  others, set `BPMIX_SETUP_TOKEN` so that first sign-up needs a secret too —
-  otherwise whoever gets there first wins. (An account that never finishes
+  admin, and must enter a setup token to do it. Unless you set
+  `BPMIX_SETUP_TOKEN` yourself, the server generates one at startup and
+  prints it in its log (it changes on every restart and only matters until
+  the first account is set up); set `BPMIX_SETUP_TOKEN=none` to skip it on a
+  private network. After that, sign-up is closed for good. (An account that never finishes
   setting up its sign-in method is held for 15 minutes and then can be
   replaced, so you can't be locked out by a half-finished setup.)
 - **More people:** an admin creates each account and gets back a one-time,

@@ -42,7 +42,8 @@ beforeAll(async () => {
     execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `sine=frequency=${hz}:duration=1`, '-metadata', `title=${file}`, path.join(base, 'Music', file)]);
   }
   await writeFile(path.join(base, 'Music', 'List.m3u8'), '#EXTM3U\nAlbum/b.mp3\nAlbum/a.mp3\n');
-  for (const key of ['BPMIX_SETUP_TOKEN', 'BPMIX_ORIGIN']) delete process.env[key];
+  delete process.env.BPMIX_ORIGIN;
+  process.env.BPMIX_SETUP_TOKEN = 'none'; // open first sign-up, as most tests set up an admin directly
   Object.assign(process.env, { DATABASE_URL: TEST_DATABASE_URL, BPMIX_LIBRARY_ROOT: base, BPMIX_SCAN_ON_START: 'false', BPMIX_DATA_DIR: path.join(base, 'data'), BPMIX_AUTH_RATE_LIMIT: '1000', BPMIX_SCAN_BACKOFF_MS: '0' });
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(CLOCK)

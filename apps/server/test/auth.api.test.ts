@@ -23,7 +23,8 @@ let base: string;
 let prisma: DatabaseService['prisma'];
 
 async function startApp(env: Record<string, string> = {}, options: { legacy?: boolean } = {}): Promise<INestApplication> {
-  for (const key of ['BPMIX_SETUP_TOKEN', 'BPMIX_ORIGIN']) delete process.env[key];
+  delete process.env.BPMIX_ORIGIN;
+  process.env.BPMIX_SETUP_TOKEN = 'none'; // open first sign-up, as most tests set up an admin directly
   Object.assign(process.env, { DATABASE_URL: TEST_DATABASE_URL, BPMIX_LIBRARY_ROOT: base, BPMIX_SCAN_ON_START: 'false', BPMIX_DATA_DIR: path.join(base, 'data'), BPMIX_AUTH_RATE_LIMIT: '1000', ...env });
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).overrideProvider(CLOCK).useValue(clock.now).compile();
   const nest = moduleRef.createNestApplication();
@@ -96,6 +97,34 @@ describe('first sign-up and the closed door', () => {
     const client = anonymous();
     await client.post('/api/v1/auth/setup', { username: 'second', displayName: 'Second' });
     expect(await prisma.user.findMany({ select: { username: true } })).toEqual([{ username: 'second' }]);
+  });
+
+  it('makes its own setup token when none is configured, and shows it only in the server log', async () => {
+    const generated = await startApp({ BPMIX_SETUP_TOKEN: '' });
+    try {
+      const token = generated.get(AuthService).generatedSetupToken!;
+      expect(token).toBeTruthy();
+      const client = new TestClient(await urlOf(generated));
+      expect(await client.json<AuthStatusDto>('/api/v1/auth/status')).toEqual({ setupRequired: true, setupTokenRequired: true });
+      expect((await client.fetch('/api/v1/auth/setup', { method: 'POST', json: { username: 'alice', displayName: 'A' } })).status).toBe(403);
+      expect((await client.fetch('/api/v1/auth/setup', { method: 'POST', json: { username: 'alice', displayName: 'A', setupToken: ' ' + token + ' ' } })).status).toBe(201);
+      // Still needed while the account is unfinished: a later visitor can't take over without it.
+      await prisma.user.updateMany({ data: { createdAt: new Date(Date.now() - 60 * 60_000) } });
+      expect((await new TestClient(await urlOf(generated)).fetch('/api/v1/auth/setup', { method: 'POST', json: { username: 'mallory', displayName: 'M' } })).status).toBe(403);
+      expect(await prisma.user.count({ where: { username: 'mallory' } })).toBe(0);
+    } finally {
+      await generated.close();
+    }
+  });
+
+  it('skips the setup token entirely with BPMIX_SETUP_TOKEN=none', async () => {
+    const open = await startApp({ BPMIX_SETUP_TOKEN: 'none' });
+    try {
+      expect(open.get(AuthService).generatedSetupToken).toBeUndefined();
+      expect(await new TestClient(await urlOf(open)).json<AuthStatusDto>('/api/v1/auth/status')).toEqual({ setupRequired: true, setupTokenRequired: false });
+    } finally {
+      await open.close();
+    }
   });
 
   it('survives simultaneous first sign-ups with exactly one winner', async () => {
@@ -433,7 +462,8 @@ describe('web app hosting', () => {
     await writeFile(path.join(dist, 'index.html'), '<!doctype html><title>BPMix</title>');
     await writeFile(path.join(dist, 'app.js'), 'console.log(1)');
     // Mounted the way main.ts does: before init, so it can't sit behind Nest's 404 handler.
-    for (const key of ['BPMIX_SETUP_TOKEN', 'BPMIX_ORIGIN']) delete process.env[key];
+    delete process.env.BPMIX_ORIGIN;
+  process.env.BPMIX_SETUP_TOKEN = 'none'; // open first sign-up, as most tests set up an admin directly
     Object.assign(process.env, { DATABASE_URL: TEST_DATABASE_URL, BPMIX_LIBRARY_ROOT: base, BPMIX_SCAN_ON_START: 'false', BPMIX_DATA_DIR: path.join(base, 'data') });
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).overrideProvider(CLOCK).useValue(clock.now).compile();
     const nest = moduleRef.createNestApplication();

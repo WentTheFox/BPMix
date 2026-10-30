@@ -20,7 +20,8 @@ let prisma: DatabaseService['prisma'];
 
 beforeAll(async () => {
   base = await mkdtemp(path.join(tmpdir(), 'bpmix-device-'));
-  for (const key of ['BPMIX_SETUP_TOKEN', 'BPMIX_ORIGIN']) delete process.env[key];
+  delete process.env.BPMIX_ORIGIN;
+  process.env.BPMIX_SETUP_TOKEN = 'none'; // open first sign-up, as most tests set up an admin directly
   Object.assign(process.env, {
     DATABASE_URL: TEST_DATABASE_URL,
     BPMIX_LIBRARY_ROOT: base,

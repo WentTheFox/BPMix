@@ -71,6 +71,8 @@ const INVALID_CREDENTIALS = 'Invalid credentials';
 export class AuthService implements OnApplicationBootstrap {
   private readonly logger = new Logger(AuthService.name);
   private readonly failures: FailureLimiter;
+  /** Made at startup when no account exists and no token was configured; see onApplicationBootstrap. */
+  generatedSetupToken: string | undefined;
 
   constructor(
     private readonly db: DatabaseService,
@@ -82,10 +84,17 @@ export class AuthService implements OnApplicationBootstrap {
   }
 
   async onApplicationBootstrap(): Promise<void> {
-    if ((await this.enrolledUserCount()) === 0) {
+    if ((await this.enrolledUserCount()) > 0) return;
+    if (this.config.setupToken) {
+      this.logger.warn('No accounts exist yet: the first person to sign up becomes the admin, and needs BPMIX_SETUP_TOKEN for it.');
+    } else if (this.config.openSetup) {
+      this.logger.warn('No accounts exist yet, and BPMIX_SETUP_TOKEN=none: the first person to open the app and sign up becomes the admin.');
+    } else {
+      // Nobody has to remember to configure a secret: without one, a new server makes its own, good until the first account is made.
+      this.generatedSetupToken = generateToken();
       this.logger.warn(
-        'No accounts exist yet: the first person to open the app and sign up becomes the admin.' +
-          (this.config.setupToken ? ' (BPMIX_SETUP_TOKEN is required for that sign-up.)' : ' Set BPMIX_SETUP_TOKEN to require a secret for it.'),
+        `No accounts exist yet. To create the first (admin) account, open the app and enter this setup token: ${this.generatedSetupToken}\n` +
+          '  (It is only valid until that account exists, and changes on every restart. Set BPMIX_SETUP_TOKEN to choose your own, or BPMIX_SETUP_TOKEN=none to skip it on a private network.)',
       );
     }
   }
@@ -122,7 +131,8 @@ export class AuthService implements OnApplicationBootstrap {
   }
 
   async status(): Promise<{ setupRequired: boolean; setupTokenRequired: boolean }> {
-    return { setupRequired: (await this.enrolledUserCount()) === 0, setupTokenRequired: this.config.setupToken !== undefined };
+    const setupRequired = (await this.enrolledUserCount()) === 0;
+    return { setupRequired, setupTokenRequired: this.config.setupToken !== undefined || (setupRequired && this.generatedSetupToken !== undefined) };
   }
 
   /**
@@ -133,7 +143,8 @@ export class AuthService implements OnApplicationBootstrap {
    * permanently locked.
    */
   async setupFirstAdmin(input: { username: string; displayName: string; setupToken?: string }, meta: RequestMeta): Promise<{ user: PrincipalUser; session: IssuedSession }> {
-    if (this.config.setupToken && !(input.setupToken && constantTimeEquals(input.setupToken, this.config.setupToken))) {
+    const required = this.config.setupToken ?? this.generatedSetupToken;
+    if (required && !(input.setupToken && constantTimeEquals(input.setupToken.trim(), required))) {
       throw new ForbiddenException('A valid setup token is required');
     }
     const result = await this.prisma.$transaction(async (tx) => {
@@ -146,6 +157,7 @@ export class AuthService implements OnApplicationBootstrap {
       const user = await tx.user.create({ data: { username: input.username, displayName: input.displayName, role: 'ADMIN' }, include: WITH_CREDENTIAL_COUNT });
       return { user, session: await this.createSession(user.id, meta, tx) };
     });
+    // The generated token stays valid until an account is fully enrolled: an unfinished one can be replaced after the grace period, and that needs it too.
     this.logger.log(`First admin account "${result.user.username}" created`);
     return { user: toPrincipalUser(result.user), session: result.session };
   }
