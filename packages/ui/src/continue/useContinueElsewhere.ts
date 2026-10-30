@@ -22,7 +22,15 @@ const fileName = (fileId: string) => (fileId.split('/').pop() ?? fileId).replace
  * Re-read after every sync (`syncedAtMs` changes); the states themselves arrive with the sync, so this
  * never touches the network. Hidden for what this device is already playing.
  */
-export function useContinueElsewhere(serverMode: ServerMode | undefined, libraryStore: LibraryStore, active: boolean, syncedAtMs: number | null, currentFileId: string | null): UseContinueElsewhereResult {
+export function useContinueElsewhere(
+  serverMode: ServerMode | undefined,
+  libraryStore: LibraryStore,
+  active: boolean,
+  syncedAtMs: number | null,
+  currentFileId: string | null,
+  /** Called once something has started here, e.g. to show Now Playing. */
+  onStarted?: () => void,
+): UseContinueElsewhereResult {
   const dispatch = useAppDispatch();
   const [items, setItems] = useState<ContinueItem[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -53,10 +61,11 @@ export function useContinueElsewhere(serverMode: ServerMode | undefined, library
     async (item: ContinueItem) => {
       setError(null);
       const started = await dispatch(continuePlayback(item.remote));
-      if (!started) setError('That playlist or track is not on this device yet - sync, then try again.');
+      if (started) onStarted?.();
+      else setError('That playlist or track is not on this device yet - sync, then try again.');
       return started;
     },
-    [dispatch],
+    [dispatch, onStarted],
   );
 
   return { items: items.filter((item) => item.remote.currentTrackFileId !== currentFileId), continueOn, error };

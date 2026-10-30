@@ -276,9 +276,9 @@ export class PlaylistPlayer {
    * omit it for anything that isn't really "opening a playlist" (there
    * isn't a meaningful id to reconcile against).
    */
-  async setPlaylist(trackFileIds: string[], startFileId?: string, options?: { playlistId?: string }): Promise<void> {
+  async setPlaylist(trackFileIds: string[], startFileId?: string, options?: { playlistId?: string; shuffleOrder?: string[] }): Promise<void> {
     logPlayback('setPlaylist', { playlistId: options?.playlistId ?? null, trackCount: trackFileIds.length, startFileId });
-    await this.loadPlaylistAt(trackFileIds, startFileId, { autoplay: true, playlistId: options?.playlistId });
+    await this.loadPlaylistAt(trackFileIds, startFileId, { autoplay: true, playlistId: options?.playlistId, restoredShuffleOrder: options?.shuffleOrder });
   }
 
   /**

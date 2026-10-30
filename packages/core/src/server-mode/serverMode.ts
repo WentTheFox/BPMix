@@ -141,8 +141,8 @@ export class ServerMode {
   private config: StoredConfig | null = null;
   /** Names this device to the server and to the other devices' "continue" lists; made once and kept. */
   private deviceId = '';
-  private lastPush: { trackFileId: string | null; atMs: number } = { trackFileId: null, atMs: 0 };
-  private pendingPush: PlaybackState | null = null;
+  private lastPush: { trackFileId: string | null; playing: boolean; atMs: number } = { trackFileId: null, playing: false, atMs: 0 };
+  private pendingPush: { state: PlaybackState; playing: boolean } | null = null;
   private pushTimer: ReturnType<typeof setTimeout> | null = null;
   private cachedRoots: GrantedRoot[] = [];
   private status: ServerStatus = { active: false, url: '', userName: null, lastSyncedAtMs: null, syncing: false, offline: false, error: null };
@@ -300,11 +300,12 @@ export class ServerMode {
    * A new track goes out at once; while the same track just advances, at most every few seconds' worth,
    * with a single trailing send (no polling: it fires once, after the last change).
    */
-  pushPlaybackState(state: PlaybackState): void {
+  pushPlaybackState(state: PlaybackState, playing: boolean): void {
     if (!this.isActive() || !state.playlistId || !state.currentTrackFileId) return;
-    this.pendingPush = state;
+    this.pendingPush = { state, playing };
     const since = this.now() - this.lastPush.atMs;
-    if (state.currentTrackFileId !== this.lastPush.trackFileId || since >= PLAYBACK_PUSH_INTERVAL_MS) {
+    // A new track, or starting/stopping, is what the other devices care about most: those don't wait.
+    if (state.currentTrackFileId !== this.lastPush.trackFileId || playing !== this.lastPush.playing || since >= PLAYBACK_PUSH_INTERVAL_MS) {
       this.sendPendingPlayback();
     } else if (!this.pushTimer) {
       this.pushTimer = setTimeout(() => this.sendPendingPlayback(), PLAYBACK_PUSH_INTERVAL_MS - since);
@@ -314,11 +315,11 @@ export class ServerMode {
   private sendPendingPlayback(): void {
     if (this.pushTimer) clearTimeout(this.pushTimer);
     this.pushTimer = null;
-    const state = this.pendingPush;
+    const pending = this.pendingPush;
     this.pendingPush = null;
-    if (!state || !this.isActive()) return;
-    this.lastPush = { trackFileId: state.currentTrackFileId, atMs: this.now() };
-    void this.mutations.enqueue({ type: 'playbackState.set', deviceId: this.deviceId, state: playbackPayload(state, this.deps.deviceName(), this.now()) });
+    if (!pending || !this.isActive()) return;
+    this.lastPush = { trackFileId: pending.state.currentTrackFileId, playing: pending.playing, atMs: this.now() };
+    void this.mutations.enqueue({ type: 'playbackState.set', deviceId: this.deviceId, state: playbackPayload(pending.state, this.deps.deviceName(), this.now(), pending.playing) });
   }
 
   /** What the person's other devices were playing, as of the last sync - most recent first. No network. */
@@ -424,7 +425,7 @@ export class ServerMode {
     this.pendingPush = null;
     if (this.pushTimer) clearTimeout(this.pushTimer);
     this.pushTimer = null;
-    this.lastPush = { trackFileId: null, atMs: 0 };
+    this.lastPush = { trackFileId: null, playing: false, atMs: 0 };
     await store.putSetting(LASTFM_STATUS_KEY, '');
     // Changes queued under one account must never be sent to another.
     await this.mutations.clear();

@@ -42,7 +42,7 @@ export function createAppListenerMiddleware(services: Services) {
       const state = api.getState().persistence.state;
       await api.extra.libraryStore.putPlaybackState(state);
       // Signed in to a server: the person's other devices can offer to continue this.
-      api.extra.serverMode?.pushPlaybackState(state);
+      api.extra.serverMode?.pushPlaybackState(state, api.extra.playlistPlayer.getState().track.isAudible);
     },
   });
 

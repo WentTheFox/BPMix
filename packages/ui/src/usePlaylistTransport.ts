@@ -124,6 +124,8 @@ export function usePlaylistTransport(input: PlaylistTransportInput): PlaylistTra
       persistPlaybackPatch({ positionSeconds: playlistPlayer.getState().track.positionSeconds });
     } else {
       playlistPlayer.play();
+      // Tells whoever else is listening (the server's other devices) that playback resumed, now rather than at the next timed save.
+      persistPlaybackPatch({ positionSeconds: playlistPlayer.getState().track.positionSeconds });
     }
     setPlayerState(playlistPlayer.getState());
     // See playFromTrack's comment above for why playlistPlayer/

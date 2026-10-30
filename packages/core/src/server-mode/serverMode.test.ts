@@ -7,6 +7,7 @@ import { loadAssignedLyrics } from '../lyrics/loadAssignedLyrics';
 import { withServerCoverArt } from './serverCovers';
 import { createModeAwareFileAccess, ServerModeUnsupportedError } from './serverFileAccess';
 import type { OfflineLibrary } from '../offline/offlineLibrary';
+import { isPlayingNow } from './devicePlayback';
 import { createServerScrobbleSink } from './serverLastFm';
 import { NetworkError } from '@bpmix/api';
 import { normalizeServerUrl, ServerMode } from './serverMode';
@@ -161,12 +162,19 @@ describe('continuing on another device', () => {
       ]);
     expect(await mode.sync()).toMatchObject({ kind: 'delta', changed: false });
     expect(await mode.otherDevicesPlayback()).toEqual([
-      { deviceId: 'phone', deviceName: 'Pixel 8', updatedAtMs: 900, playlistId: 'p', rootId: null, currentTrackFileId: 'Music:a.mp3', positionSeconds: 30, loopMode: 'off', shuffleEnabled: false },
+      { deviceId: 'phone', deviceName: 'Pixel 8', updatedAtMs: 900, playlistId: 'p', rootId: null, currentTrackFileId: 'Music:a.mp3', positionSeconds: 30, loopMode: 'off', shuffleEnabled: false, shuffleOrder: null, playing: false },
     ]);
 
     server.handler = () => deltaWith([stateChange('phone', null)]);
     await mode.sync();
     expect(await mode.otherDevicesPlayback()).toEqual([]);
+  });
+
+  it('believes a device is playing only while its report is recent', () => {
+    const remote = { deviceId: 'd', deviceName: 'x', updatedAtMs: 1_000, playlistId: 'p', rootId: null, currentTrackFileId: 'a', positionSeconds: 0, loopMode: 'off' as const, shuffleEnabled: false, shuffleOrder: null, playing: true };
+    expect(isPlayingNow(remote, 1_000 + 30_000)).toBe(true);
+    expect(isPlayingNow(remote, 1_000 + 60_000)).toBe(false); // a closed app can't say it stopped
+    expect(isPlayingNow({ ...remote, playing: false }, 1_000)).toBe(false);
   });
 
   it('offers nothing older than a month', async () => {
@@ -198,16 +206,16 @@ describe('continuing on another device', () => {
     it('sends a new track at once, then only occasionally while the position just moves, with one trailing send', async () => {
       const { mode, sent, advance } = await pushing();
       try {
-        mode.pushPlaybackState(playing());
+        mode.pushPlaybackState(playing(), true);
         await advance(0);
         expect(sent).toHaveLength(1);
         expect(sent[0]!.state).toMatchObject({ deviceName: 'Pixel 8', playlistId: 'Music:List.m3u8', currentTrackFileId: 'Music:a.mp3', positionSeconds: 12 });
         expect(sent[0]!.state).not.toHaveProperty('volume');
 
         await advance(5_000);
-        mode.pushPlaybackState(playing({ positionSeconds: 17 }));
+        mode.pushPlaybackState(playing({ positionSeconds: 17 }), true);
         await advance(5_000);
-        mode.pushPlaybackState(playing({ positionSeconds: 22 }));
+        mode.pushPlaybackState(playing({ positionSeconds: 22 }), true);
         await advance(0);
         expect(sent).toHaveLength(1); // still within the interval
 
@@ -215,7 +223,7 @@ describe('continuing on another device', () => {
         expect(sent).toHaveLength(2);
         expect(sent[1]!.state).toMatchObject({ positionSeconds: 22 });
 
-        mode.pushPlaybackState(playing({ currentTrackFileId: 'Music:b.mp3', positionSeconds: 0 }));
+        mode.pushPlaybackState(playing({ currentTrackFileId: 'Music:b.mp3', positionSeconds: 0 }), true);
         await advance(0);
         expect(sent).toHaveLength(3); // a new track doesn't wait
         expect(new Set(sent.map((s) => s.deviceId)).size).toBe(1);
@@ -224,13 +232,43 @@ describe('continuing on another device', () => {
       }
     });
 
+    it('sends starting and stopping at once, and says whether it was playing', async () => {
+      const { mode, sent, advance } = await pushing();
+      try {
+        mode.pushPlaybackState(playing(), true);
+        await advance(0);
+        mode.pushPlaybackState(playing({ positionSeconds: 15 }), false); // paused: doesn't wait for the interval
+        await advance(0);
+        mode.pushPlaybackState(playing({ positionSeconds: 15 }), true); // resumed
+        await advance(0);
+        expect(sent.map((s) => s.state.playing)).toEqual([true, false, true]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('carries the shuffle order when shuffling, unless it is too large to be worth sending', async () => {
+      const { mode, sent, advance } = await pushing();
+      try {
+        mode.pushPlaybackState(playing({ shuffleEnabled: true, shuffleOrder: ['b', 'a', 'c'] }), true);
+        await advance(0);
+        mode.pushPlaybackState(playing({ currentTrackFileId: 'Music:b.mp3', shuffleEnabled: true, shuffleOrder: Array.from({ length: 5000 }, (_, i) => `t${i}`) }), true);
+        await advance(0);
+        mode.pushPlaybackState(playing({ currentTrackFileId: 'Music:c.mp3', shuffleEnabled: false, shuffleOrder: ['x'] }), true);
+        await advance(0);
+        expect(sent.map((s) => s.state.shuffleOrder)).toEqual([['b', 'a', 'c'], null, null]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('sends nothing when signed out or when nothing is playing', async () => {
       const { mode, sent, advance } = await pushing();
       try {
-        mode.pushPlaybackState(playing({ playlistId: null }));
-        mode.pushPlaybackState(playing({ currentTrackFileId: null }));
+        mode.pushPlaybackState(playing({ playlistId: null }), true);
+        mode.pushPlaybackState(playing({ currentTrackFileId: null }), true);
         await mode.signOut();
-        mode.pushPlaybackState(playing());
+        mode.pushPlaybackState(playing(), true);
         await advance(60_000);
         expect(sent).toEqual([]);
       } finally {

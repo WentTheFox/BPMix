@@ -701,7 +701,7 @@ function AppContent() {
   const serverLastFm = useServerLastFm(Platform.OS === 'android' ? serverMode : undefined, fromServer);
   const lastFm = fromServer ? serverLastFm.connection : localLastFm;
   // What the person's other devices were playing (server mode), offered as "Continue on <device>" on the library screen.
-  const continueElsewhere = useContinueElsewhere(Platform.OS === 'android' ? serverMode : undefined, libraryStore, fromServer, server?.status.lastSyncedAtMs ?? null, playback.currentFileId);
+  const continueElsewhere = useContinueElsewhere(Platform.OS === 'android' ? serverMode : undefined, libraryStore, fromServer, server?.status.lastSyncedAtMs ?? null, playback.currentFileId, () => persistPlaybackPatch({ nowPlayingOpen: true }));
   const userPlaylists = useUserPlaylistActions(colors);
   const playbackBridges = (
     <>

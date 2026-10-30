@@ -36,7 +36,7 @@ export function continuePlayback(remote: RemotePlayback): AppThunk<Promise<boole
     dispatch(playingContextSet(toPlaylistContext(root, playlist, tracksById)));
     playlistPlayer.setShuffle(remote.shuffleEnabled);
     playlistPlayer.setLoopMode(remote.loopMode);
-    await playlistPlayer.setPlaylist(playlist.trackFileIds, remote.currentTrackFileId, { playlistId: playlist.id });
+    await playlistPlayer.setPlaylist(playlist.trackFileIds, remote.currentTrackFileId, { playlistId: playlist.id, shuffleOrder: remote.shuffleOrder ?? undefined });
     if (remote.positionSeconds > 1) playlistPlayer.seek(remote.positionSeconds);
     livePlayback.publish();
     dispatch(

@@ -2,6 +2,10 @@ import type { PlaybackStateDto } from '@bpmix/api';
 import type { LibraryStore, LoopMode, PlaybackState } from '../library-store/types';
 
 const KEY = 'serverMode.devicePlayback';
+/** A shuffle order longer than this isn't sent: it would be most of the server's size limit for a state, and the other device can reshuffle. */
+const MAX_SENT_SHUFFLE_ORDER = 1500;
+/** A device's "playing" is believed this long after its last report (it reports at least every ~20s while playing). */
+const PLAYING_FRESH_MS = 45_000;
 /** Another device's state older than this is not offered as something to continue. */
 const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -17,10 +21,13 @@ export interface RemotePlayback {
   positionSeconds: number;
   loopMode: LoopMode;
   shuffleEnabled: boolean;
+  shuffleOrder: string[] | null;
+  /** Was playing (not paused) when it last reported. See isPlayingNow for whether that can still be believed. */
+  playing: boolean;
 }
 
 /** The part of this device's playback state that is worth sending (the rest is local screen state and volume). */
-export function playbackPayload(state: PlaybackState, deviceName: string, now: number): Record<string, unknown> {
+export function playbackPayload(state: PlaybackState, deviceName: string, now: number, playing: boolean): Record<string, unknown> {
   return {
     deviceName,
     updatedAtMs: now,
@@ -30,6 +37,8 @@ export function playbackPayload(state: PlaybackState, deviceName: string, now: n
     positionSeconds: state.positionSeconds,
     loopMode: state.loopMode,
     shuffleEnabled: state.shuffleEnabled,
+    shuffleOrder: state.shuffleEnabled && state.shuffleOrder && state.shuffleOrder.length <= MAX_SENT_SHUFFLE_ORDER ? state.shuffleOrder : null,
+    playing,
   };
 }
 
@@ -49,7 +58,14 @@ export function toRemotePlayback(dto: PlaybackStateDto): RemotePlayback | null {
     positionSeconds: typeof s.positionSeconds === 'number' && s.positionSeconds >= 0 ? s.positionSeconds : 0,
     loopMode: isLoopMode(s.loopMode) ? s.loopMode : 'off',
     shuffleEnabled: s.shuffleEnabled === true,
+    shuffleOrder: Array.isArray(s.shuffleOrder) && s.shuffleOrder.every((id) => typeof id === 'string') ? (s.shuffleOrder as string[]) : null,
+    playing: s.playing === true,
   };
+}
+
+/** Whether that device can be taken to be playing right now: it said so, recently enough (a closed app can't say it stopped). */
+export function isPlayingNow(remote: RemotePlayback, now: number): boolean {
+  return remote.playing && now - remote.updatedAtMs < PLAYING_FRESH_MS;
 }
 
 /** The other devices' states as last synced, keyed by device id. */
