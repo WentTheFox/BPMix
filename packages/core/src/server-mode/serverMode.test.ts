@@ -7,6 +7,7 @@ import type { CoverArtBytes, TrackMetadata } from '../metadata/types';
 import type { FileAccess } from '../file-access/types';
 import { withServerCoverArt } from './serverCovers';
 import { createModeAwareFileAccess, ServerModeUnsupportedError } from './serverFileAccess';
+import type { OfflineLibrary } from '../offline/offlineLibrary';
 import { normalizeServerUrl, ServerMode } from './serverMode';
 
 /** An in-memory LibraryStore, enough for what ServerMode touches. */
@@ -420,6 +421,38 @@ describe('mode-aware file access', () => {
     expect(await access.listDirectory('Music')).toEqual([]);
     expect(local.readFileBytes).not.toHaveBeenCalledWith(ref, expect.anything());
     void mode;
+  });
+});
+
+describe('offline playback through the file access', () => {
+  const local = {} as FileAccess;
+  const ref = { id: 'Music:a.mp3', name: 'a.mp3', relativePath: 'a.mp3', sizeBytes: 1, lastModifiedMs: 1 };
+
+  it('plays a downloaded copy with no request at all, and goes to the network for anything else', async () => {
+    const { store, server } = await signedIn();
+    const mode = new ServerMode({ store, deviceName: () => 'x', fetch: server.fetch });
+    await mode.ready;
+    const stored = new Uint8Array([7, 7]).buffer;
+    const offline = { read: vi.fn(async (id: string) => (id === 'Music:a.mp3' ? stored : null)) } as unknown as OfflineLibrary;
+    server.handler = () => new Response(new Uint8Array([1, 2, 3]).buffer);
+    const access = createModeAwareFileAccess(local, mode, offline);
+
+    expect(await access.readFileBytes(ref)).toBe(stored);
+    expect(server.calls).toHaveLength(0);
+    const other = { ...ref, id: 'Music:b.mp3' };
+    expect(Array.from(new Uint8Array(await access.readFileBytes(other)))).toEqual([1, 2, 3]);
+    expect(server.calls).toHaveLength(1);
+  });
+
+  it('fails with a network error, not a wrong file, when the track is not downloaded and the server is unreachable', async () => {
+    const { store, server } = await signedIn();
+    server.fetch = vi.fn(async () => {
+      throw new TypeError('offline');
+    }) as unknown as typeof fetch;
+    const mode = new ServerMode({ store, deviceName: () => 'x', fetch: server.fetch });
+    await mode.ready;
+    const offline = { read: vi.fn(async () => null) } as unknown as OfflineLibrary;
+    await expect(createModeAwareFileAccess(local, mode, offline).readFileBytes(ref)).rejects.toMatchObject({ name: 'NetworkError' });
   });
 });
 

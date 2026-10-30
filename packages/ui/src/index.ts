@@ -58,6 +58,8 @@ export * from './scrobble/useLastFmScrobbling';
 export * from './formatSeconds';
 export * from './SeekBar';
 export * from './settings/AppSwitch';
+export * from './offline/formatBytes';
+export * from './offline/useOffline';
 export * from './server/useServerConnection';
 export * from './settings/ExternalConnectionsScreen';
 export * from './settings/ServerSection';

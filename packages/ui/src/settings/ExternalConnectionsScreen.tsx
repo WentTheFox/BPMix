@@ -4,6 +4,7 @@ import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } fro
 import { BackButton } from '../BackButton';
 import { HeaderRow } from '../HeaderRow';
 import type { UseLastFmConnectionResult } from '../scrobble/useLastFmConnection';
+import type { UseOfflineResult } from '../offline/useOffline';
 import type { UseServerConnectionResult } from '../server/useServerConnection';
 import type { Colors } from '../theme';
 import { withAlpha } from '../theme';
@@ -20,6 +21,8 @@ export interface ExternalConnectionsScreenProps {
   lastFm: UseLastFmConnectionResult;
   /** Where the library comes from. Absent on a platform that has no server mode (yet), which hides the section. */
   server?: UseServerConnectionResult | null;
+  /** Offline downloads, shown under the server section. */
+  offline?: UseOfflineResult | null;
   onClose: () => void;
 }
 
@@ -42,7 +45,7 @@ export interface ExternalConnectionsScreenProps {
  * Last.fm API app instead", for a fork or self-hoster who'd rather use
  * their own app identity.
  */
-export function ExternalConnectionsScreen({ colors, settings, onUpdateSettings, lastFm, server, onClose }: ExternalConnectionsScreenProps) {
+export function ExternalConnectionsScreen({ colors, settings, onUpdateSettings, lastFm, server, offline, onClose }: ExternalConnectionsScreenProps) {
   const usingDefaultCredentials = settings.lastFmApiKey === DEFAULT_LASTFM_API_KEY && settings.lastFmApiSecret === DEFAULT_LASTFM_API_SECRET;
   const [showOwnKey, setShowOwnKey] = useState(!usingDefaultCredentials);
   const [apiKeyDraft, setApiKeyDraft] = useState(settings.lastFmApiKey);
@@ -76,7 +79,7 @@ export function ExternalConnectionsScreen({ colors, settings, onUpdateSettings, 
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <HeaderRow style={styles.header} left={<BackButton text="External connections" color={colors.text} onPress={onClose} />} />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        {server && <ServerSection colors={colors} server={server} />}
+        {server && <ServerSection colors={colors} server={server} offline={offline} />}
         <Section title="Last.fm" colors={colors}>
           {lastFm.status === 'connected' ? (
             <>

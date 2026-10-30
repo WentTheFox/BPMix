@@ -73,7 +73,8 @@ export class ApiClient {
 
   // ---------------------------------------------------------------- plumbing
 
-  private async headers(extra: Record<string, string> = {}): Promise<Record<string, string>> {
+  /** The headers a request to the server needs (API version, and the bearer token for a native app) - for backends that perform the request themselves, e.g. a native file downloader. */
+  async authHeaders(extra: Record<string, string> = {}): Promise<Record<string, string>> {
     const token = await this.options.getToken?.();
     return { [API_VERSION_HEADER]: String(API_VERSION), ...(token ? { authorization: `Bearer ${token}` } : {}), ...extra };
   }
@@ -84,7 +85,7 @@ export class ApiClient {
     try {
       response = await this.doFetch(`${this.baseUrl}${path}`, {
         method,
-        headers: await this.headers(init.body !== undefined ? { 'content-type': 'application/json' } : {}),
+        headers: await this.authHeaders(init.body !== undefined ? { 'content-type': 'application/json' } : {}),
         body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
         signal: init.signal,
       });
@@ -206,7 +207,7 @@ export class ApiClient {
   /** The bytes behind a path (audio, cover art, ...). */
   async fetchBytes(path: string, init: { range?: { start: number; end: number }; signal?: AbortSignal } = {}): Promise<ArrayBuffer> {
     const response = await this.doFetch(`${this.baseUrl}${path}`, {
-      headers: await this.headers(init.range ? { range: `bytes=${init.range.start}-${init.range.end}` } : {}),
+      headers: await this.authHeaders(init.range ? { range: `bytes=${init.range.start}-${init.range.end}` } : {}),
       signal: init.signal,
     }).catch((err: unknown) => {
       if (init.signal?.aborted) throw err;
@@ -218,7 +219,7 @@ export class ApiClient {
 
   /** Like fetchBytes, but also says what the server called the file (for cover art: image/webp, ...). */
   async fetchFile(path: string, signal?: AbortSignal): Promise<{ bytes: ArrayBuffer; contentType: string }> {
-    const response = await this.doFetch(`${this.baseUrl}${path}`, { headers: await this.headers(), signal }).catch((err: unknown) => {
+    const response = await this.doFetch(`${this.baseUrl}${path}`, { headers: await this.authHeaders(), signal }).catch((err: unknown) => {
       if (signal?.aborted) throw err;
       throw new NetworkError(err);
     });

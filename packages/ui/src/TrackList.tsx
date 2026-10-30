@@ -1,9 +1,10 @@
 import { trackDisplayName, type LibraryStore, type TrackRecord } from '@bpmix/core';
-import { mdiClose, mdiPencilOutline, mdiSwapVertical, mdiTrashCanOutline } from '@mdi/js';
+import { mdiCheck, mdiClose, mdiDownload, mdiPencilOutline, mdiSwapVertical, mdiTrashCanOutline } from '@mdi/js';
 import { useCallback, useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { ConfirmDialog } from './ConfirmDialog';
 import { IconLabel } from './IconLabel';
+import type { OfflinePlaylistControl } from './offline/useOffline';
 import type { Colors } from './theme';
 import { TRACK_ROW_HEIGHT, TrackRow } from './TrackRow';
 
@@ -40,6 +41,8 @@ export interface TrackListProps {
   onRemoveTracks?: (fileIds: string[]) => Promise<void>;
   /** Opens a raw-text editor for the playlist's own .m3u8 file (see EditPlaylistFileScreen) - same omission convention as onMoveTracks/onRemoveTracks. Rendered as a second toolbar button next to "Reorder". */
   onEditRaw?: () => void;
+  /** "Available offline" for this playlist (server mode). Omitted where the platform has no offline storage. Rendered next to "Reorder". */
+  offline?: OfflinePlaylistControl | null;
 }
 
 /**
@@ -76,6 +79,7 @@ export function TrackList({
   onMoveTracks,
   onRemoveTracks,
   onEditRaw,
+  offline,
 }: TrackListProps): React.JSX.Element {
   const [query, setQuery] = useState('');
 
@@ -183,7 +187,7 @@ export function TrackList({
     ],
   );
 
-  const showReorderToolbar = Boolean(onMoveTracks || onRemoveTracks || onEditRaw);
+  const showReorderToolbar = Boolean(onMoveTracks || onRemoveTracks || onEditRaw || offline);
 
   return (
     <>
@@ -215,6 +219,24 @@ export function TrackList({
               {(onMoveTracks || onRemoveTracks) && (
                 <Pressable onPress={() => setReorderModeActive(true)}>
                   <IconLabel path={mdiSwapVertical} text="Reorder" color={colors.accent} iconSize={14} />
+                </Pressable>
+              )}
+              {offline && (
+                <Pressable onPress={offline.toggle}>
+                  <IconLabel
+                    path={offline.status === 'all' ? mdiCheck : mdiDownload}
+                    text={
+                      offline.status === 'all'
+                        ? 'Offline'
+                        : offline.status === 'downloading'
+                          ? `Downloading ${offline.downloaded}/${offline.total}`
+                          : offline.status === 'partial'
+                            ? `Offline ${offline.downloaded}/${offline.total}`
+                            : 'Download'
+                    }
+                    color={colors.accent}
+                    iconSize={14}
+                  />
                 </Pressable>
               )}
               {onEditRaw && (

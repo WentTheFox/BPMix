@@ -84,3 +84,5 @@ export * from './store/services';
 
 /** Runtime marker used by the Stage 0 empty-shell screens to prove the workspace wiring resolves. */
 export const CORE_PACKAGE_NAME = '@bpmix/core';
+export * from './offline/offlineLibrary';
+export * from './offline/types';

@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { navigateTo } from '../navigateTo';
+import { formatBytes } from '../offline/formatBytes';
+import type { UseOfflineResult } from '../offline/useOffline';
 import type { UseServerConnectionResult } from '../server/useServerConnection';
 import type { Colors } from '../theme';
 import { withAlpha } from '../theme';
@@ -20,6 +22,8 @@ function ago(timestampMs: number, nowMs: number): string {
 export interface ServerSectionProps {
   colors: Colors;
   server: UseServerConnectionResult;
+  /** Downloads for offline play, where the platform supports them. */
+  offline?: UseOfflineResult | null;
 }
 
 /**
@@ -27,7 +31,7 @@ export interface ServerSectionProps {
  * code the person approves in a browser (where passkeys and two-factor sign-in live), so the app never
  * handles a password.
  */
-export function ServerSection({ colors, server }: ServerSectionProps) {
+export function ServerSection({ colors, server, offline }: ServerSectionProps) {
   const [address, setAddress] = useState(server.status.url);
   const { status } = server;
   const input = [styles.input, { color: colors.text, borderColor: withAlpha(colors.text, 0.25) }];
@@ -57,6 +61,31 @@ export function ServerSection({ colors, server }: ServerSectionProps) {
           <Pressable disabled={status.syncing} onPress={server.syncNow} style={styles.actionButton}>
             <Text style={link(!status.syncing)}>Sync now</Text>
           </Pressable>
+          {offline && (
+            <>
+              <Text style={hint}>
+                {offline.state.downloadedCount === 0
+                  ? 'No tracks downloaded for offline play.'
+                  : `${offline.state.downloadedCount} track${offline.state.downloadedCount === 1 ? '' : 's'} downloaded (${formatBytes(offline.state.downloadedBytes)}).`}
+                {offline.state.activeCount + offline.state.queuedCount > 0 ? ` Downloading ${offline.state.activeCount + offline.state.queuedCount} more…` : ''}
+              </Text>
+              {offline.state.paused && offline.state.queuedCount > 0 && (
+                <Pressable onPress={offline.resume} style={styles.actionButton}>
+                  <Text style={link()}>Downloads are waiting for the server - try again</Text>
+                </Pressable>
+              )}
+              {offline.state.failures.length > 0 && (
+                <Text style={[styles.error, { color: '#dc2626' }]}>
+                  {offline.state.failures.length} download{offline.state.failures.length === 1 ? '' : 's'} failed: {offline.state.failures[offline.state.failures.length - 1]!.message}
+                </Text>
+              )}
+              {offline.state.downloadedCount > 0 && (
+                <Pressable onPress={offline.clear} style={styles.actionButton}>
+                  <Text style={link()}>Clear downloads</Text>
+                </Pressable>
+              )}
+            </>
+          )}
           {server.usesBrowserSession && (
             <Pressable onPress={() => navigateTo('/account')} style={styles.actionButton}>
               <Text style={link()}>Manage your account</Text>

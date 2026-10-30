@@ -1,4 +1,5 @@
 import type { DirectoryEntry, FileAccess, FileRef, GrantedRoot } from '../file-access/types';
+import type { OfflineLibrary } from '../offline/offlineLibrary';
 import type { ServerMode } from './serverMode';
 
 /** Thrown by operations that only make sense with local folders (granting a folder, editing an .m3u8 in place, ...). */
@@ -13,7 +14,7 @@ export class ServerModeUnsupportedError extends Error {
  * FileAccess over the server's library. The library itself arrives through the sync, so this only
  * has to name the roots (from the last sync, no network) and hand over a track's audio on request.
  */
-function createServerFileAccess(serverMode: ServerMode): FileAccess {
+function createServerFileAccess(serverMode: ServerMode, offline?: OfflineLibrary): FileAccess {
   const api = () => {
     const client = serverMode.getApi();
     if (!client) throw new ServerModeUnsupportedError('Reading files without a server connection');
@@ -33,6 +34,9 @@ function createServerFileAccess(serverMode: ServerMode): FileAccess {
       return [];
     },
     async readFileBytes(ref: FileRef): Promise<ArrayBuffer> {
+      // A downloaded (and still current) copy plays with no network at all.
+      const stored = await offline?.read(ref.id);
+      if (stored) return stored;
       const client = api();
       return client.fetchBytes(client.streamPathForFileId(ref.id));
     },
@@ -49,8 +53,8 @@ function createServerFileAccess(serverMode: ServerMode): FileAccess {
  * The FileAccess the app uses: local folders normally, the server's library once signed in. Decided
  * per call, so signing in or out takes effect immediately without rebuilding anything.
  */
-export function createModeAwareFileAccess(local: FileAccess, serverMode: ServerMode): FileAccess {
-  const server = createServerFileAccess(serverMode);
+export function createModeAwareFileAccess(local: FileAccess, serverMode: ServerMode, offline?: OfflineLibrary): FileAccess {
+  const server = createServerFileAccess(serverMode, offline);
   const pick = () => (serverMode.isActive() ? server : local);
   return {
     requestRoot: (kind) => pick().requestRoot(kind),

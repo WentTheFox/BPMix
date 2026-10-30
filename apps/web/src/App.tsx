@@ -1,5 +1,6 @@
 import type { FileRef, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '@bpmix/core';
 import {
+  OfflineLibrary,
   ServerMode,
   createBackgroundFileAccess,
   createModeAwareFileAccess,
@@ -45,7 +46,9 @@ import {
   ExternalConnectionsScreen,
   useAppSettings,
   useCrossfadePlaybackDisplay,
+  offlinePlaylistControl,
   useLastFmConnection,
+  useOffline,
   useServerConnection,
   useLibraryRootActions,
   useOpenPlaylistMetadataScan,
@@ -81,6 +84,7 @@ import { createAudioEngine } from './adapters/audioEngine';
 import { createCoverArtResizer } from './adapters/coverArtResizer';
 import { createCompositeFileAccess, isServerBackendAvailable, isServerRootId } from './adapters/fileAccess.composite';
 import { createLibraryStore } from './adapters/libraryStore';
+import { createOfflineBackend, supportsOfflineStorage } from './adapters/offlineBackend';
 import { MediaSessionBridge } from './MediaSessionBridge';
 import { isRunningInstalled, promptInstall, usePwaInstallAvailable } from './adapters/pwaInstall';
 
@@ -102,7 +106,9 @@ const localLibraryStore = createLibraryStore();
 // Served by a BPMix server and signed in to it (the browser session): the library, and its audio,
 // come from the server; otherwise the local folders / legacy server roots exactly as before.
 const serverMode = new ServerMode({ store: localLibraryStore, deviceName: () => 'Web browser', sameOrigin: true });
-const fileAccess = createModeAwareFileAccess(localFileAccess, serverMode);
+// Downloaded tracks (browsers that can hold them) play with no connection; everything else streams.
+const offlineLibrary = supportsOfflineStorage() ? new OfflineLibrary({ backend: createOfflineBackend(), store: localLibraryStore, server: serverMode }) : undefined;
+const fileAccess = createModeAwareFileAccess(localFileAccess, serverMode, offlineLibrary);
 // A stable singleton (not re-wrapped per call) - scanAllLyricsScopes's scan
 // cache is keyed by FileAccess instance identity, and reusing the same
 // wrapper is what keeps every background caller (matchLibraryLyrics,
@@ -610,6 +616,7 @@ function AppContent() {
   const lastFm = useLastFmConnection(settings, updateSettings);
   const server = useServerConnection(serverMode);
   const fromServer = server?.status.active === true;
+  const offline = useOffline(offlineLibrary);
   const playbackBridges = (
     <>
       <MediaSessionBridge
@@ -822,7 +829,7 @@ function AppContent() {
   // has to sit on top of it, not beside it.
   const externalConnectionsScreen = externalConnectionsOpen && (
     <ScreenLayer zIndex={21} colors={colors}>
-      <ExternalConnectionsScreen colors={colors} settings={settings} onUpdateSettings={updateSettings} lastFm={lastFm} server={server} onClose={() => closeExternalConnections()} />
+      <ExternalConnectionsScreen colors={colors} settings={settings} onUpdateSettings={updateSettings} lastFm={lastFm} server={server} offline={offline} onClose={() => closeExternalConnections()} />
     </ScreenLayer>
   );
 
@@ -977,17 +984,19 @@ function AppContent() {
           initialNumToRender={30}
           missingFileIds={missingFileIds}
           onAddToPlaylist={isUnplaylistedScreen ? setAddToPlaylistTrack : undefined}
+          // Editing a playlist rewrites its .m3u8 through FileAccess, which a server-backed library doesn't offer.
           onMoveTracks={
-            isRealPlaylistScreen
+            isRealPlaylistScreen && !fromServer
               ? (movingFileIds, anchorFileId, position) => moveTracks(movingFileIds, anchorFileId, position, rescan)
               : undefined
           }
           onRemoveTracks={
-            isRealPlaylistScreen
+            isRealPlaylistScreen && !fromServer
               ? (fileIds) => removeTracks(fileIds, rescan)
               : undefined
           }
-          onEditRaw={isRealPlaylistScreen ? () => setEditingPlaylistFile({ root: screen.root, playlist: screen.playlist }) : undefined}
+          onEditRaw={isRealPlaylistScreen && !fromServer ? () => setEditingPlaylistFile({ root: screen.root, playlist: screen.playlist }) : undefined}
+          offline={fromServer && offline ? offlinePlaylistControl(offline, screen.playlist.trackFileIds) : undefined}
         />
       </>
     ) : null;
