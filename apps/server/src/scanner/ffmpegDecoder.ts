@@ -14,7 +14,8 @@ export function decodeWithFfmpeg(absolutePath: string, signal?: AbortSignal): Pr
   return new Promise((resolve, reject) => {
     const ffmpeg = spawn(
       'ffmpeg',
-      ['-v', 'error', '-nostdin', '-i', absolutePath, '-vn', '-f', 'f32le', '-ac', String(CHANNELS), '-ar', String(SAMPLE_RATE), 'pipe:1'],
+      // protocol_whitelist: a media file can be a playlist/script naming other files or URLs; only the file itself may be opened.
+      ['-v', 'error', '-nostdin', '-protocol_whitelist', 'file,pipe', '-i', absolutePath, '-vn', '-f', 'f32le', '-ac', String(CHANNELS), '-ar', String(SAMPLE_RATE), 'pipe:1'],
       { stdio: ['ignore', 'pipe', 'pipe'], signal },
     );
     const chunks: Buffer[] = [];

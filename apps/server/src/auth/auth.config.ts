@@ -20,7 +20,13 @@ export class AuthConfig {
   readonly inviteTtlMs = 7 * DAY_MS;
   /** How recently a session must have signed in to change credentials or manage users. */
   readonly freshAuthMs = 10 * 60_000;
+  /** A session is cut off this long after it was created, however actively it has been used (the sliding window alone would never end). */
+  readonly sessionMaxAgeMs = 90 * DAY_MS;
   readonly maxMfaAttempts = 5;
+  /** Failed password / second-factor sign-ins tolerated per account, and per address, inside failureWindowMs. */
+  readonly maxFailuresPerAccount = 20;
+  readonly maxFailuresPerAddress = 100;
+  readonly failureWindowMs = 15 * 60_000;
   /** How long a first sign-up has to finish enrolling before another visitor may replace the unfinished account. */
   readonly setupGraceMs = 15 * 60_000;
   /** How long a native app has to get its sign-in code approved. */

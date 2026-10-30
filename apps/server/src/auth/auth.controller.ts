@@ -206,6 +206,7 @@ export class AuthController {
   async setPassword(@Body() body: unknown, @CurrentPrincipal() principal: Principal): Promise<void> {
     this.auth.requireFreshAuth(principal);
     await this.auth.setPassword(principal.user.id, parseInput(setPasswordRequestSchema, body).password);
+    await this.auth.revokeOtherSessions(principal.user.id, principal.sessionId);
   }
 
   @AllowUnenrolled()
@@ -227,6 +228,7 @@ export class AuthController {
   async disableTotp(@Body() body: unknown, @CurrentPrincipal() principal: Principal): Promise<void> {
     this.auth.requireFreshAuth(principal);
     await this.auth.disableTotp(principal.user.id, parseInput(totpCodeRequestSchema, body).code);
+    await this.auth.revokeOtherSessions(principal.user.id, principal.sessionId);
   }
 
   /** Replaces all recovery codes with a new set, shown once. */
@@ -234,7 +236,9 @@ export class AuthController {
   @Post('recovery-codes')
   async regenerateRecoveryCodes(@CurrentPrincipal() principal: Principal): Promise<{ recoveryCodes: string[] }> {
     this.auth.requireFreshAuth(principal);
-    return { recoveryCodes: await this.auth.replaceRecoveryCodes(principal.user.id) };
+    const recoveryCodes = await this.auth.replaceRecoveryCodes(principal.user.id);
+    await this.auth.revokeOtherSessions(principal.user.id, principal.sessionId);
+    return { recoveryCodes };
   }
 
   @AllowUnenrolled()
@@ -263,6 +267,7 @@ export class AuthController {
   async removePasskey(@Param('id') id: string, @CurrentPrincipal() principal: Principal): Promise<void> {
     this.auth.requireFreshAuth(principal);
     await this.passkeys.remove(principal.user.id, id);
+    await this.auth.revokeOtherSessions(principal.user.id, principal.sessionId);
   }
 
   @Get('sessions')

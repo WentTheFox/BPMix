@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException, Optional, UnauthorizedException, type OnApplicationBootstrap } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, HttpException, HttpStatus, Inject, Injectable, Logger, NotFoundException, Optional, UnauthorizedException, type OnApplicationBootstrap } from '@nestjs/common';
 import type {
   CreateUserResultDto,
   InviteResultDto,
@@ -11,6 +11,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { DatabaseService } from '../db/database.module.js';
 import type { Prisma } from '../generated/prisma/client.js';
 import { AuthConfig } from './auth.config.js';
+import { FailureLimiter } from './failureLimiter.js';
 import { burnPasswordTime, hashPassword, verifyPassword } from './crypto/password.js';
 import { generateRecoveryCodes, hashRecoveryCode, RECOVERY_CODE_COUNT } from './crypto/recoveryCodes.js';
 import type { SecretBox } from './crypto/secretBox.js';
@@ -21,6 +22,9 @@ import type { Principal, PrincipalUser } from './principal.js';
 export const SECRET_BOX = Symbol('SECRET_BOX');
 /** Time source for TOTP windows; tests replace it to step through them without waiting. */
 export const CLOCK = Symbol('CLOCK');
+
+/** A person-supplied string made safe to put in a log line: quoted, escaped (no newlines to forge entries with) and bounded. */
+const logSafe = (value: string) => JSON.stringify(value.slice(0, 64));
 
 export interface RequestMeta {
   userAgent?: string;
@@ -66,13 +70,16 @@ const INVALID_CREDENTIALS = 'Invalid credentials';
 @Injectable()
 export class AuthService implements OnApplicationBootstrap {
   private readonly logger = new Logger(AuthService.name);
+  private readonly failures: FailureLimiter;
 
   constructor(
     private readonly db: DatabaseService,
     private readonly config: AuthConfig,
     @Inject(SECRET_BOX) private readonly box: SecretBox,
     @Optional() @Inject(CLOCK) private readonly clock: () => number = Date.now,
-  ) {}
+  ) {
+    this.failures = new FailureLimiter(config.failureWindowMs, () => this.clock());
+  }
 
   async onApplicationBootstrap(): Promise<void> {
     if ((await this.enrolledUserCount()) === 0) {
@@ -195,12 +202,14 @@ export class AuthService implements OnApplicationBootstrap {
     const now = new Date();
     const session = await this.prisma.session.findUnique({ where: { id: hashToken(token) }, include: { user: { include: WITH_CREDENTIAL_COUNT } } });
     if (!session || session.expiresAt <= now || session.user.disabledAt) return null;
-    // Bookkeeping at most once a minute, and push the expiry out when it's under half left (sliding window).
+    const hardLimit = session.createdAt.getTime() + this.config.sessionMaxAgeMs;
+    if (now.getTime() >= hardLimit) return null;
+    // Bookkeeping at most once a minute, and push the expiry out when it's under half left (sliding window, never past the hard limit).
     if (now.getTime() - session.lastSeenAt.getTime() > 60_000) {
       const extend = session.expiresAt.getTime() - now.getTime() < this.config.sessionTtlMs / 2;
       await this.prisma.session.update({
         where: { id: session.id },
-        data: { lastSeenAt: now, ...(extend ? { expiresAt: new Date(now.getTime() + this.config.sessionTtlMs) } : {}) },
+        data: { lastSeenAt: now, ...(extend ? { expiresAt: new Date(Math.min(now.getTime() + this.config.sessionTtlMs, hardLimit)) } : {}) },
       });
     }
     return { kind: 'session', user: toPrincipalUser(session.user), sessionId: session.id, authenticatedAt: session.authenticatedAt };
@@ -231,14 +240,17 @@ export class AuthService implements OnApplicationBootstrap {
    * account without TOTP can't sign in by password at all. Every failure looks the same.
    */
   async loginWithPassword(username: string, password: string, meta: RequestMeta): Promise<{ mfaToken: string }> {
+    this.assertNotLockedOut(username, meta);
     const user = await this.prisma.user.findUnique({ where: { username } });
     if (!user || !user.passwordHash || !user.totpEnabledAt || user.disabledAt) {
       await burnPasswordTime(password);
-      this.logger.warn(`Failed password sign-in for "${username}" from ${meta.ip ?? 'unknown'}`);
+      this.recordFailure(username, meta);
+      this.logger.warn(`Failed password sign-in for ${logSafe(username)} from ${meta.ip ?? 'unknown'}`);
       throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
     if (!(await verifyPassword(user.passwordHash, password))) {
-      this.logger.warn(`Failed password sign-in for "${username}" from ${meta.ip ?? 'unknown'}`);
+      this.recordFailure(username, meta);
+      this.logger.warn(`Failed password sign-in for ${logSafe(username)} from ${meta.ip ?? 'unknown'}`);
       throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
     const mfaToken = generateToken();
@@ -246,6 +258,22 @@ export class AuthService implements OnApplicationBootstrap {
       data: { id: hashToken(mfaToken), purpose: 'mfa', userId: user.id, data: { attempts: 0 }, expiresAt: new Date(Date.now() + this.config.mfaTtlMs) },
     });
     return { mfaToken };
+  }
+
+  /**
+   * Failed password and second-factor attempts are totalled per account and per address, because the route
+   * throttle only counts the two together. Both counts are reported the same way, so neither reveals whether
+   * an account exists.
+   */
+  private assertNotLockedOut(username: string, meta: RequestMeta): void {
+    if (this.failures.isBlocked(`user:${username.toLowerCase()}`, this.config.maxFailuresPerAccount) || this.failures.isBlocked(`ip:${meta.ip ?? ''}`, this.config.maxFailuresPerAddress)) {
+      throw new HttpException('Too many failed attempts; wait a few minutes and try again', HttpStatus.TOO_MANY_REQUESTS);
+    }
+  }
+
+  private recordFailure(username: string, meta: RequestMeta): void {
+    this.failures.recordFailure(`user:${username.toLowerCase()}`);
+    this.failures.recordFailure(`ip:${meta.ip ?? ''}`);
   }
 
   async completeMfa(mfaToken: string, proof: { code?: string; recoveryCode?: string }, meta: RequestMeta): Promise<{ user: PrincipalUser; session: IssuedSession }> {
@@ -260,13 +288,16 @@ export class AuthService implements OnApplicationBootstrap {
       throw new UnauthorizedException('Too many attempts; sign in again');
     }
     const user = await this.prisma.user.findUnique({ where: { id: challenge.userId }, include: WITH_CREDENTIAL_COUNT });
+    if (user) this.assertNotLockedOut(user.username, meta);
     const ok = user && !user.disabledAt && (proof.code !== undefined ? await this.acceptTotp(user.id, proof.code) : proof.recoveryCode !== undefined ? await this.acceptRecoveryCode(user.id, proof.recoveryCode) : false);
     if (!user || !ok) {
+      if (user) this.recordFailure(user.username, meta);
       await this.prisma.authChallenge.update({ where: { id }, data: { data: { attempts: attempts + 1 } } });
       this.logger.warn(`Failed second factor for user ${challenge.userId} from ${meta.ip ?? 'unknown'}`);
       throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
     await this.prisma.authChallenge.deleteMany({ where: { id } });
+    this.failures.clear(`user:${user.username.toLowerCase()}`);
     this.logger.log(`"${user.username}" signed in with password + ${proof.code !== undefined ? 'TOTP' : 'a recovery code'}`);
     return { user: toPrincipalUser(user), session: await this.createSession(user.id, meta) };
   }
@@ -322,6 +353,14 @@ export class AuthService implements OnApplicationBootstrap {
       authenticatedAtMs: principal.authenticatedAt?.getTime() ?? null,
       via: principal.kind,
     };
+  }
+
+  /**
+   * Signs the account out everywhere except `keepSessionId`: called after a credential changes, because
+   * whoever else holds a session may be exactly who the change is meant to shut out.
+   */
+  async revokeOtherSessions(userId: string, keepSessionId: string | undefined): Promise<void> {
+    await this.prisma.session.deleteMany({ where: { userId, ...(keepSessionId ? { id: { not: keepSessionId } } : {}) } });
   }
 
   async setPassword(userId: string, password: string): Promise<void> {

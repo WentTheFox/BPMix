@@ -335,6 +335,62 @@ describe('rate limiting', () => {
   });
 });
 
+describe('failed sign-in totals', () => {
+  it('locks an account after repeated failures from any mix of addresses, and a good sign-in is then refused too', async () => {
+    const strict = await startApp();
+    try {
+      const strictUrl = await urlOf(strict);
+      await setUpAdmin(strictUrl, clock);
+      const guesser = new TestClient(strictUrl);
+      const attempt = (password: string) => guesser.fetch('/api/v1/auth/login/password', { method: 'POST', json: { username: 'Admin', password } });
+      for (let i = 0; i < 20; i++) expect((await attempt('not the password!')).status).toBe(401);
+      // The name's case doesn't matter, and even the right password is refused for now.
+      expect((await attempt(PASSWORD)).status).toBe(429);
+      // Another account is unaffected.
+      expect((await guesser.fetch('/api/v1/auth/login/password', { method: 'POST', json: { username: 'someone-else', password: 'x' } })).status).toBe(401);
+    } finally {
+      await strict.close();
+    }
+  }, 120_000);
+
+  it('limits one address trying many different usernames', async () => {
+    const strict = await startApp();
+    try {
+      const sprayer = new TestClient(await urlOf(strict));
+      let blockedAt = -1;
+      for (let i = 0; i < 110 && blockedAt < 0; i++) {
+        const res = await sprayer.fetch('/api/v1/auth/login/password', { method: 'POST', json: { username: `user${i}`, password: 'guess' } });
+        if (res.status === 429) blockedAt = i;
+        else expect(res.status).toBe(401);
+      }
+      expect(blockedAt).toBe(100);
+    } finally {
+      await strict.close();
+    }
+  }, 180_000);
+});
+
+describe('session lifetime and credential changes', () => {
+  it('signs out every other session when the password changes, but not the one that changed it', async () => {
+    const { client, recoveryCodes } = await setUpAdmin(url, clock);
+    const other = anonymous();
+    const { mfaToken } = await other.json<{ mfaToken: string }>('/api/v1/auth/login/password', { method: 'POST', json: { username: 'admin', password: PASSWORD } });
+    await other.json('/api/v1/auth/login/totp', { method: 'POST', json: { mfaToken, recoveryCode: recoveryCodes[0] } });
+    expect((await other.fetch('/api/v1/auth/me')).status).toBe(200);
+
+    expect((await client.fetch('/api/v1/auth/password', { method: 'POST', json: { password: 'another long password' } })).status).toBe(204);
+    expect((await other.fetch('/api/v1/auth/me')).status).toBe(401);
+    expect((await client.fetch('/api/v1/auth/me')).status).toBe(200);
+  });
+
+  it('ends a session at its hard age limit even though it is still in use', async () => {
+    const { client } = await setUpAdmin(url, clock);
+    expect((await client.fetch('/api/v1/auth/me')).status).toBe(200);
+    await prisma.session.updateMany({ data: { createdAt: new Date(Date.now() - 91 * 24 * 60 * 60_000) } });
+    expect((await client.fetch('/api/v1/auth/me')).status).toBe(401);
+  });
+});
+
 describe('legacy file routes', () => {
   it('are behind the same sign-in, with writes limited to admins', async () => {
     await mkdir(path.join(base, 'Music'), { recursive: true });

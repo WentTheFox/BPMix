@@ -63,6 +63,10 @@ COPY --from=build /out/server ./
 COPY --from=build /out/web ./web
 # The generated server secret key (and any future local state) lives here; keep it on a volume.
 ENV BPMIX_DATA_DIR=/data
+# Runs as the image's unprivileged "node" user. /data is created owned by it, so a new named volume
+# inherits that; a bind-mounted data folder (or an old root-owned volume) must be made writable for uid 1000.
+RUN mkdir -p /data && chown node:node /data
+USER node
 VOLUME ["/music", "/data"]
 EXPOSE 8080
 # Applies pending Prisma migrations (the prisma CLI is a production dependency

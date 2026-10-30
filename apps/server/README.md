@@ -83,6 +83,15 @@ Environment variables, all optional:
 | `BPMIX_SCAN_BACKOFF_MS` | `30000`  | Wait before the second attempt; each further attempt waits 4x longer. |
 | `BPMIX_WEB_DIST`       | `../web`  | Where the built web app's static files live. Only relevant if you're running `apps/server` outside the Docker image (its Dockerfile stage sets this for you). |
 
+The image runs as the unprivileged `node` user (uid 1000). A new named volume for `/data` just works; if you bind-mount
+a host folder for `/data` (or reuse a volume from an older, root-running image), make it writable for uid 1000
+(`chown -R 1000:1000 <folder>`). Library folders are read-only mounts and only need to be readable.
+
+Repeated failed sign-ins are limited per account (20) and per address (100) over 15 minutes, on top of the per-minute
+route throttle, so password guessing and spraying get nowhere; a locked account unlocks itself when the window passes.
+Changing a password, turning off two-factor, regenerating recovery codes or removing a passkey signs out the account's other
+browser sessions, and a browser session ends 90 days after it was created however actively it was used.
+
 There's no separate per-root configuration — add or remove a folder by
 adding or removing its volume mount and restarting the container.
 

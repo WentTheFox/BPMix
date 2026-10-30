@@ -11,7 +11,7 @@ const execFileAsync = promisify(execFile);
  */
 export async function probeDurationSeconds(absolutePath: string): Promise<number | null> {
   try {
-    const { stdout } = await execFileAsync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', absolutePath], {
+    const { stdout } = await execFileAsync('ffprobe', ['-v', 'error', '-protocol_whitelist', 'file,pipe', '-show_entries', 'format=duration', '-of', 'csv=p=0', absolutePath], {
       timeout: 30_000,
     });
     const seconds = Number.parseFloat(stdout.trim());
