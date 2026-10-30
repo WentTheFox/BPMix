@@ -146,6 +146,22 @@ describe('ensureTrackMetadata', () => {
     expect(await store.getMetadata('a')).toEqual(result);
   });
 
+  it('stores the duration of an MP3 whose ID3 tag is larger than the default duration prefix', async () => {
+    // Regression: a big embedded cover (here 900KB of tag) pushes the first MPEG frame past the
+    // 512KB prefix, which used to store durationSeconds: null for a perfectly normal song.
+    const tagSize = 900_000;
+    const audio = [0xff, 0xfb, 0x90, 0x00, ...new Array(1000).fill(0)]; // one CBR 128kbps/44.1kHz frame header + payload, no Xing
+    const bytes = new Uint8Array(10 + tagSize + audio.length);
+    bytes.set([0x49, 0x44, 0x33, 3, 0, 0, ...synchsafe(tagSize)]);
+    bytes.set(audio, 10 + tagSize);
+    const bigTagRef: FileRef = { id: 'big', name: 'big.mp3', relativePath: 'big.mp3', sizeBytes: bytes.length, lastModifiedMs: 1 };
+
+    const result = await ensureTrackMetadata(new FakeLibraryStore(), new FakeFileAccess(new Map([['big', bytes.buffer]])), bigTagRef);
+
+    // CBR estimate: the 1004 bytes after the tag at 128kbps.
+    expect(result.durationSeconds).toBeCloseTo((1004 * 8) / 128_000, 4);
+  });
+
   it('extracts embedded cover art as a data URI', async () => {
     const store = new FakeLibraryStore();
     const imageBytes = [0xff, 0xd8, 0xff, 0xe0, 0x00, 0x01, 0x02, 0x03]; // fake JPEG-ish bytes - content doesn't matter, just that they round-trip

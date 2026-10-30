@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseDurationSeconds } from './parseDuration';
+import { DURATION_PREFIX_BYTES, durationPrefixBytesNeeded, parseDurationSeconds } from './parseDuration';
 
 function concatBytes(parts: number[][]): Uint8Array {
   return new Uint8Array(parts.flat());
@@ -158,6 +158,28 @@ describe('parseDurationSeconds', () => {
     const duration = parseDurationSeconds(bytes, 'song.mp3', bytes.length);
     expect(duration).not.toBeNull();
     expect(duration!).toBeCloseTo(5, 1);
+  });
+
+  it('finds the duration of an MP3 whose ID3 tag is larger than the default prefix', () => {
+    const id3Size = 900_000; // e.g. a big embedded cover
+    const synchsafe = [(id3Size >> 21) & 0x7f, (id3Size >> 14) & 0x7f, (id3Size >> 7) & 0x7f, id3Size & 0x7f];
+    const sampleRate = 44100;
+    const frame = buildMp3Frame({ bitrateKbps: 192, sampleRate, xingFrames: Math.round((sampleRate * 5) / 1152) });
+    const bytes = new Uint8Array(10 + id3Size + frame.length);
+    bytes.set([...ascii('ID3'), 3, 0, 0, ...synchsafe]);
+    bytes.set(frame, 10 + id3Size);
+
+    // The default prefix ends inside the tag, so the first frame is out of reach...
+    expect(parseDurationSeconds(bytes.subarray(0, DURATION_PREFIX_BYTES), 'song.mp3', bytes.length)).toBeNull();
+    // ...but the tag header alone says how much more to read.
+    const needed = durationPrefixBytesNeeded(bytes.subarray(0, 10), 'song.mp3');
+    expect(needed).toBeGreaterThan(10 + id3Size);
+    expect(parseDurationSeconds(bytes.subarray(0, needed), 'song.mp3', bytes.length)).toBeCloseTo(5, 1);
+  });
+
+  it('keeps the default prefix for files that cannot have an oversized ID3 tag', () => {
+    expect(durationPrefixBytesNeeded(new Uint8Array(10), 'song.flac')).toBe(DURATION_PREFIX_BYTES);
+    expect(durationPrefixBytesNeeded(new Uint8Array(10), 'song.mp3')).toBe(DURATION_PREFIX_BYTES);
   });
 
   it('returns null for an unrecognized extension', () => {

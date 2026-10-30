@@ -264,6 +264,25 @@ function parseMp3Duration(bytes: Uint8Array, totalSizeBytes: number): number | n
  * END of the file, not derivable from a prefix without a much larger
  * read), or a file this couldn't confidently parse.
  */
+/** Upper bound for a widened prefix: a bigger ID3 tag than this (absurd even for embedded art) is left to a fallback duration source. */
+export const MAX_DURATION_PREFIX_BYTES = 16 * 1024 * 1024;
+// Room after an ID3v2 tag for the first MPEG frame header and its Xing/VBRI header.
+const MP3_FRAME_WINDOW_BYTES = 64 * 1024;
+
+/**
+ * How many leading bytes parseDurationSeconds needs for this file. Usually
+ * DURATION_PREFIX_BYTES, but an MP3 whose ID3v2 tag is bigger than that (a
+ * large embedded cover easily is - real example: a 7MB track with an 840KB
+ * tag) has its first audio frame, and so its Xing header, beyond the default
+ * prefix, which used to make the duration come out as null. `prefix` only
+ * needs to hold the tag's 10-byte header.
+ */
+export function durationPrefixBytesNeeded(prefix: Uint8Array, fileName: string): number {
+  if (extOf(fileName) !== 'mp3') return DURATION_PREFIX_BYTES;
+  const needed = id3v2TagSize(prefix) + MP3_FRAME_WINDOW_BYTES;
+  return Math.min(Math.max(needed, DURATION_PREFIX_BYTES), MAX_DURATION_PREFIX_BYTES);
+}
+
 export function parseDurationSeconds(prefix: Uint8Array, fileName: string, totalSizeBytes: number): number | null {
   try {
     switch (extOf(fileName)) {

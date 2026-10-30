@@ -18,6 +18,7 @@ import {
 import { DatabaseService } from '../db/database.module.js';
 import { createNodeFileAccess, type NodeFileAccess } from '../node/nodeFileAccess.js';
 import type { AnalyzeFile } from './analysisPool.js';
+import { probeDurationSeconds } from './ffprobeDuration.js';
 import { sharpCoverArtResizer } from './sharpCoverArtResizer.js';
 
 export const ANALYZE_FILE = Symbol('ANALYZE_FILE');
@@ -194,7 +195,13 @@ export class ScannerService implements OnApplicationBootstrap {
     const tracks = (await store.listAllTracks()).filter((t) => !t.missing);
 
     const metadataFailures = await mapLimit(tracks, METADATA_CONCURRENCY, async (track) => {
-      await ensureTrackMetadata(store, this.fileAccess, toFileRef(track), sharpCoverArtResizer);
+      const ref = toFileRef(track);
+      const metadata = await ensureTrackMetadata(store, this.fileAccess, ref, sharpCoverArtResizer);
+      // Core reads the duration from the file header; formats it can't (Ogg/Opus, MP4 with a trailing moov, ...) come back null.
+      if (metadata.durationSeconds === null) {
+        const durationSeconds = await probeDurationSeconds(await this.fileAccess.absolutePathOf(ref));
+        if (durationSeconds !== null) await store.putMetadata({ ...metadata, durationSeconds });
+      }
     }, (track, err) => this.logger.warn(`Metadata failed for ${track.fileId}: ${String(err)}`));
 
     const scopes: LyricsScope[] = await store.getLyricsScopes();

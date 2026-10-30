@@ -43,6 +43,8 @@ beforeEach(async () => {
   ]);
   tone(path.join(base, 'Music', 'Album', 'one.mp3'), 'One', 440);
   tone(path.join(base, 'Music', 'two.mp3'), 'Two', 220);
+  // Ogg is a format core's header parser can't read a duration from, so this exercises the ffprobe fallback.
+  tone(path.join(base, 'Music', 'three.ogg'), 'Three', 330);
   await writeFile(path.join(base, 'Music', 'List.m3u8'), '#EXTM3U\nAlbum/one.mp3\nmissing/gone.mp3\n');
   await writeFile(path.join(base, 'Lyrics', 'one.lrc'), '[00:00.00]hello\n[00:01.00]world\n');
 });
@@ -62,8 +64,12 @@ describe('ScannerService', () => {
     expect(tracks.map((t) => [t.relativePath, t.missing])).toEqual([
       ['Album/one.mp3', false],
       ['missing/gone.mp3', true],
+      ['three.ogg', false],
       ['two.mp3', false],
     ]);
+
+    const ogg = await prisma.trackMetadata.findUnique({ where: { fileId: 'Music:three.ogg' } });
+    expect(ogg?.durationSeconds).toBeGreaterThan(2);
 
     const metadata = await prisma.trackMetadata.findUnique({ where: { fileId: 'Music:Album/one.mp3' } });
     expect(metadata).toMatchObject({ title: 'One', artists: ['Test Artist'] });

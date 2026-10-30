@@ -2,12 +2,12 @@ import type { FileAccess, FileRef } from '../file-access/types';
 import type { LibraryStore } from '../library-store/types';
 import { hashBytes } from './contentHash';
 import type { CoverArtResizer } from './coverArtResizer';
-import { DURATION_PREFIX_BYTES, parseDurationSeconds } from './parseDuration';
+import { DURATION_PREFIX_BYTES, durationPrefixBytesNeeded, parseDurationSeconds } from './parseDuration';
 import { readTags, readTagsFromUrl } from './readTags';
 import type { CoverArtBytes, TrackMetadata } from './types';
 
-/** Bumped whenever readTags' behavior changes, so already-scanned files get re-read instead of keeping a stale result forever - same role as ANALYSIS_ALGORITHM_VERSION. (v2: also extracts cover art. v3: downscales/cuts off oversized art instead of storing it verbatim - a bump here is what gets already-v2-scanned tracks' oversized art reprocessed, not just newly-scanned ones. v4: contentHash. v5: durationSeconds.) */
-export const METADATA_PARSER_VERSION = 5;
+/** Bumped whenever readTags' behavior changes, so already-scanned files get re-read instead of keeping a stale result forever - same role as ANALYSIS_ALGORITHM_VERSION. (v2: also extracts cover art. v3: downscales/cuts off oversized art instead of storing it verbatim - a bump here is what gets already-v2-scanned tracks' oversized art reprocessed, not just newly-scanned ones. v4: contentHash. v5: durationSeconds. v6: durationSeconds for MP3s whose ID3 tag outgrows the default duration prefix, which had stored null.) */
+export const METADATA_PARSER_VERSION = 6;
 
 /** Cover art is only ever displayed at small thumbnail sizes - shrink it toward this before storing. */
 export const COVER_ART_MAX_DIMENSION_PX = 300;
@@ -194,12 +194,16 @@ async function ensureTrackMetadataUncached(
       fileAccess.getContentHash?.(ref) ?? Promise.resolve(null),
       fetchPrefix(streamUrl, DURATION_PREFIX_BYTES),
     ]);
+    // A huge ID3 tag pushes the first MP3 frame past the default prefix - fetch just enough more.
+    if (durationPrefix && durationPrefixBytesNeeded(durationPrefix, ref.name) > durationPrefix.length) {
+      durationPrefix = await fetchPrefix(streamUrl, durationPrefixBytesNeeded(durationPrefix, ref.name));
+    }
     durationSeconds = durationPrefix ? parseDurationSeconds(durationPrefix, ref.name, ref.sizeBytes) : null;
   } else {
     const bytes = await fileAccess.readFileBytes(ref);
     const byteArray = new Uint8Array(bytes);
     contentHash = hashBytes(byteArray);
-    durationSeconds = parseDurationSeconds(byteArray.subarray(0, DURATION_PREFIX_BYTES), ref.name, ref.sizeBytes);
+    durationSeconds = parseDurationSeconds(byteArray.subarray(0, durationPrefixBytesNeeded(byteArray, ref.name)), ref.name, ref.sizeBytes);
     tags = await readTags(bytes);
   }
   const result: TrackMetadata = {
