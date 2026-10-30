@@ -74,6 +74,28 @@ export class LibraryService {
     return { items: items.map(toTrackDto), nextCursor: hasMore ? items[items.length - 1]!.file_id : null };
   }
 
+  /** Several tracks at once, by file id; ids that don't exist are simply absent from the result. */
+  async getTracksByFileIds(fileIds: string[]): Promise<Map<string, TrackDto>> {
+    if (fileIds.length === 0) return new Map();
+    const rows = await this.queryTracks([Prisma.sql`t.file_id = ANY(${fileIds}::text[])`], fileIds.length);
+    return new Map(rows.map((row) => [row.file_id, toTrackDto(row)]));
+  }
+
+  async getPlaylistsByIds(ids: string[]): Promise<Map<string, PlaylistDto>> {
+    const playlists = await this.db.prisma.playlist.findMany({ where: { id: { in: ids } } });
+    return new Map(playlists.map((p) => [p.id, toPlaylistDto(p)]));
+  }
+
+  /** Playlists after `afterId` in id order (keyset paging), as file ids + DTOs. */
+  async playlistsAfter(afterId: string | null, limit: number): Promise<{ id: string; dto: PlaylistDto }[]> {
+    const playlists = await this.db.prisma.playlist.findMany({
+      where: afterId === null ? {} : { id: { gt: afterId } },
+      orderBy: { id: 'asc' },
+      take: limit,
+    });
+    return playlists.map((p) => ({ id: p.id, dto: toPlaylistDto(p) }));
+  }
+
   async getTrack(fileId: string): Promise<TrackDto | null> {
     const [row] = await this.queryTracks([Prisma.sql`t.file_id = ${fileId}`], 1);
     return row ? toTrackDto(row) : null;

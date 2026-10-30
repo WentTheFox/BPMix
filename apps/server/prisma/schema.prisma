@@ -299,3 +299,28 @@ model TrackJobFailure {
   @@index([at])
   @@map("track_job_failures")
 }
+
+// ---------------------------------------------------------------------------
+// Sync change log. Rows are written by database triggers (see the
+// sync_changes migration), never by application code, so every write path -
+// the scanner, the API, a manual fix - is captured. Revisions are assigned in
+// commit order (the trigger serialises on an advisory lock), which is what
+// lets a client resume from "the last rev I saw" without missing anything.
+// ---------------------------------------------------------------------------
+
+/// One entry per change to a synced row. The entity's current state (or its absence) is what gets
+/// sent, so this only needs to say *which* row changed.
+model Change {
+  rev    BigInt   @id
+  /// track | playlist | userPlaylist | playbackState | setting
+  entity String
+  key    String
+  /// Null for shared library data; set for rows only that user may see.
+  userId String?  @map("user_id")
+  at     DateTime @default(now())
+
+  @@index([entity, key])
+  @@index([userId, rev])
+  @@index([at])
+  @@map("changes")
+}
