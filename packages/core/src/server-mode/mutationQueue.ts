@@ -73,6 +73,10 @@ export class MutationQueue {
   /** Writes the change down, then tries to send it without making the caller wait. */
   async enqueue(mutation: NewMutation): Promise<void> {
     await this.ready;
+    // A newer value for a setting makes any waiting older one pointless (last write wins anyway).
+    if (mutation.type === 'setting.set' || mutation.type === 'setting.delete') {
+      this.queue = this.queue.filter((m) => !((m.type === 'setting.set' || m.type === 'setting.delete') && m.key === mutation.key));
+    }
     this.queue.push({ ...mutation, opId: randomId() } as MutationDto);
     await this.persist();
     this.publish();

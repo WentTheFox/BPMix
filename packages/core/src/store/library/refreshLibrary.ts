@@ -11,6 +11,7 @@ import { playingContextRefreshed } from '../navigation/navigationSlice';
 import { playbackPatched } from '../persistence/persistenceSlice';
 import { lyricsScopesKnown, restoreStepAdvanced } from '../restore/restoreSlice';
 import type { RootState } from '../rootReducer';
+import { loadSettings } from '../settings/settingsThunks';
 import type { Services } from '../services';
 import {
   grantedRootsLoaded,
@@ -234,10 +235,14 @@ export function refreshLibrary(options: RefreshLibraryOptions = {}): AppThunk<Pr
  * for the settings screen); the cached library simply stays.
  */
 export function syncServerLibrary(): AppThunk<Promise<SyncOutcome | null>> {
-  return async (dispatch, _getState, { serverMode }) => {
+  return async (dispatch, getState, { serverMode }) => {
     if (!serverMode) return null;
     const outcome = await serverMode.sync();
-    if (outcome.changed) await dispatch(refreshLibrary({ syncServer: false })).catch((err) => logLibraryAction('syncServerLibrary:reloadFailed', { error: String(err) }));
+    if (outcome.changed) {
+      // The sync may have brought preferences changed on another device; re-read them into the store.
+      await dispatch(loadSettings(getState().settings.values.themeMode)).catch((err) => logLibraryAction('syncServerLibrary:settingsFailed', { error: String(err) }));
+      await dispatch(refreshLibrary({ syncServer: false })).catch((err) => logLibraryAction('syncServerLibrary:reloadFailed', { error: String(err) }));
+    }
     return outcome;
   };
 }

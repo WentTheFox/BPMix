@@ -5,7 +5,7 @@ import type { RootState } from './rootReducer';
 import type { Services } from './services';
 import { playbackPatched } from './persistence/persistenceSlice';
 import { settingsLoaded, settingsUpdated } from './settings/settingsSlice';
-import { serializeSettingsPatch } from './settings/settingsStorage';
+import { serializeSettingsPatch, SYNCED_SETTING_KEYS } from './settings/settingsStorage';
 
 export type AppStartListening = TypedStartListening<RootState, Dispatch<UnknownAction>, Services>;
 
@@ -23,6 +23,8 @@ export function createAppListenerMiddleware(services: Services) {
     effect: (action, { extra }) => {
       for (const [key, value] of serializeSettingsPatch(action.payload)) {
         void extra.libraryStore.putSetting(key, value);
+        // Signed in to a server: the account-wide preferences follow the person to their other devices.
+        if (extra.serverMode?.isActive() && SYNCED_SETTING_KEYS.has(key)) void extra.serverMode.mutations.enqueue({ type: 'setting.set', key, value });
       }
     },
   });

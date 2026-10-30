@@ -1,4 +1,5 @@
 import { decodeTrackKey, type SyncChangeDto, type TrackDto } from '@bpmix/api';
+import { SYNCED_SETTING_KEYS } from '../store/settings/settingsStorage';
 import { ANALYSIS_ALGORITHM_VERSION } from '../analysis/analyzeTrack';
 import type { LibraryStore, PlaylistRecord, TrackRecord } from '../library-store/types';
 import { METADATA_PARSER_VERSION } from '../metadata/ensureMetadata';
@@ -118,9 +119,15 @@ export async function applyChange(ctx: ApplyContext, change: SyncChangeDto): Pro
       });
       return true;
     }
-    // Settings and per-device playback state sync is not wired into the app yet.
+    case 'setting': {
+      // Only the account-wide preferences; see SYNCED_SETTING_KEYS for why anything else is ignored.
+      const setting = change.setting;
+      if (!setting || !SYNCED_SETTING_KEYS.has(setting.key)) return false;
+      await ctx.store.putSetting(setting.key, setting.value);
+      return true;
+    }
+    // Per-device playback state is not used by the app yet (it needs a "continue on this device" screen).
     case 'playbackState':
-    case 'setting':
       return false;
   }
 }

@@ -30,6 +30,20 @@ export const ALL_SETTING_KEYS = [
   DISCORD_RICH_PRESENCE_ENABLED_SETTING_KEY,
 ];
 
+/**
+ * The preferences that follow the account to every device. Anything else stays on the device: Last.fm and
+ * Discord are per-device integrations (their credentials must never travel), and this list is also what
+ * the app is willing to accept from a server, so a server can't write arbitrary local settings.
+ */
+export const SYNCED_SETTING_KEYS: ReadonlySet<string> = new Set([
+  THEME_MODE_SETTING_KEY,
+  ACCENT_COLOR_SETTING_KEY,
+  VOLUME_NORMALIZATION_SETTING_KEY,
+  CROSSFADE_SECONDS_SETTING_KEY,
+  LYRICS_ENABLED_SETTING_KEY,
+  SHOW_VOLUME_BUTTON_ON_NOW_PLAYING_SETTING_KEY,
+]);
+
 function isThemeMode(value: string): value is ThemeMode {
   return value === 'light' || value === 'flux' || value === 'dark' || value === 'amoled';
 }
