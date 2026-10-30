@@ -439,3 +439,30 @@ describe('housekeeping', () => {
     expect((await prisma.deviceToken.findMany({ orderBy: { name: 'asc' } })).map((t) => t.name)).toEqual(['active', 'recently revoked']);
   });
 });
+
+describe('account pages', () => {
+  it('are served with a strict policy, are not shadowed by the web app, and carry no inline script', async () => {
+    const guest = new TestClient(url);
+    for (const route of ['/login', '/setup', '/enroll?token=abc', '/device?code=ABCD-EFGH', '/account']) {
+      const res = await guest.fetch(route);
+      expect(res.status, route).toBe(200);
+      expect(res.headers.get('content-type')).toMatch(/text\/html/);
+      expect(res.headers.get('content-security-policy')).toContain("script-src 'self'");
+      expect(res.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
+      expect(res.headers.get('referrer-policy')).toBe('no-referrer');
+      expect(res.headers.get('cache-control')).toBe('no-store');
+      const html = await res.text();
+      expect(html).toContain('/account-assets/account.js');
+      expect(html).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/); // every script is an external file
+    }
+    const script = await guest.fetch('/account-assets/account.js');
+    expect(script.headers.get('content-type')).toMatch(/javascript/);
+    expect(await script.text()).toContain('startAuthentication');
+    expect((await guest.fetch('/account-assets/account.css')).headers.get('content-type')).toMatch(/text\/css/);
+    const webauthn = await guest.fetch('/account-assets/webauthn.js');
+    expect(webauthn.status).toBe(200);
+    expect(await webauthn.text()).toContain('startRegistration');
+    expect((await guest.fetch('/account-assets/secret.txt')).status).toBe(404);
+    expect((await guest.fetch('/account-assets/..%2Fpackage.json')).status).toBe(404);
+  });
+});
