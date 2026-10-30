@@ -826,3 +826,23 @@ describe('server cover art', () => {
     expect(await covered.getCoverArt('Music:a.mp3')).toBeNull();
   });
 });
+
+describe('a request the network never answers', () => {
+  it('is given up on as a lost connection, so the queue behind it is not blocked', async () => {
+    vi.useFakeTimers();
+    try {
+      const store = new MemoryStore();
+      store.settings.set('serverMode.config', JSON.stringify({ url: 'https://music.example.com', token: 'bpd_token', userName: 'Sam', role: 'USER' }));
+      const hung: typeof fetch = (_input, init) => new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(new Error('aborted'))));
+      const mode = new ServerMode({ store, deviceName: () => 'x', fetch: hung });
+      await mode.ready;
+      const flushed = mode.mutations.enqueue({ type: 'setting.set', key: 'settings.themeMode', value: 'dark' });
+      await vi.advanceTimersByTimeAsync(31_000);
+      await flushed;
+      // Still queued (nothing was lost), and flushing is free again rather than stuck on the first attempt.
+      expect(mode.mutations.getState()).toMatchObject({ pending: 1, flushing: false });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

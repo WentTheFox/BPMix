@@ -24,6 +24,9 @@ import { utf8Decode } from './encoding';
 import { encodeTrackKey } from './trackKey';
 
 /** The server answered with an error status. `code` is the machine-readable reason when it gave one. */
+/** Long enough for a slow link, short enough that a stalled connection doesn't hold up everything behind it. */
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -57,6 +60,8 @@ export interface ApiClientOptions {
   /** A native app's device token. The web app leaves this out and relies on its session cookie. */
   getToken?: () => string | null | undefined | Promise<string | null | undefined>;
   fetch?: typeof fetch;
+  /** How long a JSON request may take to get its answer before it is given up on. Default 30s. */
+  requestTimeoutMs?: number;
 }
 
 export type DeviceSignInProgress =
@@ -88,18 +93,27 @@ export class ApiClient {
   }
 
   /** Performs a request, turning "couldn't connect" and "server said no" into distinct errors. */
-  private async send(method: string, path: string, init: { body?: unknown; signal?: AbortSignal } = {}): Promise<Response> {
+  private async send(method: string, path: string, init: { body?: unknown; signal?: AbortSignal; timeoutMs?: number } = {}): Promise<Response> {
+    // A request that never answers (a connection the OS silently stalls, e.g. while the app is in the
+    // background) must not block whatever is queued behind it: give up and report it like any lost connection.
+    const controller = new AbortController();
+    const forward = () => controller.abort();
+    init.signal?.addEventListener('abort', forward);
+    const timer = setTimeout(() => controller.abort(), init.timeoutMs ?? this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS);
     let response: Response;
     try {
       response = await this.doFetch(`${this.baseUrl}${path}`, {
         method,
         headers: await this.authHeaders(init.body !== undefined ? { 'content-type': 'application/json' } : {}),
         body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
-        signal: init.signal,
+        signal: controller.signal,
       });
     } catch (err) {
       if (init.signal?.aborted) throw err;
-      throw new NetworkError(err);
+      throw new NetworkError(controller.signal.aborted ? new Error('The server did not answer in time') : err);
+    } finally {
+      clearTimeout(timer);
+      init.signal?.removeEventListener('abort', forward);
     }
     if (response.ok) return response;
     let body: { code?: string; message?: string | string[] } = {};
@@ -113,7 +127,7 @@ export class ApiClient {
     throw new ApiError(response.status, message, body.code);
   }
 
-  private async request<S extends z.ZodType>(method: string, path: string, schema: S, init?: { body?: unknown; signal?: AbortSignal }): Promise<z.infer<S>> {
+  private async request<S extends z.ZodType>(method: string, path: string, schema: S, init?: { body?: unknown; signal?: AbortSignal; timeoutMs?: number }): Promise<z.infer<S>> {
     const response = await this.send(method, path, init);
     return schema.parse(await response.json());
   }
@@ -134,7 +148,8 @@ export class ApiClient {
 
   /** Holds open until the user decides (or the server's wait ends with 'pending' - ask again). */
   deviceWait(deviceCode: string, signal?: AbortSignal): Promise<DeviceWaitResultDto> {
-    return this.request('POST', '/api/v1/auth/device/wait', deviceWaitResultSchema, { body: { deviceCode }, signal });
+    // The server holds this open for its own wait (~25s) before answering 'pending'.
+    return this.request('POST', '/api/v1/auth/device/wait', deviceWaitResultSchema, { body: { deviceCode }, signal, timeoutMs: 120_000 });
   }
 
   /**
