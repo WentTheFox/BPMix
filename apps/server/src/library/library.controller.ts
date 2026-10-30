@@ -1,6 +1,7 @@
 import { BadRequestException, Controller, Get, NotFoundException, Param, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { decodeTrackKey, listTracksQuerySchema, type Page, type PlaylistDto, type RootDto, type TrackDto } from '@bpmix/api';
+import { DeviceAccessible } from '../auth/principal.js';
 import { LibraryService } from './library.service.js';
 
 function fileIdFromKey(key: string): string {
@@ -11,7 +12,8 @@ function fileIdFromKey(key: string): string {
   }
 }
 
-// TODO(auth): every route here requires a signed-in user once the auth module lands.
+// Any signed-in user, including a native app's device token.
+@DeviceAccessible()
 @Controller('api/v1')
 export class LibraryController {
   constructor(private readonly library: LibraryService) {}

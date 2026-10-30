@@ -61,7 +61,9 @@ ENV BPMIX_WEB_DIST=/app/web
 ENV DATABASE_URL=
 COPY --from=build /out/server ./
 COPY --from=build /out/web ./web
-VOLUME ["/music"]
+# The generated server secret key (and any future local state) lives here; keep it on a volume.
+ENV BPMIX_DATA_DIR=/data
+VOLUME ["/music", "/data"]
 EXPOSE 8080
 # Applies pending Prisma migrations (the prisma CLI is a production dependency
 # for exactly this) before the server starts. DATABASE_URL must point at Postgres.

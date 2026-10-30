@@ -1,0 +1,160 @@
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, Req, Res } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
+import type { Response } from 'express';
+import {
+  passwordLoginRequestSchema,
+  redeemInviteRequestSchema,
+  setPasswordRequestSchema,
+  setupRequestSchema,
+  totpCodeRequestSchema,
+  totpLoginRequestSchema,
+  type AuthStatusDto,
+  type LoginResultDto,
+  type MeDto,
+  type SessionSummaryDto,
+  type TotpSetupDto,
+} from '@bpmix/api';
+import { parseInput } from '../common/zod.js';
+import { AuthConfig } from './auth.config.js';
+import { AuthService, type IssuedSession, type RequestMeta } from './auth.service.js';
+import { authRateLimit } from './auth.throttler.js';
+import { SESSION_COOKIE } from './cookies.js';
+import { AllowUnenrolled, CurrentPrincipal, DeviceAccessible, Public, type AuthedRequest, type Principal, type PrincipalUser } from './principal.js';
+
+const attempts = () => ({ default: { limit: authRateLimit, ttl: 60_000 } });
+
+function metaOf(req: AuthedRequest): RequestMeta {
+  return { userAgent: req.headers['user-agent'], ip: req.ip };
+}
+
+@Controller('api/v1/auth')
+export class AuthController {
+  constructor(
+    private readonly auth: AuthService,
+    private readonly config: AuthConfig,
+  ) {}
+
+  private startSession(req: AuthedRequest, res: Response, session: IssuedSession): void {
+    res.cookie(SESSION_COOKIE, session.token, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: this.config.secureCookies(req),
+      path: '/',
+      expires: session.expiresAt,
+    });
+  }
+
+  /** The state a browser reaches after signing in: who it is, as /auth/me would say. */
+  private signedIn(req: AuthedRequest, res: Response, user: PrincipalUser, session: IssuedSession): Promise<MeDto> {
+    this.startSession(req, res, session);
+    return this.auth.me({ kind: 'session', user, authenticatedAt: new Date() });
+  }
+
+  @Public()
+  @Get('status')
+  status(): Promise<AuthStatusDto> {
+    return this.auth.status();
+  }
+
+  /** The one open sign-up: only works while no account is set up yet, and makes an admin. */
+  @Public()
+  @Throttle(attempts())
+  @Post('setup')
+  async setup(@Body() body: unknown, @Req() req: AuthedRequest, @Res({ passthrough: true }) res: Response): Promise<MeDto> {
+    const { user, session } = await this.auth.setupFirstAdmin(parseInput(setupRequestSchema, body), metaOf(req));
+    return this.signedIn(req, res, user, session);
+  }
+
+  /** Opens an enrollment link an admin created; signs in just far enough to set up passkeys/password+TOTP. */
+  @Public()
+  @Throttle(attempts())
+  @HttpCode(200)
+  @Post('invites/redeem')
+  async redeem(@Body() body: unknown, @Req() req: AuthedRequest, @Res({ passthrough: true }) res: Response): Promise<MeDto> {
+    const { user, session } = await this.auth.redeemInvite(parseInput(redeemInviteRequestSchema, body).inviteToken, metaOf(req));
+    return this.signedIn(req, res, user, session);
+  }
+
+  @Public()
+  @Throttle(attempts())
+  @HttpCode(200)
+  @Post('login/password')
+  async loginPassword(@Body() body: unknown, @Req() req: AuthedRequest): Promise<LoginResultDto> {
+    const { username, password } = parseInput(passwordLoginRequestSchema, body);
+    const { mfaToken } = await this.auth.loginWithPassword(username, password, metaOf(req));
+    return { status: 'mfa_required', mfaToken };
+  }
+
+  @Public()
+  @Throttle(attempts())
+  @HttpCode(200)
+  @Post('login/totp')
+  async loginTotp(@Body() body: unknown, @Req() req: AuthedRequest, @Res({ passthrough: true }) res: Response): Promise<LoginResultDto> {
+    const { mfaToken, code, recoveryCode } = parseInput(totpLoginRequestSchema, body);
+    const { user, session } = await this.auth.completeMfa(mfaToken, { code, recoveryCode }, metaOf(req));
+    return { status: 'ok', me: await this.signedIn(req, res, user, session) };
+  }
+
+  @AllowUnenrolled()
+  @HttpCode(204)
+  @Post('logout')
+  async logout(@Req() req: AuthedRequest, @Res({ passthrough: true }) res: Response, @CurrentPrincipal() principal: Principal): Promise<void> {
+    if (principal.sessionId) await this.auth.revokeSession(principal.user.id, principal.sessionId).catch(() => undefined);
+    res.clearCookie(SESSION_COOKIE, { path: '/' });
+  }
+
+  @AllowUnenrolled()
+  @DeviceAccessible()
+  @Get('me')
+  me(@CurrentPrincipal() principal: Principal): Promise<MeDto> {
+    return this.auth.me(principal);
+  }
+
+  @AllowUnenrolled()
+  @HttpCode(204)
+  @Post('password')
+  async setPassword(@Body() body: unknown, @CurrentPrincipal() principal: Principal): Promise<void> {
+    this.auth.requireFreshAuth(principal);
+    await this.auth.setPassword(principal.user.id, parseInput(setPasswordRequestSchema, body).password);
+  }
+
+  @AllowUnenrolled()
+  @Post('totp/begin')
+  beginTotp(@CurrentPrincipal() principal: Principal): Promise<TotpSetupDto> {
+    this.auth.requireFreshAuth(principal);
+    return this.auth.beginTotp(principal.user.id);
+  }
+
+  @AllowUnenrolled()
+  @Post('totp/enable')
+  enableTotp(@Body() body: unknown, @CurrentPrincipal() principal: Principal): Promise<{ recoveryCodes: string[] }> {
+    this.auth.requireFreshAuth(principal);
+    return this.auth.enableTotp(principal.user.id, parseInput(totpCodeRequestSchema, body).code);
+  }
+
+  @HttpCode(204)
+  @Post('totp/disable')
+  async disableTotp(@Body() body: unknown, @CurrentPrincipal() principal: Principal): Promise<void> {
+    this.auth.requireFreshAuth(principal);
+    await this.auth.disableTotp(principal.user.id, parseInput(totpCodeRequestSchema, body).code);
+  }
+
+  /** Replaces all recovery codes with a new set, shown once. */
+  @AllowUnenrolled()
+  @Post('recovery-codes')
+  async regenerateRecoveryCodes(@CurrentPrincipal() principal: Principal): Promise<{ recoveryCodes: string[] }> {
+    this.auth.requireFreshAuth(principal);
+    return { recoveryCodes: await this.auth.replaceRecoveryCodes(principal.user.id) };
+  }
+
+  @Get('sessions')
+  sessions(@CurrentPrincipal() principal: Principal): Promise<SessionSummaryDto[]> {
+    return this.auth.listSessions(principal.user.id, principal.sessionId);
+  }
+
+  @HttpCode(204)
+  @Delete('sessions/:id')
+  async revokeSession(@Param('id') id: string, @CurrentPrincipal() principal: Principal): Promise<void> {
+    await this.auth.revokeSession(principal.user.id, id);
+  }
+}

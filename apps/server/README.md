@@ -69,6 +69,12 @@ Environment variables, all optional:
 | `BPMIX_LIBRARY_ROOT`   | `/music`  | Base directory scanned for library roots (its immediate subdirectories).|
 | `BPMIX_LYRICS_ROOTS`   | *(none)*  | Comma-separated subdirectory names (under `BPMIX_LIBRARY_ROOT`) that hold only `.lrc` files rather than playable tracks — see below. |
 | `DATABASE_URL`         | *(required)* | PostgreSQL connection string, e.g. `postgresql://user:password@host:5432/bpmix`. |
+| `BPMIX_ORIGIN`         | *(derived from the request)* | The public address of the site, e.g. `https://music.example.com` (comma-separated for several). Used for passkeys and to refuse cross-site writes. Set it. |
+| `BPMIX_TRUST_PROXY`    | *(off)*   | How many reverse proxies to trust for the client address and protocol (`1`), or a subnet name such as `loopback`. |
+| `BPMIX_SETUP_TOKEN`    | *(none)*  | If set, required by the very first sign-up (the one that becomes the admin). |
+| `BPMIX_SECRET_KEY`     | *(generated)* | Key used to encrypt authenticator secrets. If unset, a random one is created once in `BPMIX_DATA_DIR`. |
+| `BPMIX_DATA_DIR`       | `./data` (`/data` in the image) | Where the generated secret key lives. Keep it on a volume. |
+| `BPMIX_AUTH_RATE_LIMIT` | `10`     | Sign-in attempts allowed per minute per address and username. |
 | `BPMIX_SCAN_ON_START`  | `true`    | Set to `false` to not scan the library when the server starts (scans can still be started from the API, and run daily at 04:00 as a safety net). |
 | `BPMIX_SCAN_WORKERS`   | `min(4, CPU cores)` | How many tracks are processed (tags, cover art, loudness analysis) at once. |
 | `BPMIX_ANALYSIS_THREADS` | same as workers | Worker threads decoding and analysing audio. |
@@ -95,8 +101,7 @@ file changes (size or modified time), when the app's tag-reading or analysis
 code is updated, or when you ask for it. If the server stops while a track is
 being processed, another worker picks the job up when its lease runs out.
 
-To see what is going on (these endpoints are not yet protected — authentication
-is still to come):
+To see what is going on (admins only):
 
 | Request | Shows |
 | --- | --- |
@@ -156,13 +161,38 @@ way a browser-picked folder can — there's nothing client-side to revoke,
 since the grant lives in how the container was started. Removing the
 volume mount and restarting the container is the equivalent.
 
-## Security notes
+## Accounts and sign-in
 
-There's no authentication in front of this API — it's meant for a
-self-hosted, single-user (or trusted-LAN) deployment. If you're exposing
-it beyond your own network, put it behind a reverse proxy that adds auth,
-same as you would for any other self-hosted app with no login screen of
-its own.
+There is **no open registration**.
+
+- **First run:** the first person to open the app and sign up becomes the
+  admin. After that, sign-up is closed for good. On a server reachable by
+  others, set `BPMIX_SETUP_TOKEN` so that first sign-up needs a secret too —
+  otherwise whoever gets there first wins. (An account that never finishes
+  setting up its sign-in method is held for 15 minutes and then can be
+  replaced, so you can't be locked out by a half-finished setup.)
+- **More people:** an admin creates each account and gets back a one-time,
+  7-day link for its owner to set up their sign-in. An account with no
+  sign-in method yet cannot be used. An admin can issue a replacement link
+  (lost device), disable an account (ends its sessions at once) or change its
+  role. There is always at least one active admin.
+- **Signing in:** a passkey, or a password **plus** an authenticator-app code
+  (TOTP). A password alone never signs in. Ten single-use recovery codes are
+  issued when TOTP is turned on; changing credentials needs a recent sign-in.
+  Native apps use their own revocable per-device tokens.
+- **Protection:** sign-in attempts are rate limited per address and username,
+  session cookies are HttpOnly + SameSite=Lax (+ Secure over https), writes
+  from other websites are refused, and secrets (sessions, tokens, recovery
+  codes) are stored only as hashes. Authenticator secrets are encrypted with
+  `BPMIX_SECRET_KEY`, or with a key generated once into `BPMIX_DATA_DIR`
+  (`/data` in the image — keep it on a volume, as the compose file does).
+
+Running behind a reverse proxy (recommended, for https): set `BPMIX_ORIGIN` to
+the public address, e.g. `https://music.example.com`, and `BPMIX_TRUST_PROXY`
+to the number of proxies in front (usually `1`) so the real client address
+and protocol are used.
+
+## Security notes
 
 Requested paths are resolved and checked (via `fs.realpath`, so a symlink
 can't be used to escape either) to stay inside their root directory before

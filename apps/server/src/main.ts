@@ -3,9 +3,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import express from 'express';
 import { AppModule } from './app.module.js';
-import { createLibraryRouter } from './routes/library.js';
+import { mountLegacyRoutes } from './legacy.js';
+import { mountWebApp } from './web.js';
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -30,23 +30,17 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   app.enableShutdownHooks();
 
-  // Legacy file routes, kept until clients move to /api/v1. Audio bytes (and any
-  // other file - .lrc lyrics, etc) are served by mounting the library directory
-  // straight into express.static: Range/ETag/If-Modified-Since support for free,
-  // with no per-request root discovery.
-  app.use('/library', express.static(libraryRoot, { index: false }));
-  app.use('/api', createLibraryRouter(libraryRoot, lyricsRootIds));
+  // Behind a reverse proxy, req.ip / req.protocol (rate limits, secure cookies) come from X-Forwarded-*,
+  // but only if told how many proxies to trust: BPMIX_TRUST_PROXY=1, or a subnet name like loopback.
+  const trustProxy = process.env.BPMIX_TRUST_PROXY;
+  if (trustProxy) app.set('trust proxy', /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy === 'true' ? true : trustProxy);
 
-  // init() registers the Nest routes (/api/v1/*), which must happen before the
-  // SPA fallback below or the wildcard would swallow them.
+  // Legacy file routes (now behind sign-in), kept until clients move to /api/v1.
+  mountLegacyRoutes(app, { libraryRoot, lyricsRootIds });
+
+  mountWebApp(app, webDist);
+
   await app.init();
-  const http = app.getHttpAdapter().getInstance() as express.Express;
-  http.use(express.static(webDist));
-  // Express 5 (path-to-regexp v8) requires a named wildcard, not bare '*'.
-  http.get('/*splat', (_req, res) => {
-    res.sendFile(path.join(webDist, 'index.html'));
-  });
-
   await app.listen(port);
   console.log(`BPMix server listening on :${port} (library root: ${libraryRoot}, web: ${webDist})`);
 }

@@ -11,13 +11,15 @@ import { ScanWorkers } from '../src/scanner/scanWorkers.js';
 import { ScannerService } from '../src/scanner/scanner.service.js';
 import { ANALYZE_FILE } from '../src/scanner/tokens.js';
 import { realAnalyze, resetDatabase } from './scanStack.js';
+import { createTestClock, setUpAdmin, TestClient } from './testClient.js';
 import { TEST_DATABASE_URL } from './testDatabase.js';
 
 let app: INestApplication;
 let base: string;
 let url: string;
 
-const get = (p: string) => fetch(`${url}${p}`);
+let client: TestClient;
+const get = (p: string) => client.fetch(p);
 const json = async <T>(p: string): Promise<T> => (await get(p)).json() as Promise<T>;
 
 beforeAll(async () => {
@@ -45,6 +47,7 @@ beforeAll(async () => {
   await app.listen(0);
   url = (await app.getUrl()).replace('[::1]', 'localhost');
   await resetDatabase();
+  client = (await setUpAdmin(url, createTestClock())).client;
   await app.get(ScannerService).scanAll();
 }, 60_000);
 
@@ -90,7 +93,7 @@ describe('scan observability API', () => {
   });
 
   it('retries skipped tracks on request', async () => {
-    const res = await fetch(`${url}/api/v1/scan/retry?trackId=${encodeTrackKey('Music:bad.mp3')}`, { method: 'POST' });
+    const res = await client.fetch(`/api/v1/scan/retry?trackId=${encodeTrackKey('Music:bad.mp3')}`, { method: 'POST' });
     expect(await res.json()).toEqual({ requeued: 1 });
     await app.get(ScanWorkers).waitUntilSettled();
     // Still hopeless, so it burns another full set of attempts and lands back in SKIPPED.

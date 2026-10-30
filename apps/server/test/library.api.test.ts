@@ -13,6 +13,7 @@ import { decodeWithFfmpeg } from '../src/scanner/ffmpegDecoder.js';
 import { ScannerService } from '../src/scanner/scanner.service.js';
 import { ANALYZE_FILE } from '../src/scanner/tokens.js';
 import { resetDatabase } from './scanStack.js';
+import { createTestClock, setUpAdmin, TestClient } from './testClient.js';
 import { TEST_DATABASE_URL } from './testDatabase.js';
 
 let app: INestApplication;
@@ -23,7 +24,8 @@ function tone(file: string, title: string, artist: string, hz: number): void {
   execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `sine=frequency=${hz}:duration=3`, '-metadata', `title=${title}`, '-metadata', `artist=${artist}`, file]);
 }
 
-const get = (p: string, init?: RequestInit) => fetch(`${url}${p}`, init);
+let client: TestClient;
+const get = (p: string, init?: Parameters<TestClient['fetch']>[1]) => client.fetch(p, init);
 const json = async <T>(p: string): Promise<T> => (await get(p)).json() as Promise<T>;
 
 beforeAll(async () => {
@@ -47,6 +49,7 @@ beforeAll(async () => {
 
   const { prisma } = app.get(DatabaseService);
   await resetDatabase(prisma);
+  client = (await setUpAdmin(url, createTestClock())).client;
   await app.get(ScannerService).scanAll();
   await prisma.coverArt.create({ data: { fileId: 'Music:gamma.mp3', mimeType: 'image/png', data: Buffer.from([0x89, 0x50, 0x4e, 0x47]) } });
 }, 60_000);

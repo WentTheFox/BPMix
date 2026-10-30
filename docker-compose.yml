@@ -24,11 +24,17 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://bpmix:${BPMIX_DB_PASSWORD:-change-me}@postgres:5432/bpmix
+      # The public address, for passkeys and cross-site protection (set when serving over https):
+      # BPMIX_ORIGIN: https://music.example.com
+      # BPMIX_TRUST_PROXY: 1
+      # Require a secret for the very first sign-up (the one that becomes the admin):
+      # BPMIX_SETUP_TOKEN: change-me
       # BPMIX_LYRICS_ROOTS: Lyrics
     ports:
       - '8080:8080'
     volumes:
       - ~/Music:/music/MyLibrary:ro
+      - appdata:/data
       # A folder of .lrc files with no matching audio - list its name in
       # BPMIX_LYRICS_ROOTS (comma-separated for more than one) so the client
       # treats it as a lyrics scope instead of a permanently-empty library.
@@ -38,3 +44,4 @@ services:
 
 volumes:
   pgdata:
+  appdata:

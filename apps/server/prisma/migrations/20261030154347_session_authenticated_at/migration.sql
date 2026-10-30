@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "sessions" ADD COLUMN     "authenticated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;

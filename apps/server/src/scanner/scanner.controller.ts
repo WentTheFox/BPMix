@@ -8,6 +8,7 @@ import {
   type ScanJobDto,
   type ScanStatusDto,
 } from '@bpmix/api';
+import { Roles } from '../auth/principal.js';
 import { ScannerService } from './scanner.service.js';
 
 function fileIdFromKey(key: string): string {
@@ -18,7 +19,7 @@ function fileIdFromKey(key: string): string {
   }
 }
 
-// TODO(auth): admin-only once the auth module lands.
+@Roles('ADMIN')
 @Controller('api/v1/scan')
 export class ScannerController {
   constructor(private readonly scanner: ScannerService) {}
