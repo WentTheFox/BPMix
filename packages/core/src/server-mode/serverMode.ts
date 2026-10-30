@@ -73,7 +73,8 @@ export interface ServerModeDeps {
 export function normalizeServerUrl(input: string): string {
   const trimmed = input.trim();
   if (!trimmed) throw new Error('Enter the server address');
-  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+  // No scheme typed: https, except for a server on the local network, where plain http is what people run.
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `${hostIsPrivate(trimmed) ? 'http' : 'https'}://${trimmed}`;
   let url: URL;
   try {
     url = new URL(withScheme);
@@ -81,7 +82,35 @@ export function normalizeServerUrl(input: string): string {
     throw new Error('That does not look like an address');
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('The address must start with http:// or https://');
+  if (url.protocol === 'http:' && !isPrivateHost(url.hostname)) {
+    throw new Error('Plain http:// is only allowed for servers on your own network (a local address); use https:// for anything on the internet');
+  }
   return url.origin;
+}
+
+function hostIsPrivate(typed: string): boolean {
+  try {
+    return isPrivateHost(new URL(`http://${typed}`).hostname);
+  } catch {
+    return false; // the real parse below reports what is wrong with it
+  }
+}
+
+/**
+ * Whether a host name is on a private network or the device itself, where unencrypted http is an acceptable
+ * trade for not having to set up a certificate: loopback, RFC 1918, link-local, CGNAT (Tailscale), IPv6
+ * local ranges, single-label names and the usual home-network suffixes. Anything else could be crossing the
+ * internet, where the device token would be readable by anyone on the path.
+ */
+export function isPrivateHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    return a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254) || (a === 100 && b >= 64 && b <= 127);
+  }
+  if (host.includes(':')) return host === '::1' || /^f[cd][0-9a-f]{2}:/.test(host) || /^fe[89ab][0-9a-f]:/.test(host);
+  return !host.includes('.') || /\.(local|lan|home\.arpa|internal|localhost)$/.test(host);
 }
 
 /**

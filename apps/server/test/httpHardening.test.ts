@@ -41,6 +41,21 @@ afterAll(async () => {
   await rm(base, { recursive: true, force: true });
 });
 
+describe('response headers', () => {
+  it('are set on API responses, and sign-in responses are never cached', async () => {
+    const api = await admin.fetch('/api/v1/auth/me');
+    expect(api.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(api.headers.get('referrer-policy')).toBe('no-referrer');
+    expect(api.headers.get('x-frame-options')).toBe('DENY');
+    expect(api.headers.get('x-powered-by')).toBeNull();
+    expect(api.headers.get('cache-control')).toBe('no-store');
+    expect(api.headers.get('strict-transport-security')).toBeNull(); // plain http here
+    const tracks = await admin.fetch('/api/v1/tracks');
+    expect(tracks.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(tracks.headers.get('cache-control')).not.toBe('no-store');
+  });
+});
+
 describe('NUL characters, which Postgres cannot store', () => {
   it('are refused with a 400 wherever they appear, never a 500', async () => {
     expect((await admin.fetch('/api/v1/tracks?q=%00')).status).toBe(400);

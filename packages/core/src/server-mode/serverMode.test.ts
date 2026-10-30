@@ -43,7 +43,7 @@ async function signedIn(store = new MemoryStore(), server = fakeServer()) {
 
 describe('normalizeServerUrl', () => {
   it.each([
-    ['music.example.com', 'http://music.example.com'],
+    ['music.example.com', 'https://music.example.com'],
     ['https://music.example.com/', 'https://music.example.com'],
     ['  http://192.168.1.20:8080/some/path?x=1 ', 'http://192.168.1.20:8080'],
     ['localhost:8099', 'http://localhost:8099'],
@@ -52,6 +52,21 @@ describe('normalizeServerUrl', () => {
   it('refuses empty input and other schemes', () => {
     expect(() => normalizeServerUrl('  ')).toThrow('Enter the server address');
     expect(() => normalizeServerUrl('ftp://example.com')).toThrow('http');
+  });
+
+  it('allows plain http only for private and local addresses', () => {
+    for (const host of ['localhost:8099', '127.0.0.1', '10.1.2.3', '172.16.0.5', '172.31.255.1', '192.168.1.20:8080', '169.254.1.1', '100.100.1.1', '[::1]:8099', '[fd12:3456::1]', 'nas', 'music.local', 'box.home.arpa', 'pi.lan']) {
+      expect(() => normalizeServerUrl(`http://${host}`), host).not.toThrow();
+    }
+    for (const host of ['music.example.com', '8.8.8.8', '172.32.0.1', '172.15.0.1', '100.128.0.1', '11.0.0.1', '[2001:db8::1]']) {
+      expect(() => normalizeServerUrl(`http://${host}`), host).toThrow('https');
+    }
+  });
+
+  it('defaults a bare address to http on the local network and https elsewhere', () => {
+    expect(normalizeServerUrl('192.168.1.20:8080')).toBe('http://192.168.1.20:8080');
+    expect(normalizeServerUrl('nas')).toBe('http://nas');
+    expect(normalizeServerUrl('music.example.com')).toBe('https://music.example.com');
   });
 });
 
@@ -131,7 +146,7 @@ describe('ServerMode sign-in', () => {
     expect(shown[0]).toMatchObject({ kind: 'code', userCode: 'ABCD-EFGH' });
     expect(result).toMatchObject({ token: 'bpd_secret' });
     expect(mode.isActive()).toBe(true);
-    expect(mode.getStatus()).toMatchObject({ url: 'http://music.example.com', userName: 'Sam' });
+    expect(mode.getStatus()).toMatchObject({ url: 'https://music.example.com', userName: 'Sam' });
 
     const restarted = new ServerMode({ store, deviceName: () => 'Pixel 8', fetch: server.fetch });
     await restarted.ready;

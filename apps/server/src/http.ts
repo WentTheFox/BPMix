@@ -9,6 +9,18 @@ export const JSON_BODY_LIMIT = '2mb';
 
 /** Settings every instance of the app needs, whether it is started by main.ts or by a test. */
 export function configureHttp(app: NestExpressApplication): void {
+  app.disable('x-powered-by');
+  // The account pages add their own strict CSP on top of this (pages.controller.ts); these cover the API and the web app.
+  app.use((req: { secure?: boolean; path: string }, res: { setHeader(name: string, value: string): void }, next: () => void) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('X-Frame-Options', 'DENY');
+    // Only once the connection is known to be https (req.secure honours BPMIX_TRUST_PROXY); on plain http it would be ignored anyway.
+    if (req.secure) res.setHeader('Strict-Transport-Security', 'max-age=15552000');
+    // Sign-in responses carry who someone is and tokens; no cache or proxy should keep them.
+    if (req.path.startsWith('/api/v1/auth')) res.setHeader('Cache-Control', 'no-store');
+    next();
+  });
   // Postgres cannot store or compare a NUL character in text, so one anywhere in a request would
   // surface as a 500 from deep inside a query. Refuse it up front, everywhere, instead.
   app.use((req: { url: string }, res: { status(code: number): { json(body: unknown): void } }, next: () => void) => {
