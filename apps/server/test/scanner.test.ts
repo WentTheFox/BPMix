@@ -2,28 +2,22 @@ import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { analyzeTrack } from '@bpmix/core';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { createPrismaClient } from '../src/db/prisma.js';
-import { createPrismaLibraryStore } from '../src/db/prismaLibraryStore.js';
-import { decodeWithFfmpeg } from '../src/scanner/ffmpegDecoder.js';
-import { createNodeFileAccess } from '../src/node/nodeFileAccess.js';
-import { ScannerService } from '../src/scanner/scanner.service.js';
-import { TEST_DATABASE_URL } from './testDatabase.js';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import type { ScannerService } from '../src/scanner/scanner.service.js';
+import { createScanStack, resetDatabase, testPrisma, type ScanStack } from './scanStack.js';
 
-const prisma = createPrismaClient(TEST_DATABASE_URL);
+const prisma = testPrisma;
 let base: string;
+const stacks: ScanStack[] = [];
 
 function tone(file: string, title: string, hz: number): void {
   execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `sine=frequency=${hz}:duration=3`, '-metadata', `title=${title}`, '-metadata', 'artist=Test Artist', file]);
 }
 
-function makeScanner(): ScannerService {
-  const db = { prisma, libraryStore: createPrismaLibraryStore(prisma) };
-  const env: Record<string, string> = {};
-  // In-process analysis; production runs the same decode+analyze on a worker thread.
-  const analyze = async (absolutePath: string) => analyzeTrack(await decodeWithFfmpeg(absolutePath));
-  return new ScannerService(db as never, { get: (key: string) => env[key] } as never, createNodeFileAccess(base, new Set(['Lyrics'])), analyze);
+async function makeScanner(): Promise<ScannerService> {
+  const stack = await createScanStack({ base });
+  stacks.push(stack);
+  return stack.scanner;
 }
 
 beforeAll(async () => {
@@ -33,21 +27,17 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  await prisma.$transaction([
-    prisma.track.deleteMany(),
-    prisma.playlist.deleteMany(),
-    prisma.trackMetadata.deleteMany(),
-    prisma.trackAnalysis.deleteMany(),
-    prisma.coverArt.deleteMany(),
-    prisma.lyricsScope.deleteMany(),
-    prisma.lyricsAssignment.deleteMany(),
-  ]);
+  await resetDatabase();
   tone(path.join(base, 'Music', 'Album', 'one.mp3'), 'One', 440);
   tone(path.join(base, 'Music', 'two.mp3'), 'Two', 220);
   // Ogg is a format core's header parser can't read a duration from, so this exercises the ffprobe fallback.
   tone(path.join(base, 'Music', 'three.ogg'), 'Three', 330);
   await writeFile(path.join(base, 'Music', 'List.m3u8'), '#EXTM3U\nAlbum/one.mp3\nmissing/gone.mp3\n');
   await writeFile(path.join(base, 'Lyrics', 'one.lrc'), '[00:00.00]hello\n[00:01.00]world\n');
+});
+
+afterEach(async () => {
+  await Promise.all(stacks.splice(0).map((stack) => stack.stop()));
 });
 
 afterAll(async () => {
@@ -57,8 +47,8 @@ afterAll(async () => {
 
 describe('ScannerService', () => {
   it('registers every audio file, reads tags, measures loudness and matches lyrics', async () => {
-    const summary = await makeScanner().scanAll();
-    expect(summary).toMatchObject({ roots: 1, metadataFailures: 0, analysisFailures: 0 });
+    const summary = await (await makeScanner()).scanAll();
+    expect(summary).toMatchObject({ roots: 1, queued: 3, jobs: { done: 3, skipped: 0, retrying: 0 } });
 
     const tracks = await prisma.track.findMany({ orderBy: { relativePath: 'asc' } });
     // Both real files (one playlisted, one not) plus the playlist's missing placeholder.
@@ -82,7 +72,7 @@ describe('ScannerService', () => {
   });
 
   it('drops tracks and their derived rows when the file disappears', async () => {
-    const scanner = makeScanner();
+    const scanner = await makeScanner();
     await scanner.scanAll();
     await unlink(path.join(base, 'Music', 'two.mp3'));
     await scanner.scanAll();
@@ -93,17 +83,17 @@ describe('ScannerService', () => {
 
   it('drops a lyrics scope whose root is gone instead of failing or hanging the scan', async () => {
     await prisma.lyricsScope.create({ data: { rootId: 'Unmounted', relativePath: '' } });
-    const summary = await makeScanner().scanAll();
+    const summary = await (await makeScanner()).scanAll();
     expect(summary.tracks).toBe(3);
     expect(await prisma.lyricsScope.findMany({ where: { rootId: 'Unmounted' } })).toEqual([]);
   });
 
   it('joins a scan that is already running instead of starting another', async () => {
-    const scanner = makeScanner();
+    const scanner = await makeScanner();
     const first = scanner.scanAll();
-    expect(scanner.status().running).toBe(true);
+    expect((await scanner.status()).running).toBe(true);
     expect(scanner.scanAll()).toBe(first);
     await first;
-    expect(scanner.status().running).toBe(false);
+    expect((await scanner.status()).running).toBe(false);
   });
 });

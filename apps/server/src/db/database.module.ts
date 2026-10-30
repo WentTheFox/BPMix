@@ -8,12 +8,15 @@ import { createPrismaLibraryStore } from './prismaLibraryStore.js';
 @Injectable()
 export class DatabaseService implements OnModuleDestroy {
   readonly prisma: PrismaClient;
+  /** For the few things Prisma can't do (LISTEN/NOTIFY needs a dedicated connection). */
+  readonly connectionString: string;
   /** The shared library, as @bpmix/core's LibraryStore, for running core's scanners server-side. */
   readonly libraryStore: LibraryStore;
 
   constructor(config: ConfigService) {
     const url = config.get<string>('DATABASE_URL');
     if (!url) throw new Error('DATABASE_URL is not set');
+    this.connectionString = url;
     this.prisma = createPrismaClient(url);
     this.libraryStore = createPrismaLibraryStore(this.prisma);
   }

@@ -59,6 +59,17 @@ export const listTracksQuerySchema = z.object({
 });
 export type ListTracksQuery = z.infer<typeof listTracksQuerySchema>;
 
+export const jobCountsSchema = z.object({
+  pending: z.number(),
+  /** Pending jobs that already failed once and are waiting out their backoff (included in `pending`). */
+  retrying: z.number(),
+  running: z.number(),
+  done: z.number(),
+  /** Failed every attempt; left alone until the file changes or someone retries them. */
+  skipped: z.number(),
+});
+export type JobCountsDto = z.infer<typeof jobCountsSchema>;
+
 export const scanStatusSchema = z.object({
   running: z.boolean(),
   last: z
@@ -67,9 +78,59 @@ export const scanStatusSchema = z.object({
       finishedAtMs: z.number(),
       roots: z.number(),
       tracks: z.number(),
-      metadataFailures: z.number(),
-      analysisFailures: z.number(),
+      queued: z.number(),
+      jobs: jobCountsSchema,
     })
     .nullable(),
+  jobs: jobCountsSchema,
+  workers: z.object({
+    workers: z.number(),
+    /** The counters below are since this server process started. */
+    succeeded: z.number(),
+    failedAttempts: z.number(),
+    skipped: z.number(),
+    inFlight: z.number(),
+  }),
 });
 export type ScanStatusDto = z.infer<typeof scanStatusSchema>;
+
+export const jobStateSchema = z.enum(['PENDING', 'RUNNING', 'DONE', 'SKIPPED']);
+export type JobStateDto = z.infer<typeof jobStateSchema>;
+
+export const scanJobSchema = z.object({
+  trackId: z.string(),
+  /** Null if the track has since been removed. */
+  relativePath: z.string().nullable(),
+  state: jobStateSchema,
+  attempts: z.number(),
+  lastError: z.string().nullable(),
+  lastErrorStage: z.string().nullable(),
+  skippedAtMs: z.number().nullable(),
+  updatedAtMs: z.number(),
+});
+export type ScanJobDto = z.infer<typeof scanJobSchema>;
+
+export const scanFailureSchema = z.object({
+  id: z.number(),
+  trackId: z.string(),
+  relativePath: z.string().nullable(),
+  stage: z.string(),
+  attempt: z.number(),
+  error: z.string(),
+  willRetry: z.boolean(),
+  workerId: z.string(),
+  atMs: z.number(),
+});
+export type ScanFailureDto = z.infer<typeof scanFailureSchema>;
+
+export const listScanJobsQuerySchema = z.object({
+  state: jobStateSchema.default('SKIPPED'),
+  cursor: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(100),
+});
+
+export const listScanFailuresQuerySchema = z.object({
+  /** Limit to one track (a track key). */
+  trackId: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(100),
+});

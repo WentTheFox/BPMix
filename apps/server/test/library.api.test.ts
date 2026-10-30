@@ -10,7 +10,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.js';
 import { DatabaseService } from '../src/db/database.module.js';
 import { decodeWithFfmpeg } from '../src/scanner/ffmpegDecoder.js';
-import { ANALYZE_FILE, ScannerService } from '../src/scanner/scanner.service.js';
+import { ScannerService } from '../src/scanner/scanner.service.js';
+import { ANALYZE_FILE } from '../src/scanner/tokens.js';
+import { resetDatabase } from './scanStack.js';
 import { TEST_DATABASE_URL } from './testDatabase.js';
 
 let app: INestApplication;
@@ -44,17 +46,7 @@ beforeAll(async () => {
   url = (await app.getUrl()).replace('[::1]', 'localhost');
 
   const { prisma } = app.get(DatabaseService);
-  await prisma.$transaction([
-    prisma.track.deleteMany(),
-    prisma.playlist.deleteMany(),
-    prisma.trackMetadata.deleteMany(),
-    prisma.trackAnalysis.deleteMany(),
-    prisma.coverArt.deleteMany(),
-    prisma.lyricsAssignment.deleteMany(),
-    // Other test files share this database and leave scopes behind.
-    prisma.lyricsScope.deleteMany(),
-    prisma.keyValue.deleteMany(),
-  ]);
+  await resetDatabase(prisma);
   await app.get(ScannerService).scanAll();
   await prisma.coverArt.create({ data: { fileId: 'Music:gamma.mp3', mimeType: 'image/png', data: Buffer.from([0x89, 0x50, 0x4e, 0x47]) } });
 }, 60_000);

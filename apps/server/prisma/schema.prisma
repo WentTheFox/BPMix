@@ -238,3 +238,59 @@ model DeviceGrant {
   @@index([expiresAt])
   @@map("device_grants")
 }
+
+// ---------------------------------------------------------------------------
+// Scan job queue: one row per track, so a song is only ever queued once and
+// only ever handed to one worker at a time. Workers claim rows with
+// FOR UPDATE SKIP LOCKED and a lease, which also lets another worker (or
+// server instance) take over a job whose worker died.
+// ---------------------------------------------------------------------------
+
+enum JobState {
+  PENDING
+  RUNNING
+  DONE
+  /// Failed every attempt. Left alone by later scans until the file or the
+  /// parser/algorithm versions change, or an admin retries it.
+  SKIPPED
+}
+
+model TrackJob {
+  fileId         String    @id @map("file_id")
+  state          JobState  @default(PENDING)
+  /// size:mtime:parserVersion:algorithmVersion - a change resets the job.
+  fingerprint    String
+  attempts       Int       @default(0)
+  /// Backoff: PENDING jobs are not claimable before this.
+  runAfter       DateTime  @default(now()) @map("run_after")
+  lockedBy       String?   @map("locked_by")
+  lockExpiresAt  DateTime? @map("lock_expires_at")
+  /// Stages that already succeeded, so a retry doesn't redo them.
+  metadataDone   Boolean   @default(false) @map("metadata_done")
+  analysisDone   Boolean   @default(false) @map("analysis_done")
+  lastError      String?   @map("last_error")
+  lastErrorStage String?   @map("last_error_stage")
+  skippedAt      DateTime? @map("skipped_at")
+  finishedAt     DateTime? @map("finished_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([state, runAfter])
+  @@map("track_jobs")
+}
+
+/// Every failed attempt, kept for a while so it's possible to see what is failing and why.
+model TrackJobFailure {
+  id        Int      @id @default(autoincrement())
+  fileId    String   @map("file_id")
+  stage     String
+  attempt   Int
+  error     String
+  willRetry Boolean  @map("will_retry")
+  workerId  String   @map("worker_id")
+  at        DateTime @default(now())
+
+  @@index([fileId])
+  @@index([at])
+  @@map("track_job_failures")
+}

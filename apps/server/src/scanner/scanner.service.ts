@@ -1,84 +1,46 @@
 import { Inject, Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import {
-  ANALYSIS_ALGORITHM_VERSION,
-  ensureTrackMetadata,
-  isAnalysisFresh,
-  isAudioFileName,
-  matchLibraryLyrics,
-  pruneOrphanedRootData,
-  scanRoot,
-  walkDirectory,
-  type AnalysisResult,
-  type FileRef,
-  type LyricsScope,
-  type TrackRecord,
-} from '@bpmix/core';
+import { encodeTrackKey, type ScanFailureDto, type ScanJobDto } from '@bpmix/api';
+import { isAudioFileName, matchLibraryLyrics, pruneOrphanedRootData, scanRoot, walkDirectory, type LyricsScope } from '@bpmix/core';
 import { DatabaseService } from '../db/database.module.js';
 import { FILE_ACCESS, type NodeFileAccess } from '../node/node.module.js';
-import type { AnalyzeFile } from './analysisPool.js';
-import { probeDurationSeconds } from './ffprobeDuration.js';
-import { sharpCoverArtResizer } from './sharpCoverArtResizer.js';
+import type { JobCounts, JobSummary } from './jobQueue.js';
+import { ScanWorkers, type WorkerStats } from './scanWorkers.js';
+import { ANALYZE_FILE } from './tokens.js';
+import { trackFingerprint } from './trackProcessor.js';
 
-export const ANALYZE_FILE = Symbol('ANALYZE_FILE');
+export { ANALYZE_FILE };
 
 export interface ScanSummary {
   startedAtMs: number;
   finishedAtMs: number;
   roots: number;
   tracks: number;
-  metadataFailures: number;
-  analysisFailures: number;
+  /** Tracks (re)queued by this scan because they were new or changed. */
+  queued: number;
+  /** Queue state when this scan settled. Skipped tracks failed every attempt and are left alone until they change or are retried. */
+  jobs: JobCounts;
 }
 
 export interface ScanStatus {
   running: boolean;
   last: ScanSummary | null;
+  jobs: JobCounts;
+  workers: WorkerStats;
 }
 
-const METADATA_CONCURRENCY = 4;
-const SHA256_HEX = /^[0-9a-f]{64}$/;
-
-function toFileRef(track: TrackRecord): FileRef {
-  return {
-    id: track.fileId,
-    name: track.relativePath.split('/').pop() ?? track.relativePath,
-    relativePath: track.relativePath,
-    sizeBytes: track.sizeBytes,
-    lastModifiedMs: track.lastModifiedMs,
-  };
-}
-
-/** Runs `task` over `items` with at most `limit` in flight; failures are counted, not thrown. */
-async function mapLimit<T>(
-  items: readonly T[],
-  limit: number,
-  task: (item: T) => Promise<void>,
-  onError: (item: T, err: unknown) => void,
-): Promise<number> {
-  let next = 0;
-  let failures = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (next < items.length) {
-      const item = items[next++]!;
-      try {
-        await task(item);
-      } catch (err) {
-        failures++;
-        onError(item, err);
-      }
-    }
-  });
-  await Promise.all(workers);
-  return failures;
-}
+const FAILURE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
- * Server-side library scan: walks each root, reads tags/cover art, matches
- * lyrics and measures loudness - all by running @bpmix/core's own scan code
- * against the Node FileAccess and the Postgres LibraryStore, so clients never
- * have to. Full scans only for now; a file watcher is a later addition.
+ * Server-side library scan, in two parts. Discovery (here) walks each root and
+ * registers every audio file as a track, then queues a per-track job for each
+ * new or changed one. The per-track work - tags, cover art, duration, hash,
+ * loudness - is done by the ScanWorkers pool off that queue, with retries; a
+ * track that keeps failing is skipped until it changes. When the queue
+ * settles, lyrics are matched across the library (they need every track).
+ * Everything runs @bpmix/core's own scan code against the Node FileAccess and
+ * the Postgres LibraryStore, so clients never have to.
  */
 @Injectable()
 export class ScannerService implements OnApplicationBootstrap {
@@ -90,7 +52,7 @@ export class ScannerService implements OnApplicationBootstrap {
     private readonly db: DatabaseService,
     private readonly config: ConfigService,
     @Inject(FILE_ACCESS) private readonly fileAccess: NodeFileAccess,
-    @Inject(ANALYZE_FILE) private readonly analyzeFile: AnalyzeFile,
+    private readonly workers: ScanWorkers,
   ) {}
 
   onApplicationBootstrap(): void {
@@ -102,10 +64,58 @@ export class ScannerService implements OnApplicationBootstrap {
   @Cron(CronExpression.EVERY_DAY_AT_4AM)
   scheduledScan(): void {
     void this.scanAll().catch((err: unknown) => this.logger.error(`Scheduled scan failed: ${String(err)}`));
+    void this.workers.queue
+      .pruneFailures(new Date(Date.now() - FAILURE_RETENTION_MS))
+      .catch((err: unknown) => this.logger.warn(`Pruning old failures failed: ${String(err)}`));
   }
 
-  status(): ScanStatus {
-    return { running: this.current !== null, last: this.last };
+  async status(): Promise<ScanStatus> {
+    return { running: this.current !== null, last: this.last, jobs: await this.workers.queue.counts(), workers: this.workers.getStats() };
+  }
+
+  async listJobs(state: JobSummary['state'], limit: number, cursor?: string): Promise<{ items: ScanJobDto[]; nextCursor: string | null }> {
+    const jobs = await this.workers.queue.list(state, limit + 1, cursor);
+    const page = jobs.slice(0, limit);
+    const paths = await this.relativePaths(page.map((j) => j.fileId));
+    return {
+      items: page.map((j) => ({
+        trackId: encodeTrackKey(j.fileId),
+        relativePath: paths.get(j.fileId) ?? null,
+        state: j.state,
+        attempts: j.attempts,
+        lastError: j.lastError,
+        lastErrorStage: j.lastErrorStage,
+        skippedAtMs: j.skippedAt?.getTime() ?? null,
+        updatedAtMs: j.updatedAt.getTime(),
+      })),
+      nextCursor: jobs.length > limit ? page[page.length - 1]!.fileId : null,
+    };
+  }
+
+  async listFailures(limit: number, fileId?: string): Promise<ScanFailureDto[]> {
+    const failures = await this.workers.queue.listFailures(limit, fileId);
+    const paths = await this.relativePaths(failures.map((f) => f.fileId));
+    return failures.map((f) => ({
+      id: f.id,
+      trackId: encodeTrackKey(f.fileId),
+      relativePath: paths.get(f.fileId) ?? null,
+      stage: f.stage,
+      attempt: f.attempt,
+      error: f.error,
+      willRetry: f.willRetry,
+      workerId: f.workerId,
+      atMs: f.at.getTime(),
+    }));
+  }
+
+  /** Gives skipped tracks (one, or all) a fresh set of attempts, e.g. after fixing ffmpeg or the file. */
+  retrySkipped(fileId?: string): Promise<number> {
+    return this.workers.queue.retrySkipped(fileId);
+  }
+
+  private async relativePaths(fileIds: string[]): Promise<Map<string, string>> {
+    const rows = await this.db.prisma.track.findMany({ where: { fileId: { in: fileIds } }, select: { fileId: true, relativePath: true } });
+    return new Map(rows.map((r) => [r.fileId, r.relativePath]));
   }
 
   /** Starts a scan, or joins the one already running - two overlapping scans would just fight over the same rows. */
@@ -159,6 +169,7 @@ export class ScannerService implements OnApplicationBootstrap {
       prisma.$executeRaw`DELETE FROM track_analysis WHERE file_id NOT IN (SELECT file_id FROM tracks)`,
       prisma.$executeRaw`DELETE FROM cover_art WHERE file_id NOT IN (SELECT file_id FROM tracks)`,
       prisma.$executeRaw`DELETE FROM lyrics_assignments WHERE file_id NOT IN (SELECT file_id FROM tracks)`,
+      prisma.$executeRaw`DELETE FROM track_jobs WHERE state <> 'RUNNING' AND file_id NOT IN (SELECT file_id FROM tracks)`,
     ]);
   }
 
@@ -191,59 +202,26 @@ export class ScannerService implements OnApplicationBootstrap {
     await this.sweepOrphans();
 
     const tracks = (await store.listAllTracks()).filter((t) => !t.missing);
+    const queued = await this.workers.queue.enqueue(tracks.map((t) => ({ fileId: t.fileId, fingerprint: trackFingerprint(t) })));
+    this.logger.log(`Discovered ${tracks.length} track(s), queued ${queued} for processing`);
 
-    const metadataFailures = await mapLimit(tracks, METADATA_CONCURRENCY, async (track) => {
-      const ref = toFileRef(track);
-      const metadata = await ensureTrackMetadata(store, this.fileAccess, ref, sharpCoverArtResizer);
-      const patch: { durationSeconds?: number; contentHash?: string } = {};
-      // Core reads the duration from the file header; formats it can't (Ogg/Opus, MP4 with a trailing moov, ...) come back null.
-      if (metadata.durationSeconds === null) {
-        const durationSeconds = await probeDurationSeconds(await this.fileAccess.absolutePathOf(ref));
-        if (durationSeconds !== null) patch.durationSeconds = durationSeconds;
-      }
-      // Core's own hash is a cheap 32-bit FNV; clients verifying a download need a real digest.
-      if (!SHA256_HEX.test(metadata.contentHash ?? '')) {
-        const contentHash = await this.fileAccess.getContentHash?.(ref);
-        if (contentHash) patch.contentHash = contentHash;
-      }
-      if (Object.keys(patch).length > 0) await store.putMetadata({ ...metadata, ...patch });
-    }, (track, err) => this.logger.warn(`Metadata failed for ${track.fileId}: ${String(err)}`));
+    await this.workers.waitUntilSettled();
 
     const scopes: LyricsScope[] = await store.getLyricsScopes();
     if (scopes.length > 0) {
-      // A lyrics problem shouldn't cost the rest of the scan (analysis still has to run).
+      // A lyrics problem shouldn't cost the rest of the scan.
       await matchLibraryLyrics(this.fileAccess, store, scopes, tracks).catch((err: unknown) =>
         this.logger.warn(`Lyrics matching failed: ${String(err)}`),
       );
     }
 
-    // Analysis already spreads across worker threads inside analyzeFile; keep the feed to it modest.
-    const analysisFailures = await mapLimit(tracks, 2, async (track) => {
-      const ref = toFileRef(track);
-      const existing = await store.getAnalysis(track.fileId);
-      if (isAnalysisFresh(existing, ref)) return;
-      const { normalizationGain } = await this.analyzeFile(await this.fileAccess.absolutePathOf(ref));
-      const result: AnalysisResult = {
-        fileId: track.fileId,
-        normalizationGain,
-        analyzedAtMs: Date.now(),
-        sizeBytes: track.sizeBytes,
-        lastModifiedMs: track.lastModifiedMs,
-        algorithmVersion: ANALYSIS_ALGORITHM_VERSION,
-      };
-      await store.putAnalysis(result);
-    }, (track, err) => this.logger.warn(`Analysis failed for ${track.fileId}: ${String(err)}`));
-
-    const summary: ScanSummary = {
-      startedAtMs,
-      finishedAtMs: Date.now(),
-      roots: libraryRoots.length,
-      tracks: tracks.length,
-      metadataFailures,
-      analysisFailures,
-    };
+    const jobs = await this.workers.queue.counts();
+    const summary: ScanSummary = { startedAtMs, finishedAtMs: Date.now(), roots: libraryRoots.length, tracks: tracks.length, queued, jobs };
     this.last = summary;
-    this.logger.log(`Scan finished in ${summary.finishedAtMs - startedAtMs}ms: ${JSON.stringify(summary)}`);
+    this.logger.log(
+      `Scan finished in ${summary.finishedAtMs - startedAtMs}ms: ${jobs.done} done, ${jobs.retrying} waiting to retry, ${jobs.skipped} skipped` +
+        (jobs.skipped > 0 ? ' (GET /api/v1/scan/jobs?state=SKIPPED for why)' : ''),
+    );
     return summary;
   }
 }

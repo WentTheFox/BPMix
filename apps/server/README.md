@@ -29,31 +29,31 @@ deploy with no backend, such as Cloudflare Pages).
 
 ## Quick start
 
+The server keeps its scanned library in PostgreSQL, so it needs a database.
+Docker Compose (see `docker-compose.yml` at the repo root) sets one up for you:
+
 ```sh
-docker run -p 8080:8080 -v ~/Music:/music/MyLibrary bpmix
+BPMIX_DB_PASSWORD=choose-something docker compose up -d --build
 ```
 
 Then open `http://localhost:8080`. Every top-level subdirectory under
 `/music` inside the container becomes one library root, named after that
-subdirectory — mounting `~/Music` at `/music/MyLibrary` above makes
-"MyLibrary" show up in BPMix. Mount as many folders as you want, each
-under its own subdirectory of `/music`:
+subdirectory — the compose file mounts `~/Music` at `/music/MyLibrary`, which
+makes "MyLibrary" show up in BPMix. Mount as many folders as you want, each
+under its own subdirectory of `/music` (edit the `volumes:` list for your
+own folder(s)).
+
+To run the image against a database you already have instead:
 
 ```sh
 docker run -p 8080:8080 \
-  -v ~/Music:/music/MyLibrary \
-  -v /mnt/nas/Music:/music/NAS \
+  -e DATABASE_URL=postgresql://user:password@host:5432/bpmix \
+  -v ~/Music:/music/MyLibrary:ro \
   bpmix
 ```
 
-Or with Docker Compose (see `docker-compose.yml` at the repo root):
-
-```sh
-docker compose up -d --build
-```
-
-which mounts `~/Music` the same way — edit the `volumes:` list in that
-file for your own folder(s).
+The container applies pending database migrations (`prisma migrate deploy`)
+every time it starts.
 
 Building the image yourself (instead of pulling one) is documented in the
 root `Dockerfile`; CI publishes a multi-arch (amd64 + arm64) image to
@@ -68,10 +68,45 @@ Environment variables, all optional:
 | `PORT`                | `8080`    | Port the server listens on.                                             |
 | `BPMIX_LIBRARY_ROOT`   | `/music`  | Base directory scanned for library roots (its immediate subdirectories).|
 | `BPMIX_LYRICS_ROOTS`   | *(none)*  | Comma-separated subdirectory names (under `BPMIX_LIBRARY_ROOT`) that hold only `.lrc` files rather than playable tracks — see below. |
+| `DATABASE_URL`         | *(required)* | PostgreSQL connection string, e.g. `postgresql://user:password@host:5432/bpmix`. |
+| `BPMIX_SCAN_ON_START`  | `true`    | Set to `false` to not scan the library when the server starts (scans can still be started from the API, and run daily at 04:00 as a safety net). |
+| `BPMIX_SCAN_WORKERS`   | `min(4, CPU cores)` | How many tracks are processed (tags, cover art, loudness analysis) at once. |
+| `BPMIX_ANALYSIS_THREADS` | same as workers | Worker threads decoding and analysing audio. |
+| `BPMIX_SCAN_MAX_ATTEMPTS` | `3`   | How many times a track is tried before it is skipped. |
+| `BPMIX_SCAN_BACKOFF_MS` | `30000`  | Wait before the second attempt; each further attempt waits 4x longer. |
 | `BPMIX_WEB_DIST`       | `../web`  | Where the built web app's static files live. Only relevant if you're running `apps/server` outside the Docker image (its Dockerfile stage sets this for you). |
 
 There's no separate per-root configuration — add or remove a folder by
 adding or removing its volume mount and restarting the container.
+
+### How scanning works
+
+A scan walks every library root and registers each audio file as a track,
+then queues one job per new or changed track. A pool of workers (the number
+above) takes jobs off that queue — a track is only ever given to one worker —
+and for each reads its tags and cover art, finds its duration and a SHA-256
+of the file, and measures its loudness (via `ffmpeg`). Lyrics are matched
+across the library once the queue has settled.
+
+A track that fails is retried with a growing delay. After the last attempt it
+is marked **skipped** and later scans leave it alone, so one unreadable file
+can't make every scan slow and noisy. It gets a fresh set of attempts when the
+file changes (size or modified time), when the app's tag-reading or analysis
+code is updated, or when you ask for it. If the server stops while a track is
+being processed, another worker picks the job up when its lease runs out.
+
+To see what is going on (these endpoints are not yet protected — authentication
+is still to come):
+
+| Request | Shows |
+| --- | --- |
+| `GET /api/v1/scan` | Whether a scan is running, the last scan's summary, queue counts (pending, retrying, running, done, skipped) and worker stats. |
+| `GET /api/v1/scan/jobs?state=SKIPPED` | The tracks in a queue state (default `SKIPPED`), with their last error and the stage it failed in. |
+| `GET /api/v1/scan/failures` | Every failed attempt, newest first (`?trackId=` for one track). Old entries are deleted after 30 days. |
+| `POST /api/v1/scan` | Starts a scan (or joins the running one). |
+| `POST /api/v1/scan/retry` | Gives skipped tracks (`?trackId=` for one) a fresh set of attempts. |
+
+The server also logs each failed attempt, with the track and the reason.
 
 ### Mounting a separate lyrics folder
 
