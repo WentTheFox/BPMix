@@ -94,3 +94,147 @@ model KeyValue {
 
   @@map("kv")
 }
+
+// ---------------------------------------------------------------------------
+// Auth. Secrets (session/device tokens, invite tokens, device codes, recovery
+// codes) are only ever stored as hashes; the plaintext is shown once.
+// ---------------------------------------------------------------------------
+
+enum Role {
+  ADMIN
+  USER
+}
+
+model User {
+  id            String    @id @default(uuid())
+  /// Lower-cased; the login handle.
+  username      String    @unique
+  displayName   String    @map("display_name")
+  role          Role      @default(USER)
+  /// argon2id. A password alone never signs in: it also needs TOTP (see AuthService).
+  passwordHash  String?   @map("password_hash")
+  /// AES-256-GCM sealed with the server secret key.
+  totpSecretEnc String?   @map("totp_secret_enc")
+  totpEnabledAt DateTime? @map("totp_enabled_at")
+  /// Last accepted TOTP time step, so a code can't be replayed inside its window.
+  totpLastStep  Int?      @map("totp_last_step")
+  disabledAt    DateTime? @map("disabled_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  credentials   Credential[]
+  recoveryCodes RecoveryCode[]
+  sessions      Session[]
+  deviceTokens  DeviceToken[]
+
+  @@map("users")
+}
+
+/// A WebAuthn passkey.
+model Credential {
+  /// base64url credential id.
+  id         String    @id
+  userId     String    @map("user_id")
+  publicKey  Bytes     @map("public_key")
+  counter    BigInt
+  transports String[]
+  deviceType String    @map("device_type")
+  backedUp   Boolean   @map("backed_up")
+  name       String
+  createdAt  DateTime  @default(now()) @map("created_at")
+  lastUsedAt DateTime? @map("last_used_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("credentials")
+}
+
+model RecoveryCode {
+  id       String    @id @default(uuid())
+  userId   String    @map("user_id")
+  codeHash String    @map("code_hash")
+  usedAt   DateTime? @map("used_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("recovery_codes")
+}
+
+/// Browser sessions. id is the sha256 of the cookie value.
+model Session {
+  id         String   @id
+  userId     String   @map("user_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+  expiresAt  DateTime @map("expires_at")
+  lastSeenAt DateTime @default(now()) @map("last_seen_at")
+  userAgent  String?  @map("user_agent")
+  ip         String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+/// Long-lived, revocable per-device bearer tokens for the native apps (sync, streaming).
+model DeviceToken {
+  id         String    @id @default(uuid())
+  userId     String    @map("user_id")
+  name       String
+  tokenHash  String    @unique @map("token_hash")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  lastUsedAt DateTime? @map("last_used_at")
+  revokedAt  DateTime? @map("revoked_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("device_tokens")
+}
+
+/// First-run admin setup, user invites and credential-reset links.
+model Invite {
+  id          String    @id @default(uuid())
+  tokenHash   String    @unique @map("token_hash")
+  role        Role      @default(USER)
+  createdById String?   @map("created_by_id")
+  /// Set for a reset link: registers a new passkey for this existing user instead of creating one.
+  forUserId   String?   @map("for_user_id")
+  label       String?
+  expiresAt   DateTime  @map("expires_at")
+  usedAt      DateTime? @map("used_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@map("invites")
+}
+
+/// Short-lived WebAuthn challenges and half-finished (password-passed, TOTP-pending) logins.
+model AuthChallenge {
+  id        String   @id
+  purpose   String
+  challenge String?
+  userId    String?  @map("user_id")
+  data      Json?
+  expiresAt DateTime @map("expires_at")
+
+  @@index([expiresAt])
+  @@map("auth_challenges")
+}
+
+/// RFC 8628-style device authorization: a native app shows userCode, the user approves it in a signed-in browser.
+model DeviceGrant {
+  id             String   @id @default(uuid())
+  deviceCodeHash String   @unique @map("device_code_hash")
+  userCode       String   @unique @map("user_code")
+  deviceName     String   @map("device_name")
+  /// pending | approved | denied | claimed
+  status         String   @default("pending")
+  userId         String?  @map("user_id")
+  expiresAt      DateTime @map("expires_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([expiresAt])
+  @@map("device_grants")
+}
