@@ -1,0 +1,96 @@
+// Library-scoped data: one shared library, scanned by the server. Per-user
+// tables (users, credentials, playlists, playback state, ...) arrive with auth.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// No FK relations from the per-file tables below on purpose: @bpmix/core's
+/// scanners may write metadata/lyrics for a fileId before (or after) its track
+/// row exists, and orphans are cleaned by pruneOrphanedRootData instead.
+/// Mirrors @bpmix/core's TrackRecord. fileId is `${rootId}:${relativePath}`
+/// (or a synthetic id for `missing` placeholders).
+model Track {
+  fileId         String  @id @map("file_id")
+  rootId         String  @map("root_id")
+  relativePath   String  @map("relative_path")
+  sizeBytes      BigInt  @map("size_bytes")
+  lastModifiedMs Float   @map("last_modified_ms")
+  missing        Boolean @default(false)
+
+  @@index([rootId])
+  @@map("tracks")
+}
+
+/// Mirrors PlaylistRecord. trackFileIds keeps the m3u8's order (duplicates allowed).
+model Playlist {
+  id           String   @id
+  rootId       String   @map("root_id")
+  fileId       String   @map("file_id")
+  name         String
+  trackFileIds String[] @map("track_file_ids")
+
+  @@index([rootId])
+  @@map("playlists")
+}
+
+model TrackMetadata {
+  fileId          String   @id @map("file_id")
+  title           String?
+  artists         String[]
+  album           String?
+  durationSeconds Float?   @map("duration_seconds")
+  sizeBytes       BigInt   @map("size_bytes")
+  lastModifiedMs  Float    @map("last_modified_ms")
+  parserVersion   Int      @map("parser_version")
+  contentHash     String?  @map("content_hash")
+
+  @@map("track_metadata")
+}
+
+model TrackAnalysis {
+  fileId            String @id @map("file_id")
+  normalizationGain Float  @map("normalization_gain")
+  analyzedAtMs      Float  @map("analyzed_at_ms")
+  sizeBytes         BigInt @map("size_bytes")
+  lastModifiedMs    Float  @map("last_modified_ms")
+  algorithmVersion  Int    @map("algorithm_version")
+
+  @@map("track_analysis")
+}
+
+model CoverArt {
+  fileId   String @id @map("file_id")
+  mimeType String @map("mime_type")
+  data     Bytes
+
+  @@map("cover_art")
+}
+
+model LyricsScope {
+  rootId       String @map("root_id")
+  relativePath String @map("relative_path")
+
+  @@id([rootId, relativePath])
+  @@map("lyrics_scopes")
+}
+
+model LyricsAssignment {
+  fileId    String  @id @map("file_id")
+  lrcFileId String? @map("lrc_file_id")
+
+  @@map("lyrics_assignments")
+}
+
+/// Server-level key/value fallback (the scanner never touches per-user state).
+model KeyValue {
+  key   String @id
+  value String
+
+  @@map("kv")
+}

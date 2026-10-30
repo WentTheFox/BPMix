@@ -16,6 +16,11 @@ allowBuilds:
   # for its Node.js-environment shim; the actual Android app talks to native
   # SQLite via the RN native module, not this Node addon.
   sqlite3: true
+  # Prisma 7 CLI/engines postinstall: fetches the schema-engine binary that
+  # `prisma migrate` needs. The runtime client uses the pure-JS driver adapter
+  # (@prisma/adapter-pg), so no query-engine binary is involved in the app.
+  prisma: true
+  '@prisma/engines': true
 
 # Supply-chain safety net: don't let anything install until it's been
 # public for at least 14 days, giving time for malicious/broken releases
