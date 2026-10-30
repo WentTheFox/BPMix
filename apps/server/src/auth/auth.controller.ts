@@ -1,7 +1,10 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Req, Res } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import type { Response } from 'express';
 import {
+  passkeyLoginVerifyRequestSchema,
+  passkeyRegisterVerifyRequestSchema,
+  passkeyRenameRequestSchema,
   passwordLoginRequestSchema,
   redeemInviteRequestSchema,
   setPasswordRequestSchema,
@@ -11,12 +14,15 @@ import {
   type AuthStatusDto,
   type LoginResultDto,
   type MeDto,
+  type PasskeyLoginOptionsDto,
+  type PasskeySummaryDto,
   type SessionSummaryDto,
   type TotpSetupDto,
 } from '@bpmix/api';
 import { parseInput } from '../common/zod.js';
 import { AuthConfig } from './auth.config.js';
 import { AuthService, type IssuedSession, type RequestMeta } from './auth.service.js';
+import { PasskeyService } from './passkey.service.js';
 import { authRateLimit } from './auth.throttler.js';
 import { SESSION_COOKIE } from './cookies.js';
 import { AllowUnenrolled, CurrentPrincipal, DeviceAccessible, Public, type AuthedRequest, type Principal, type PrincipalUser } from './principal.js';
@@ -31,6 +37,7 @@ function metaOf(req: AuthedRequest): RequestMeta {
 export class AuthController {
   constructor(
     private readonly auth: AuthService,
+    private readonly passkeys: PasskeyService,
     private readonly config: AuthConfig,
   ) {}
 
@@ -95,6 +102,25 @@ export class AuthController {
     return { status: 'ok', me: await this.signedIn(req, res, user, session) };
   }
 
+  /** Step 1 of passkey sign-in. Usernameless: the device offers whichever passkeys it holds for this site. */
+  @Public()
+  @Throttle(attempts())
+  @HttpCode(200)
+  @Post('login/passkey/options')
+  passkeyLoginOptions(@Req() req: AuthedRequest): Promise<PasskeyLoginOptionsDto> {
+    return this.passkeys.authenticationOptions(req);
+  }
+
+  @Public()
+  @Throttle(attempts())
+  @HttpCode(200)
+  @Post('login/passkey/verify')
+  async passkeyLoginVerify(@Body() body: unknown, @Req() req: AuthedRequest, @Res({ passthrough: true }) res: Response): Promise<MeDto> {
+    const { challengeId, response } = parseInput(passkeyLoginVerifyRequestSchema, body);
+    const { user, session } = await this.passkeys.verifyAuthentication(challengeId, response, req, metaOf(req));
+    return this.signedIn(req, res, user, session);
+  }
+
   @AllowUnenrolled()
   @HttpCode(204)
   @Post('logout')
@@ -145,6 +171,34 @@ export class AuthController {
   async regenerateRecoveryCodes(@CurrentPrincipal() principal: Principal): Promise<{ recoveryCodes: string[] }> {
     this.auth.requireFreshAuth(principal);
     return { recoveryCodes: await this.auth.replaceRecoveryCodes(principal.user.id) };
+  }
+
+  @AllowUnenrolled()
+  @HttpCode(200)
+  @Post('passkeys/register/options')
+  passkeyRegisterOptions(@Req() req: AuthedRequest, @CurrentPrincipal() principal: Principal): Promise<Record<string, unknown>> {
+    this.auth.requireFreshAuth(principal);
+    return this.passkeys.registrationOptions(principal.user.id, req);
+  }
+
+  @AllowUnenrolled()
+  @Post('passkeys/register/verify')
+  passkeyRegisterVerify(@Body() body: unknown, @Req() req: AuthedRequest, @CurrentPrincipal() principal: Principal): Promise<PasskeySummaryDto> {
+    this.auth.requireFreshAuth(principal);
+    const { response, name } = parseInput(passkeyRegisterVerifyRequestSchema, body);
+    return this.passkeys.verifyRegistration(principal.user.id, response, name, req);
+  }
+
+  @Patch('passkeys/:id')
+  renamePasskey(@Param('id') id: string, @Body() body: unknown, @CurrentPrincipal() principal: Principal): Promise<PasskeySummaryDto> {
+    return this.passkeys.rename(principal.user.id, id, parseInput(passkeyRenameRequestSchema, body).name);
+  }
+
+  @HttpCode(204)
+  @Delete('passkeys/:id')
+  async removePasskey(@Param('id') id: string, @CurrentPrincipal() principal: Principal): Promise<void> {
+    this.auth.requireFreshAuth(principal);
+    await this.passkeys.remove(principal.user.id, id);
   }
 
   @Get('sessions')

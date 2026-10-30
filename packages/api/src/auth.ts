@@ -100,3 +100,27 @@ export const totpSetupSchema = z.object({ secret: z.string(), otpauthUri: z.stri
 export type TotpSetupDto = z.infer<typeof totpSetupSchema>;
 
 export const recoveryCodesSchema = z.object({ recoveryCodes: z.array(z.string()) });
+
+// ---- Passkeys (WebAuthn). The browser/OS API produces and consumes these JSON shapes; the server only passes them through to the verifier.
+
+const webauthnJsonSchema = z.record(z.string(), z.unknown());
+
+export const passkeyRegisterVerifyRequestSchema = z.object({
+  /** The RegistrationResponseJSON from `navigator.credentials.create()` (e.g. via @simplewebauthn/browser). */
+  response: webauthnJsonSchema,
+  name: z.string().trim().min(1).max(64).optional(),
+});
+export const passkeyRenameRequestSchema = z.object({ name: z.string().trim().min(1).max(64) });
+export const passkeyLoginVerifyRequestSchema = z.object({
+  challengeId: z.string().min(1),
+  /** The AuthenticationResponseJSON from `navigator.credentials.get()`. */
+  response: webauthnJsonSchema,
+});
+
+export const passkeyLoginOptionsSchema = z.object({
+  /** Echo back with the signed response. */
+  challengeId: z.string(),
+  /** PublicKeyCredentialRequestOptionsJSON. No allowed-credentials list: the user picks a passkey from their device. */
+  options: webauthnJsonSchema,
+});
+export type PasskeyLoginOptionsDto = z.infer<typeof passkeyLoginOptionsSchema>;

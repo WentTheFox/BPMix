@@ -121,6 +121,11 @@ export class AuthService implements OnApplicationBootstrap {
     return { user: toPrincipalUser(result.user), session: result.session };
   }
 
+  /** The current picture of a user, e.g. right after a sign-in that only knows their id. */
+  async principalUser(userId: string): Promise<PrincipalUser> {
+    return toPrincipalUser(await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, include: WITH_CREDENTIAL_COUNT }));
+  }
+
   // ---------------------------------------------------------------- sessions
 
   async createSession(userId: string, meta: RequestMeta, db: Pick<typeof this.prisma, 'session'> = this.prisma): Promise<IssuedSession> {
