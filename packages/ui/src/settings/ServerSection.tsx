@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { formatAgo } from '../formatAgo';
 import { navigateTo } from '../navigateTo';
 import { formatBytes } from '../offline/formatBytes';
 import type { UseOfflineResult } from '../offline/useOffline';
@@ -8,17 +9,6 @@ import type { Colors } from '../theme';
 import { withAlpha } from '../theme';
 import { AppSwitch } from './AppSwitch';
 import { Section } from './SettingsScreen';
-
-/** "just now", "5 minutes ago", ... - good enough for a status line. */
-function ago(timestampMs: number, nowMs: number): string {
-  const seconds = Math.max(0, Math.round((nowMs - timestampMs) / 1000));
-  if (seconds < 45) return 'just now';
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 48) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
-  return `${Math.round(hours / 24)} days ago`;
-}
 
 export interface ServerSectionProps {
   colors: Colors;
@@ -61,9 +51,9 @@ export function ServerSection({ colors, server, offline }: ServerSectionProps) {
             {status.syncing
               ? 'Syncing…'
               : status.offline
-                ? `Offline - showing the library as of ${status.lastSyncedAtMs ? ago(status.lastSyncedAtMs, Date.now()) : 'your last sync'}.`
+                ? `Offline - showing the library as of ${status.lastSyncedAtMs ? formatAgo(status.lastSyncedAtMs, Date.now()) : 'your last sync'}.`
                 : status.lastSyncedAtMs
-                  ? `Synced ${ago(status.lastSyncedAtMs, Date.now())}.`
+                  ? `Synced ${formatAgo(status.lastSyncedAtMs, Date.now())}.`
                   : 'Not synced yet.'}
           </Text>
           {status.error && <Text style={[styles.error, { color: '#dc2626' }]}>{status.error}</Text>}

@@ -83,6 +83,8 @@ export interface LibraryScreenProps {
   bannerContent?: ReactNode;
   /** The lyrics-folder scopes list (see LyricsFolderSection), rendered right after bannerContent. */
   lyricsSection?: ReactNode;
+  /** "Continue on <other device>" cards (server mode), rendered right after lyricsSection. */
+  continueSection?: ReactNode;
   /** Rendered right-aligned in the same row as the title - the NotificationBell, so it sits inline rather than floating over content below it. */
   headerRight?: ReactNode;
   /**
@@ -124,6 +126,7 @@ export function LibraryScreen({
   secondaryAddButton,
   bannerContent,
   lyricsSection,
+  continueSection,
   headerRight,
   listStyle,
 }: LibraryScreenProps) {
@@ -145,6 +148,7 @@ export function LibraryScreen({
       )}
       {bannerContent}
       {lyricsSection}
+      {continueSection}
       {error && <Text style={styles.error}>{error}</Text>}
       {errorAction}
       <FlatList

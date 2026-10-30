@@ -51,6 +51,8 @@ import {
   useLastFmConnection,
   useUserPlaylistActions,
   useOffline,
+  ContinueElsewhere,
+  useContinueElsewhere,
   useLocalScrobbleSink,
   useServerConnection,
   useServerLastFm,
@@ -624,6 +626,8 @@ function AppContent() {
   const localScrobbleSink = useLocalScrobbleSink(settings);
   const serverLastFm = useServerLastFm(serverMode, fromServer);
   const lastFm = fromServer ? serverLastFm.connection : localLastFm;
+  // What the person's other devices were playing (server mode), offered as "Continue on <device>" on the library screen.
+  const continueElsewhere = useContinueElsewhere(serverMode, libraryStore, fromServer, server?.status.lastSyncedAtMs ?? null, playback.currentFileId);
   const offline = useOffline(offlineLibrary);
   const userPlaylists = useUserPlaylistActions(colors);
   const playbackBridges = (
@@ -1027,6 +1031,7 @@ function AppContent() {
         isRootScanning={isRootScanning}
         // Signed in to a server: no folders to add or rescan, no playlist files to write; "Rescan" syncs.
         hideAddFolder={fromServer}
+        continueSection={fromServer ? <ContinueElsewhere colors={colors} items={continueElsewhere.items} error={continueElsewhere.error} onContinue={(item) => void continueElsewhere.continueOn(item)} /> : undefined}
         onAddFolder={addFolder}
         onRescan={fromServer ? () => server?.syncNow() : rescan}
         onRemoveRoot={(rootId) => void removeRoot(rootId)}

@@ -39,7 +39,10 @@ export function createAppListenerMiddleware(services: Services) {
       api.cancelActiveListeners();
       if (!api.getState().persistence.ready) return;
       if (action.payload.debounceMs) await api.delay(action.payload.debounceMs);
-      await api.extra.libraryStore.putPlaybackState(api.getState().persistence.state);
+      const state = api.getState().persistence.state;
+      await api.extra.libraryStore.putPlaybackState(state);
+      // Signed in to a server: the person's other devices can offer to continue this.
+      api.extra.serverMode?.pushPlaybackState(state);
     },
   });
 

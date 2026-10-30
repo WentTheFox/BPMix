@@ -53,6 +53,8 @@ export * from './RestoringScreen';
 export * from './ScreenLayer';
 export * from './discord/useDiscordPresence';
 export * from './restoringSteps';
+export * from './continue/ContinueElsewhere';
+export * from './continue/useContinueElsewhere';
 export * from './scrobble/useLastFmConnection';
 export * from './scrobble/useLastFmScrobbling';
 export * from './scrobble/useLocalScrobbleSink';

@@ -136,6 +136,110 @@ describe('playing from the server with cache-on-play', () => {
   });
 });
 
+describe('continuing on another device', () => {
+  const playing = (over: Record<string, unknown> = {}) => ({
+    playlistId: 'Music:List.m3u8', rootId: 'Music', currentTrackFileId: 'Music:a.mp3', positionSeconds: 12, loopMode: 'off', shuffleEnabled: false, shuffleOrder: null,
+    openedPlaylistId: null, openedRootId: null, volume: 1, nowPlayingOpen: false, ...over,
+  }) as never;
+  const stateChange = (deviceId: string, state: Record<string, unknown> | null, updatedAtMs = 1_000) => ({
+    entity: 'playbackState' as const,
+    id: deviceId,
+    playbackState: state ? { deviceId, state, updatedAtMs } : null,
+  });
+  const deltaWith = (changes: unknown[]) => json({ changes, cursor: '5', hasMore: false, roots: [ROOT], totals: { tracks: 0, playlists: 0 } });
+
+  it('keeps other devices\' states from the sync, never its own, and drops what is gone or unplayable', async () => {
+    const { store, server, mode } = await signedIn(); // now() is 1_000
+    store.settings.set('serverMode.cursor', '1'); // so the sync is a delta
+    store.settings.set('serverMode.roots', JSON.stringify([ROOT]));
+    const own = (mode as unknown as { deviceId: string }).deviceId;
+    server.handler = () =>
+      deltaWith([
+        stateChange('phone', { deviceName: 'Pixel 8', playlistId: 'p', currentTrackFileId: 'Music:a.mp3', positionSeconds: 30, updatedAtMs: 900 }),
+        stateChange(own, { deviceName: 'This one', playlistId: 'p', currentTrackFileId: 'Music:b.mp3', positionSeconds: 1 }),
+        stateChange('empty', { deviceName: 'Idle', playlistId: null, currentTrackFileId: null }),
+      ]);
+    expect(await mode.sync()).toMatchObject({ kind: 'delta', changed: false });
+    expect(await mode.otherDevicesPlayback()).toEqual([
+      { deviceId: 'phone', deviceName: 'Pixel 8', updatedAtMs: 900, playlistId: 'p', rootId: null, currentTrackFileId: 'Music:a.mp3', positionSeconds: 30, loopMode: 'off', shuffleEnabled: false },
+    ]);
+
+    server.handler = () => deltaWith([stateChange('phone', null)]);
+    await mode.sync();
+    expect(await mode.otherDevicesPlayback()).toEqual([]);
+  });
+
+  it('offers nothing older than a month', async () => {
+    const { store } = await signedIn();
+    store.settings.set('serverMode.devicePlayback', JSON.stringify({ old: { deviceId: 'old', updatedAtMs: 1, state: { playlistId: 'p', currentTrackFileId: 'x', updatedAtMs: 1 } } }));
+    const later = new ServerMode({ store, deviceName: () => 'x', now: () => 1 + 31 * 24 * 60 * 60 * 1000 });
+    await later.ready;
+    expect(await later.otherDevicesPlayback()).toEqual([]);
+  });
+
+  describe('telling the server what this device plays', () => {
+    async function pushing() {
+      vi.useFakeTimers();
+      let now = 1_000;
+      const store = new MemoryStore();
+      store.settings.set('serverMode.config', JSON.stringify({ url: 'https://music.example.com', token: 'bpd_token', userName: 'Sam' }));
+      const server = fakeServer();
+      const sent: { deviceId: string; state: Record<string, unknown> }[] = [];
+      server.handler = (_path, init) => {
+        const batch = (JSON.parse(String(init?.body)) as { mutations: { opId: string; type: string; deviceId: string; state: Record<string, unknown> }[] }).mutations;
+        for (const m of batch) if (m.type === 'playbackState.set') sent.push({ deviceId: m.deviceId, state: m.state });
+        return json({ results: batch.map((m) => ({ opId: m.opId, status: 'applied' })) });
+      };
+      const mode = new ServerMode({ store, deviceName: () => 'Pixel 8', fetch: server.fetch, now: () => now });
+      await mode.ready;
+      return { mode, sent, advance: (ms: number) => { now += ms; return vi.advanceTimersByTimeAsync(ms); } };
+    }
+
+    it('sends a new track at once, then only occasionally while the position just moves, with one trailing send', async () => {
+      const { mode, sent, advance } = await pushing();
+      try {
+        mode.pushPlaybackState(playing());
+        await advance(0);
+        expect(sent).toHaveLength(1);
+        expect(sent[0]!.state).toMatchObject({ deviceName: 'Pixel 8', playlistId: 'Music:List.m3u8', currentTrackFileId: 'Music:a.mp3', positionSeconds: 12 });
+        expect(sent[0]!.state).not.toHaveProperty('volume');
+
+        await advance(5_000);
+        mode.pushPlaybackState(playing({ positionSeconds: 17 }));
+        await advance(5_000);
+        mode.pushPlaybackState(playing({ positionSeconds: 22 }));
+        await advance(0);
+        expect(sent).toHaveLength(1); // still within the interval
+
+        await advance(15_000); // the trailing send carries the latest position
+        expect(sent).toHaveLength(2);
+        expect(sent[1]!.state).toMatchObject({ positionSeconds: 22 });
+
+        mode.pushPlaybackState(playing({ currentTrackFileId: 'Music:b.mp3', positionSeconds: 0 }));
+        await advance(0);
+        expect(sent).toHaveLength(3); // a new track doesn't wait
+        expect(new Set(sent.map((s) => s.deviceId)).size).toBe(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('sends nothing when signed out or when nothing is playing', async () => {
+      const { mode, sent, advance } = await pushing();
+      try {
+        mode.pushPlaybackState(playing({ playlistId: null }));
+        mode.pushPlaybackState(playing({ currentTrackFileId: null }));
+        await mode.signOut();
+        mode.pushPlaybackState(playing());
+        await advance(60_000);
+        expect(sent).toEqual([]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+});
+
 describe('ServerMode Last.fm', () => {
   it('reports the link from the server, and falls back to the last answer when it cannot be reached', async () => {
     const { store, server, mode } = await signedIn();

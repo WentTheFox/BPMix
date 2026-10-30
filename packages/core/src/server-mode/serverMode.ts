@@ -13,16 +13,21 @@ import {
   type SyncChangeDto,
 } from '@bpmix/api';
 import type { GrantedRoot } from '../file-access/types';
-import type { LibraryStore } from '../library-store/types';
+import type { LibraryStore, PlaybackState } from '../library-store/types';
 import { errorMessage } from '../errorMessage';
 import { applyChange, USER_PLAYLIST_ID_PREFIX, type ApplyContext } from './applySync';
+import { DEVICE_PLAYBACK_KEY, listDevicePlayback, playbackPayload, type RemotePlayback } from './devicePlayback';
 import { MutationQueue } from './mutationQueue';
+import { randomId } from './randomId';
 import { SERVER_SCROBBLE_QUEUE_KEY } from './serverLastFm';
 
 const CONFIG_KEY = 'serverMode.config';
 const CURSOR_KEY = 'serverMode.cursor';
 const ROOTS_KEY = 'serverMode.roots';
 const SYNCED_AT_KEY = 'serverMode.syncedAtMs';
+const DEVICE_ID_KEY = 'serverMode.deviceId';
+/** This device's playback state goes to the server at most this often while it's just the position moving. */
+const PLAYBACK_PUSH_INTERVAL_MS = 20_000;
 const LASTFM_STATUS_KEY = 'serverMode.lastFmStatus';
 const LYRICS_CACHE_PREFIX = 'serverMode.lyrics:';
 const LYRICS_INDEX_KEY = 'serverMode.lyricsIndex';
@@ -134,6 +139,11 @@ export class ServerMode {
   readonly mutations: MutationQueue;
 
   private config: StoredConfig | null = null;
+  /** Names this device to the server and to the other devices' "continue" lists; made once and kept. */
+  private deviceId = '';
+  private lastPush: { trackFileId: string | null; atMs: number } = { trackFileId: null, atMs: 0 };
+  private pendingPush: PlaybackState | null = null;
+  private pushTimer: ReturnType<typeof setTimeout> | null = null;
   private cachedRoots: GrantedRoot[] = [];
   private status: ServerStatus = { active: false, url: '', userName: null, lastSyncedAtMs: null, syncing: false, offline: false, error: null };
   private api: ApiClient | null = null;
@@ -188,7 +198,9 @@ export class ServerMode {
 
   private async loadSaved(): Promise<void> {
     const { store } = this.deps;
-    const [rawConfig, rawRoots, rawSynced] = await Promise.all([store.getSetting(CONFIG_KEY), store.getSetting(ROOTS_KEY), store.getSetting(SYNCED_AT_KEY)]);
+    const [rawConfig, rawRoots, rawSynced, rawDeviceId] = await Promise.all([store.getSetting(CONFIG_KEY), store.getSetting(ROOTS_KEY), store.getSetting(SYNCED_AT_KEY), store.getSetting(DEVICE_ID_KEY)]);
+    this.deviceId = rawDeviceId || randomId();
+    if (!rawDeviceId) await store.putSetting(DEVICE_ID_KEY, this.deviceId);
     if (rawConfig) {
       try {
         this.config = await this.revealToken(JSON.parse(rawConfig) as StoredConfig);
@@ -281,6 +293,37 @@ export class ServerMode {
       await this.saveConfig({ url: '', token: null, userName: me.displayName });
     }
     return true;
+  }
+
+  /**
+   * Tells the server what this device is playing, so the person's other devices can offer to continue it.
+   * A new track goes out at once; while the same track just advances, at most every few seconds' worth,
+   * with a single trailing send (no polling: it fires once, after the last change).
+   */
+  pushPlaybackState(state: PlaybackState): void {
+    if (!this.isActive() || !state.playlistId || !state.currentTrackFileId) return;
+    this.pendingPush = state;
+    const since = this.now() - this.lastPush.atMs;
+    if (state.currentTrackFileId !== this.lastPush.trackFileId || since >= PLAYBACK_PUSH_INTERVAL_MS) {
+      this.sendPendingPlayback();
+    } else if (!this.pushTimer) {
+      this.pushTimer = setTimeout(() => this.sendPendingPlayback(), PLAYBACK_PUSH_INTERVAL_MS - since);
+    }
+  }
+
+  private sendPendingPlayback(): void {
+    if (this.pushTimer) clearTimeout(this.pushTimer);
+    this.pushTimer = null;
+    const state = this.pendingPush;
+    this.pendingPush = null;
+    if (!state || !this.isActive()) return;
+    this.lastPush = { trackFileId: state.currentTrackFileId, atMs: this.now() };
+    void this.mutations.enqueue({ type: 'playbackState.set', deviceId: this.deviceId, state: playbackPayload(state, this.deps.deviceName(), this.now()) });
+  }
+
+  /** What the person's other devices were playing, as of the last sync - most recent first. No network. */
+  otherDevicesPlayback(): Promise<RemotePlayback[]> {
+    return listDevicePlayback(this.deps.store, this.now());
   }
 
   /**
@@ -377,6 +420,11 @@ export class ServerMode {
     for (const fileId of await this.cachedLyricsIndex()) await store.putSetting(`${LYRICS_CACHE_PREFIX}${fileId}`, '');
     await store.putSetting(LYRICS_INDEX_KEY, '');
     await store.putSetting(SERVER_SCROBBLE_QUEUE_KEY, '');
+    await store.putSetting(DEVICE_PLAYBACK_KEY, '');
+    this.pendingPush = null;
+    if (this.pushTimer) clearTimeout(this.pushTimer);
+    this.pushTimer = null;
+    this.lastPush = { trackFileId: null, atMs: 0 };
     await store.putSetting(LASTFM_STATUS_KEY, '');
     // Changes queued under one account must never be sent to another.
     await this.mutations.clear();
@@ -437,7 +485,7 @@ export class ServerMode {
   }
 
   private context(): ApplyContext {
-    return { store: this.deps.store, defaultRootId: () => this.cachedRoots[0]?.id ?? null, now: this.now };
+    return { store: this.deps.store, defaultRootId: () => this.cachedRoots[0]?.id ?? null, now: this.now, deviceId: this.deviceId };
   }
 
   private async setRoots(roots: { id: string; displayName: string; kind: 'library' | 'lyrics' }[]): Promise<void> {

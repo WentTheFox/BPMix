@@ -77,6 +77,10 @@ export class MutationQueue {
     if (mutation.type === 'setting.set' || mutation.type === 'setting.delete') {
       this.queue = this.queue.filter((m) => !((m.type === 'setting.set' || m.type === 'setting.delete') && m.key === mutation.key));
     }
+    // Likewise only the newest playback state of a device matters.
+    if (mutation.type === 'playbackState.set') {
+      this.queue = this.queue.filter((m) => !(m.type === 'playbackState.set' && m.deviceId === mutation.deviceId));
+    }
     this.queue.push({ ...mutation, opId: randomId() } as MutationDto);
     await this.persist();
     this.publish();

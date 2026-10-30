@@ -1,4 +1,5 @@
 export * from './applySync';
+export * from './devicePlayback';
 export * from './mutationQueue';
 export * from './randomId';
 export * from './userPlaylists';

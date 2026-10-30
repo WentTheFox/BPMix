@@ -1,4 +1,5 @@
 import { decodeTrackKey, type SyncChangeDto, type TrackDto } from '@bpmix/api';
+import { storeDevicePlayback } from './devicePlayback';
 import { SYNCED_SETTING_KEYS } from '../store/settings/settingsStorage';
 import { ANALYSIS_ALGORITHM_VERSION } from '../analysis/analyzeTrack';
 import type { LibraryStore, PlaylistRecord, TrackRecord } from '../library-store/types';
@@ -13,6 +14,8 @@ export interface ApplyContext {
   /** Where playlists that don't belong to a root (the user's own) are filed, so the existing per-root library screens show them. */
   defaultRootId: () => string | null;
   now: () => number;
+  /** This device's own id, so its own playback state coming back from the server is not mistaken for another device's. */
+  deviceId: string;
 }
 
 /** A key that doesn't decode is skipped rather than failing the whole sync. */
@@ -126,8 +129,8 @@ export async function applyChange(ctx: ApplyContext, change: SyncChangeDto): Pro
       await ctx.store.putSetting(setting.key, setting.value);
       return true;
     }
-    // Per-device playback state is not used by the app yet (it needs a "continue on this device" screen).
     case 'playbackState':
-      return false;
+      await storeDevicePlayback(ctx.store, ctx.deviceId, { deviceId: change.id, dto: change.playbackState });
+      return false; // kept for the "continue" list only; nothing in the library changed
   }
 }
