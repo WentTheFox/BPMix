@@ -1,12 +1,15 @@
 import { NetworkError, refreshLibrary, syncServerLibrary, type ServerMode, type ServerStatus } from '@bpmix/core';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Linking } from 'react-native';
+import { navigateTo } from '../navigateTo';
 import { useAppDispatch } from '../store/hooks';
 
 export type ServerSignInPhase = 'idle' | 'starting' | 'awaitingApproval' | 'denied' | 'expired' | 'failed';
 
 export interface UseServerConnectionResult {
   status: ServerStatus;
+  /** The web app on the server itself: signing in means the server's own sign-in page (a browser session), not typing an address and approving a code. */
+  usesBrowserSession: boolean;
   phase: ServerSignInPhase;
   /** While waiting for approval: what to show and where to send the person. */
   pendingCode: { userCode: string; verificationUri: string } | null;
@@ -41,6 +44,10 @@ export function useServerConnection(serverMode: ServerMode | undefined): UseServ
   const signIn = useCallback(
     (address: string) => {
       if (!serverMode) return;
+      if (serverMode.usesBrowserSession) {
+        navigateTo(`/login?next=${encodeURIComponent('/')}`);
+        return;
+      }
       controllerRef.current?.abort();
       const controller = new AbortController();
       controllerRef.current = controller;
@@ -99,7 +106,7 @@ export function useServerConnection(serverMode: ServerMode | undefined): UseServ
   }, [dispatch, serverMode]);
 
   if (!serverMode) return null;
-  return { status, phase, pendingCode, errorMessage, signIn, cancelSignIn, openApprovalPage, syncNow, signOut };
+  return { status, usesBrowserSession: serverMode.usesBrowserSession, phase, pendingCode, errorMessage, signIn, cancelSignIn, openApprovalPage, syncNow, signOut };
 }
 
 const NO_SERVER: ServerStatus = { active: false, url: '', userName: null, lastSyncedAtMs: null, syncing: false, offline: false, error: null };

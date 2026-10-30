@@ -146,6 +146,11 @@ export class ApiClient {
     throw Object.assign(new Error('Sign-in cancelled'), { name: 'AbortError' });
   }
 
+  /** A browser signing out: ends its session and clears the cookie. */
+  async logout(): Promise<void> {
+    await this.send('POST', '/api/v1/auth/logout', { body: {} });
+  }
+
   /** A native app signing itself out: revokes the token it is calling with. */
   async signOutThisDevice(): Promise<void> {
     await this.send('DELETE', '/api/v1/auth/me/token');

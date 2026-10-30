@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { navigateTo } from '../navigateTo';
 import type { UseServerConnectionResult } from '../server/useServerConnection';
 import type { Colors } from '../theme';
 import { withAlpha } from '../theme';
@@ -56,8 +57,27 @@ export function ServerSection({ colors, server }: ServerSectionProps) {
           <Pressable disabled={status.syncing} onPress={server.syncNow} style={styles.actionButton}>
             <Text style={link(!status.syncing)}>Sync now</Text>
           </Pressable>
+          {server.usesBrowserSession && (
+            <Pressable onPress={() => navigateTo('/account')} style={styles.actionButton}>
+              <Text style={link()}>Manage your account</Text>
+            </Pressable>
+          )}
           <Pressable onPress={server.signOut} style={styles.actionButton}>
             <Text style={link()}>Sign out</Text>
+          </Pressable>
+        </Section>
+      </View>
+    );
+  }
+
+  if (server.usesBrowserSession) {
+    return (
+      <View style={spaced}>
+        <Section title="BPMix server" colors={colors}>
+          <Text style={hint}>Take your library from this BPMix server instead of this browser&apos;s folders.</Text>
+          {status.error && <Text style={[styles.error, { color: '#dc2626' }]}>{status.error}</Text>}
+          <Pressable onPress={() => server.signIn('')} style={styles.actionButton}>
+            <Text style={link()}>Sign in</Text>
           </Pressable>
         </Section>
       </View>

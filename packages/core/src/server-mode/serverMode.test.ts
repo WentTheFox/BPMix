@@ -77,7 +77,7 @@ function fakeServer() {
     calls,
     handler: (_path: string, _init: RequestInit | undefined): Response | Promise<Response> => json({ message: 'not scripted' }, 500),
     fetch: vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = new URL(String(input));
+      const url = new URL(String(input), 'http://this.site'); // relative, like a page on the server itself
       calls.push({ method: init?.method ?? 'GET', path: url.pathname + url.search, auth: new Headers(init?.headers).get('authorization') });
       return server.handler(url.pathname + url.search, init);
     }) as unknown as typeof fetch,
@@ -144,6 +144,43 @@ describe('ServerMode sign-in', () => {
     server.handler = (path) =>
       path.endsWith('/code') ? json({ deviceCode: 'dc', userCode: 'AAAA-BBBB', verificationUri: 'u', expiresInSeconds: 1 }, 201) : json({ status: 'denied' });
     expect(await mode.signInWithDeviceCode('https://x.example', () => undefined)).toEqual({ denied: true });
+    expect(mode.isActive()).toBe(false);
+  });
+
+  it('a browser session (the web app on the server itself) signs in by cookie and signs out by ending the session', async () => {
+    const store = new MemoryStore();
+    const server = fakeServer();
+    const seen: string[] = [];
+    server.handler = (path, init) => {
+      seen.push(`${init?.method ?? 'GET'} ${path}`);
+      if (path === '/api/v1/auth/me') return json(me);
+      return new Response(null, { status: 204 });
+    };
+    const mode = new ServerMode({ store, deviceName: () => 'x', fetch: server.fetch, sameOrigin: true });
+    await mode.ready;
+    expect(mode.usesBrowserSession).toBe(true);
+    expect(mode.isActive()).toBe(false);
+
+    expect(await mode.connectSameOrigin()).toBe(true);
+    expect(mode.isActive()).toBe(true);
+    expect(mode.getStatus()).toMatchObject({ url: '', userName: 'Sam' });
+    expect(server.calls[0]!.auth).toBeNull(); // no bearer token: the cookie does the work
+
+    await mode.signOut();
+    expect(seen).toContain('POST /api/v1/auth/logout');
+    expect(seen).not.toContain('DELETE /api/v1/auth/me/token');
+    expect(mode.isActive()).toBe(false);
+  });
+
+  it('does not connect when the page is not served by a BPMix server, or when the person has not finished enrolling', async () => {
+    const server = fakeServer();
+    const mode = new ServerMode({ store: new MemoryStore(), deviceName: () => 'x', fetch: server.fetch, sameOrigin: true });
+    server.handler = () => new Response('<!doctype html>', { status: 200, headers: { 'content-type': 'text/html' } }); // a static host's SPA fallback
+    expect(await mode.connectSameOrigin()).toBe(false);
+    server.handler = () => json({ ...me, enrolled: false });
+    expect(await mode.connectSameOrigin()).toBe(false);
+    server.handler = () => json({ message: 'Sign in required' }, 401);
+    expect(await mode.connectSameOrigin()).toBe(false);
     expect(mode.isActive()).toBe(false);
   });
 

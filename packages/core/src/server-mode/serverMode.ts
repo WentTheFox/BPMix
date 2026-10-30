@@ -111,6 +111,11 @@ export class ServerMode {
     return () => this.listeners.delete(listener);
   }
 
+  /** True for the web app served by the server itself: sign-in is the browser session (the account pages), not a device code. */
+  get usesBrowserSession(): boolean {
+    return this.deps.sameOrigin === true;
+  }
+
   /** The server's library roots as last synced - no network. */
   roots(): GrantedRoot[] {
     return this.cachedRoots;
@@ -202,8 +207,10 @@ export class ServerMode {
 
   /** Signs this device out (revoking its token on the server when reachable) and drops the synced library. */
   async signOut(): Promise<void> {
-    // Cut the token off server-side too, if the server can be reached; signing out must work offline regardless.
-    await this.api?.signOutThisDevice().catch(() => undefined);
+    // Cut the sign-in off server-side too, if the server can be reached (the session for a browser, the
+    // token for an app); signing out must work offline regardless.
+    const end = this.config?.token === null ? this.api?.logout() : this.api?.signOutThisDevice();
+    await end?.catch(() => undefined);
     await this.saveConfig(null);
     await this.resetLocalCopy();
     this.setStatus({ lastSyncedAtMs: null, offline: false, error: null });

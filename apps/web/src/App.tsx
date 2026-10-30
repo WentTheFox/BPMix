@@ -1,8 +1,11 @@
 import type { FileRef, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '@bpmix/core';
 import {
+  ServerMode,
   createBackgroundFileAccess,
+  createModeAwareFileAccess,
   addError,
   createStore,
+  withServerCoverArt,
   playerAdvanced,
   LivePlayback,
   persistPositionIfDue,
@@ -43,6 +46,7 @@ import {
   useAppSettings,
   useCrossfadePlaybackDisplay,
   useLastFmConnection,
+  useServerConnection,
   useLibraryRootActions,
   useOpenPlaylistMetadataScan,
   useMemoryUsageLogging,
@@ -93,7 +97,12 @@ const INSTALL_ONBOARDING_DISMISSED_SETTING_KEY = 'installOnboardingDismissed';
 // objects aren't meant for raw DOM elements, so this is a plain CSS object.
 const webLinkStyle: CSSProperties = { color: 'inherit', textDecoration: 'underline', fontWeight: 600 };
 
-const fileAccess = createCompositeFileAccess();
+const localFileAccess = createCompositeFileAccess();
+const localLibraryStore = createLibraryStore();
+// Served by a BPMix server and signed in to it (the browser session): the library, and its audio,
+// come from the server; otherwise the local folders / legacy server roots exactly as before.
+const serverMode = new ServerMode({ store: localLibraryStore, deviceName: () => 'Web browser', sameOrigin: true });
+const fileAccess = createModeAwareFileAccess(localFileAccess, serverMode);
 // A stable singleton (not re-wrapped per call) - scanAllLyricsScopes's scan
 // cache is keyed by FileAccess instance identity, and reusing the same
 // wrapper is what keeps every background caller (matchLibraryLyrics,
@@ -101,7 +110,7 @@ const fileAccess = createCompositeFileAccess();
 // See createBackgroundFileAccess's doc for why background passes need this
 // at all: requestPermission() can't be called off a non-gesture code path.
 const backgroundFileAccess = createBackgroundFileAccess(fileAccess);
-const libraryStore = createLibraryStore();
+const libraryStore = withServerCoverArt(localLibraryStore, serverMode);
 // See apps/mobile/App.tsx's identical initialPlaybackStatePromise for why
 // this is kicked off here, at module load, rather than inside a hook.
 const initialPlaybackStatePromise = libraryStore.getPlaybackState();
@@ -169,7 +178,14 @@ const store = createStore({
   discordPresenceBridge: null,
   backgroundFileAccess,
   alwaysRescanRoot: isServerRootId,
+  serverMode,
   now: Date.now,
+});
+
+// A page served by a BPMix server whose visitor is signed in to it takes its library from there. One
+// cheap request per load; a static host (or a signed-out visitor) just stays in the original mode.
+void serverMode.connectSameOrigin().then((signedIn) => {
+  if (signedIn) void store.dispatch(refreshLibrary());
 });
 
 // Polls the player only while something is active (see startPlaybackTicker) - a service, not a
@@ -592,6 +608,8 @@ function AppContent() {
   // per-tick re-render stays inside them. Kept mounted across every return below - a scrobbler that
   // remounted would lose its accumulated listen time.
   const lastFm = useLastFmConnection(settings, updateSettings);
+  const server = useServerConnection(serverMode);
+  const fromServer = server?.status.active === true;
   const playbackBridges = (
     <>
       <MediaSessionBridge
@@ -804,7 +822,7 @@ function AppContent() {
   // has to sit on top of it, not beside it.
   const externalConnectionsScreen = externalConnectionsOpen && (
     <ScreenLayer zIndex={21} colors={colors}>
-      <ExternalConnectionsScreen colors={colors} settings={settings} onUpdateSettings={updateSettings} lastFm={lastFm} onClose={() => closeExternalConnections()} />
+      <ExternalConnectionsScreen colors={colors} settings={settings} onUpdateSettings={updateSettings} lastFm={lastFm} server={server} onClose={() => closeExternalConnections()} />
     </ScreenLayer>
   );
 
@@ -981,10 +999,12 @@ function AppContent() {
         isLoadingRoots={isLoadingRoots}
         isAddingFolder={busyRootId !== null && !rootsWithLibrary.some(({ root }) => root.id === busyRootId)}
         isRootScanning={isRootScanning}
+        // Signed in to a server: no folders to add or rescan, no playlist files to write; "Rescan" syncs.
+        hideAddFolder={fromServer}
         onAddFolder={addFolder}
-        onRescan={rescan}
+        onRescan={fromServer ? () => server?.syncNow() : rescan}
         onRemoveRoot={(rootId) => void removeRoot(rootId)}
-        onCreatePlaylist={(rootId) => startCreatePlaylist(rootId)}
+        onCreatePlaylist={fromServer ? undefined : (rootId) => startCreatePlaylist(rootId)}
         onShowUnplaylisted={handleShowUnplaylisted}
         nowPlayingRootId={playingContext?.root.id ?? null}
         onShowNowPlaying={playingContext ? handleShowNowPlaying : undefined}
@@ -999,7 +1019,7 @@ function AppContent() {
         }
         bannerContent={
           <>
-            {!SUPPORTS_DIRECTORY_PICKER && !serverBackendAvailable && (
+            {!fromServer && !SUPPORTS_DIRECTORY_PICKER && !serverBackendAvailable && (
               <Text style={styles.warning}>
                 This browser can’t pick local folders. Use the self-hosted Docker server instead to browse a mounted music
                 library -{' '}
@@ -1009,7 +1029,7 @@ function AppContent() {
                 .
               </Text>
             )}
-            {!SUPPORTS_DIRECTORY_PICKER && serverBackendAvailable && (
+            {!fromServer && !SUPPORTS_DIRECTORY_PICKER && serverBackendAvailable && (
               <Text style={[styles.hint, { color: colors.text }]}>
                 To add a new folder here, bind-mount it into the Docker server instead of picking it from the browser -{' '}
                 <a href={SELF_HOSTING_DOCS_URL} target="_blank" rel="noopener noreferrer" style={webLinkStyle}>
@@ -1042,17 +1062,19 @@ function AppContent() {
           </>
         }
         lyricsSection={
-          <LyricsFolderSection
-            colors={colors}
-            scopes={lyricsScopes}
-            rootDisplayName={(rootId) => grantedRoots.find((r) => r.id === rootId)?.displayName ?? rootId}
-            scopeRemovable={(rootId) => grantedRoots.find((r) => r.id === rootId)?.removable !== false}
-            matchedTrackCount={matchedLyricsCount}
-            totalTrackCount={rootsWithLibrary.reduce((sum, { tracksById }) => sum + tracksById.size, 0)}
-            busyScopeKey={busyLyricsScopeKey}
-            onRemoveScope={(rootId, relativePath) => void removeLyricsScope(rootId, relativePath)}
-            onRescan={(rootId, relativePath) => void rescanLyricsScope(rootId, relativePath)}
-          />
+          fromServer ? undefined : (
+            <LyricsFolderSection
+              colors={colors}
+              scopes={lyricsScopes}
+              rootDisplayName={(rootId) => grantedRoots.find((r) => r.id === rootId)?.displayName ?? rootId}
+              scopeRemovable={(rootId) => grantedRoots.find((r) => r.id === rootId)?.removable !== false}
+              matchedTrackCount={matchedLyricsCount}
+              totalTrackCount={rootsWithLibrary.reduce((sum, { tracksById }) => sum + tracksById.size, 0)}
+              busyScopeKey={busyLyricsScopeKey}
+              onRemoveScope={(rootId, relativePath) => void removeLyricsScope(rootId, relativePath)}
+              onRescan={(rootId, relativePath) => void rescanLyricsScope(rootId, relativePath)}
+            />
+          )
         }
       />
   );
