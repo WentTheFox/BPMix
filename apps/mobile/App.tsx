@@ -100,6 +100,7 @@ import {
 } from 'react-native-safe-area-context';
 import { createAppUpdateBridge } from './src/adapters/appUpdate';
 import { createAudioEngine } from './src/adapters/audioEngine';
+import { createBackgroundTicks } from './src/adapters/backgroundTicks';
 import { createDiscordPresenceBridge } from './src/adapters/discordRpc';
 import { createCoverArtResizer } from './src/adapters/coverArtResizer';
 import {
@@ -247,6 +248,9 @@ const stopPlaybackTicker = startPlaybackTicker({
   livePlayback,
   playlistPlayer,
   onTick: (state) => store.dispatch(persistPositionIfDue(state)),
+  // Android pauses JS timers in the background; a native timer keeps playback state, preloading and the
+  // notification/Discord/Last.fm updates moving while the screen is off or another app is in front.
+  background: createBackgroundTicks(),
 });
 
 /** fileId is the track a decode/playback error actually happened for, when known - see PlaylistPlayer's onError doc. Routed to the notification bell, not the error banner - see NotificationBell's doc for why. */

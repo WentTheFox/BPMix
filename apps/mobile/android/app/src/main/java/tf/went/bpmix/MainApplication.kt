@@ -8,6 +8,7 @@ import com.facebook.react.ReactNativeApplicationEntryPoint.loadReactNative
 import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
 import tf.went.bpmix.appupdate.AppUpdatePackage
 import tf.went.bpmix.discordrpc.DiscordRpcPackage
+import tf.went.bpmix.backgroundticks.BPMixBackgroundTicksPackage
 import tf.went.bpmix.fileaccess.BPMixFileAccessPackage
 import tf.went.bpmix.memorydebug.MemoryInfoPackage
 
@@ -20,6 +21,7 @@ class MainApplication : Application(), ReactApplication {
         PackageList(this).packages.apply {
           add(MemoryInfoPackage())
           add(BPMixFileAccessPackage())
+          add(BPMixBackgroundTicksPackage())
           add(AppUpdatePackage())
           add(DiscordRpcPackage())
         },

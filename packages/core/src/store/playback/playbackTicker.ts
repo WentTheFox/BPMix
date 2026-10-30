@@ -14,12 +14,30 @@ export function isPlaybackActive(state: PlaylistPlayerState): boolean {
   return state.track.status === 'playing' || state.track.status === 'loading' || state.track.pendingIncoming != null;
 }
 
+/** How often a platform's own timer drives the ticker while the app is in the background (see BackgroundTicks). */
+export const BACKGROUND_TICK_MS = 500;
+
+/**
+ * For platforms whose JS timers stop running while the app is in the background (Android): a timer that
+ * doesn't, to keep playback state, preloading and everything driven by the ticker moving then.
+ */
+export interface BackgroundTicks {
+  /** Whether JS timers can't be relied on right now. */
+  isBackground(): boolean;
+  /** Calls back whenever that changes; returns the unsubscribe function. */
+  subscribe(callback: (background: boolean) => void): () => void;
+  /** Calls `callback` about every `intervalMs` from a timer that survives the background, until the returned function is called. */
+  start(intervalMs: number, callback: () => void): () => void;
+}
+
 export interface PlaybackTickerOptions {
   livePlayback: LivePlayback;
   playlistPlayer: Pick<PlaylistPlayer, 'checkPreload'>;
   /** Runs after each tick's publish, with the state it published (e.g. throttled position persistence). */
   onTick?: (state: PlaylistPlayerState) => void;
   intervalMs?: number;
+  /** Drives the ticker while the app is in the background, where setInterval is paused. Omit where timers just work (web, Windows). */
+  background?: BackgroundTicks;
 }
 
 /**
@@ -31,29 +49,52 @@ export interface PlaybackTickerOptions {
  * A service, not a component effect: nothing in React owns it. Returns a stop
  * function.
  */
-export function startPlaybackTicker({ livePlayback, playlistPlayer, onTick, intervalMs = PLAYBACK_TICK_MS }: PlaybackTickerOptions): () => void {
+export function startPlaybackTicker({ livePlayback, playlistPlayer, onTick, intervalMs = PLAYBACK_TICK_MS, background }: PlaybackTickerOptions): () => void {
   let interval: ReturnType<typeof setInterval> | null = null;
+  let stopBackgroundTicks: (() => void) | null = null;
 
-  const stopInterval = () => {
+  const stopTimers = () => {
     if (interval !== null) clearInterval(interval);
     interval = null;
+    stopBackgroundTicks?.();
+    stopBackgroundTicks = null;
   };
 
   const tick = () => {
     const state = livePlayback.publish();
     playlistPlayer.checkPreload();
     onTick?.(state);
-    if (!isPlaybackActive(state)) stopInterval();
+    if (!isPlaybackActive(state)) stopTimers();
   };
 
+  // One timer at a time: setInterval in the foreground, the platform's own while backgrounded.
   const ensureRunning = (state: PlaylistPlayerState) => {
-    if (interval === null && isPlaybackActive(state)) interval = setInterval(tick, intervalMs);
+    if (!isPlaybackActive(state)) return;
+    if (background?.isBackground()) {
+      if (stopBackgroundTicks === null) {
+        if (interval !== null) clearInterval(interval);
+        interval = null;
+        stopBackgroundTicks = background.start(BACKGROUND_TICK_MS, tick);
+      }
+    } else if (interval === null) {
+      interval = setInterval(tick, intervalMs);
+    }
   };
 
   const unsubscribe = livePlayback.subscribe(ensureRunning);
+  // Changing between foreground and background swaps the timer, and catches up at once on whatever was missed.
+  const unsubscribeBackground = background?.subscribe(() => {
+    stopTimers();
+    const state = livePlayback.getSnapshot();
+    if (isPlaybackActive(state)) {
+      tick();
+      ensureRunning(livePlayback.getSnapshot());
+    }
+  });
   ensureRunning(livePlayback.getSnapshot());
   return () => {
     unsubscribe();
-    stopInterval();
+    unsubscribeBackground?.();
+    stopTimers();
   };
 }
