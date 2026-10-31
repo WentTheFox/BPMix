@@ -363,6 +363,13 @@ export class ServerMode {
     }
   }
 
+  /** Flags a track's lyrics as wrong for an admin to review (any signed-in user). */
+  async reportLyrics(trackFileId: string, reason?: string): Promise<void> {
+    const api = this.getApi();
+    if (!api) throw new Error('Not signed in to a server');
+    await api.reportLyrics(encodeTrackKey(trackFileId), reason);
+  }
+
   /** Changing the shared library's lyrics on the server (admins; the server enforces it). */
   get lyricsEditing(): ServerLyricsEditing {
     const api = () => {

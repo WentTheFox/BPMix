@@ -62,6 +62,23 @@ export type LyricsSourceDto = z.infer<typeof lyricsSourceSchema>;
 
 export const lyricsAssignRequestSchema = z.object({ lrcFileId: z.string().min(1).max(2048).nullable() });
 
+/** "These lyrics are wrong": any signed-in user can flag a track's lyrics for an admin to look at. */
+export const lyricsReportRequestSchema = z.object({ reason: z.string().trim().max(500).optional() });
+export type LyricsReportRequestDto = z.infer<typeof lyricsReportRequestSchema>;
+
+export const lyricsReportSchema = z.object({
+  id: z.string(),
+  /** The track's key, as the other routes take it. */
+  trackId: z.string(),
+  /** Where the track was when it was reported (it may be gone since). */
+  relativePath: z.string(),
+  reportedBy: z.string(),
+  reason: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type LyricsReportDto = z.infer<typeof lyricsReportSchema>;
+export const lyricsReportListSchema = z.array(lyricsReportSchema);
+
 export const MAX_LYRICS_LINES = 5000;
 /** The lines of a hand-synced or hand-edited lyrics file, written back to the track's assigned .lrc. */
 export const lyricsSaveRequestSchema = z.object({

@@ -73,6 +73,7 @@ import {
   useTaskNotifications,
   useBackNavigation,
   useHasLyrics,
+  useLyricsMenu,
   usePlaybackPersistence,
   usePlaylistTransport,
   useRestoringProgress,
@@ -811,20 +812,22 @@ function AppContent() {
   // the editor/picker it opens inside LyricsSection is actually visible
   // rather than opening invisibly behind the screen the user happened to
   // be on.
-  const lyricsMenu =
-    // Lyrics from a server are changed on the server, by admins; anyone else just reads them.
-    playback.currentFileId && currentTrackHasLyrics && (!fromServer || canEditServerLyrics)
-      ? {
-          onOpenEditor: () => {
-            openLyricsEditorFromMenu();
-            persistPlaybackPatch({ nowPlayingOpen: true });
-          },
-          onChangeFile: () => {
-            openLyricsPickerFromMenu();
-            persistPlaybackPatch({ nowPlayingOpen: true });
-          },
-        }
-      : undefined;
+  const lyricsMenu = useLyricsMenu({
+    currentFileId: playback.currentFileId,
+    hasLyrics: currentTrackHasLyrics,
+    fromServer,
+    canEdit: canEditServerLyrics,
+    serverMode: Platform.OS === 'android' ? serverMode : undefined,
+    center: notificationCenter,
+    onOpenEditor: () => {
+      openLyricsEditorFromMenu();
+      persistPlaybackPatch({ nowPlayingOpen: true });
+    },
+    onChangeFile: () => {
+      openLyricsPickerFromMenu();
+      persistPlaybackPatch({ nowPlayingOpen: true });
+    },
+  });
 
   // Identical at every call site (Now Playing's headerRight, the
   // playlist screen's HeaderRow right slot, and the library screen's

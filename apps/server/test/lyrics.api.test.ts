@@ -5,7 +5,7 @@ import path from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { analyzeTrack } from '@bpmix/core';
-import { encodeTrackKey, lyricsSchema } from '@bpmix/api';
+import { encodeTrackKey, lyricsReportListSchema, lyricsSchema } from '@bpmix/api';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.js';
 import { DatabaseService } from '../src/db/database.module.js';
@@ -76,6 +76,12 @@ describe('GET /api/v1/tracks/:key/lyrics', () => {
   });
 });
 
+// One ordinary user for the file: each new account moves the test clock a TOTP window ahead of the server's.
+let ordinaryUser: TestClient | undefined;
+async function bob(): Promise<TestClient> {
+  return (ordinaryUser ??= (await setUpUser(client, url, clock, 'bob')).client);
+}
+
 const key = (name: string) => encodeTrackKey(`Music:${name}.mp3`);
 const put = (p: string, json: unknown) => client.fetch(p, { method: 'PUT', json });
 
@@ -130,11 +136,37 @@ describe('changing a track\'s lyrics', () => {
   });
 
   it('is for admins only', async () => {
-    const { client: bob } = await setUpUser(client, url, clock, 'bob');
-    expect((await bob.fetch(`/api/v1/tracks/${key('Song One')}/lyrics/source`)).status).toBe(403);
-    expect((await bob.fetch(`/api/v1/tracks/${key('Song One')}/lyrics/assignment`, { method: 'PUT', json: { lrcFileId: null } })).status).toBe(403);
-    expect((await bob.fetch(`/api/v1/tracks/${key('Song One')}/lyrics`, { method: 'PUT', json: { lines: [] } })).status).toBe(403);
+    const user = await bob();
+    expect((await user.fetch(`/api/v1/tracks/${key('Song One')}/lyrics/source`)).status).toBe(403);
+    expect((await user.fetch(`/api/v1/tracks/${key('Song One')}/lyrics/assignment`, { method: 'PUT', json: { lrcFileId: null } })).status).toBe(403);
+    expect((await user.fetch(`/api/v1/tracks/${key('Song One')}/lyrics`, { method: 'PUT', json: { lines: [] } })).status).toBe(403);
     // Reading is for everyone.
-    expect((await bob.fetch(`/api/v1/tracks/${key('Song One')}/lyrics`)).status).toBe(200);
+    expect((await user.fetch(`/api/v1/tracks/${key('Song One')}/lyrics`)).status).toBe(200);
+  });
+});
+
+describe('reporting bad lyrics', () => {
+  it('lets any user flag a track, once per user and track, and only admins review the list', async () => {
+    const carol = await bob();
+    expect((await carol.fetch(`/api/v1/tracks/${key('Song One')}/lyrics/report`, { method: 'POST', json: { reason: 'wrong language' } })).status).toBe(204);
+    // Reporting again replaces the earlier report instead of piling up.
+    expect((await carol.fetch(`/api/v1/tracks/${key('Song One')}/lyrics/report`, { method: 'POST', json: { reason: 'a screenplay, not lyrics' } })).status).toBe(204);
+    expect((await carol.fetch(`/api/v1/tracks/${key('Song Two')}/lyrics/report`, { method: 'POST', json: {} })).status).toBe(204);
+
+    const reports = lyricsReportListSchema.parse(await client.json('/api/v1/lyrics/reports'));
+    expect(reports.map((r) => [r.relativePath, r.reason, r.reportedBy])).toEqual(expect.arrayContaining([['Song One.mp3', 'a screenplay, not lyrics', 'bob'], ['Song Two.mp3', null, 'bob']]));
+    expect(reports.filter((r) => r.relativePath === 'Song One.mp3')).toHaveLength(1);
+
+    expect((await carol.fetch('/api/v1/lyrics/reports')).status).toBe(403);
+    const one = reports.find((r) => r.relativePath === 'Song Two.mp3')!;
+    expect((await carol.fetch(`/api/v1/lyrics/reports/${one.id}`, { method: 'DELETE' })).status).toBe(403);
+    expect((await client.fetch(`/api/v1/lyrics/reports/${one.id}`, { method: 'DELETE' })).status).toBe(204);
+    expect((await client.fetch(`/api/v1/lyrics/reports/${one.id}`, { method: 'DELETE' })).status).toBe(404);
+  });
+
+  it('rejects an unknown track, an oversized reason, and a stranger', async () => {
+    expect((await client.fetch(`/api/v1/tracks/${key('Nope')}/lyrics/report`, { method: 'POST', json: {} })).status).toBe(404);
+    expect((await client.fetch(`/api/v1/tracks/${key('Song One')}/lyrics/report`, { method: 'POST', json: { reason: 'x'.repeat(501) } })).status).toBe(400);
+    expect((await new TestClient(client.baseUrl).fetch(`/api/v1/tracks/${key('Song One')}/lyrics/report`, { method: 'POST', json: {} })).status).toBe(401);
   });
 });

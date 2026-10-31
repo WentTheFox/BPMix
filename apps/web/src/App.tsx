@@ -64,6 +64,7 @@ import {
   useTaskNotifications,
   useBackNavigation,
   useHasLyrics,
+  useLyricsMenu,
   usePlaybackPersistence,
   usePlaylistTransport,
   useRestoringProgress,
@@ -712,20 +713,22 @@ function AppContent() {
 
   // See apps/mobile/App.tsx's identical lyricsMenu for why both actions
   // also force-open Now Playing.
-  const lyricsMenu =
-    // Lyrics from a server are changed on the server, by admins; anyone else just reads them.
-    playback.currentFileId && currentTrackHasLyrics && (!fromServer || canEditServerLyrics)
-      ? {
-          onOpenEditor: () => {
-            openLyricsEditorFromMenu();
-            persistPlaybackPatch({ nowPlayingOpen: true });
-          },
-          onChangeFile: () => {
-            openLyricsPickerFromMenu();
-            persistPlaybackPatch({ nowPlayingOpen: true });
-          },
-        }
-      : undefined;
+  const lyricsMenu = useLyricsMenu({
+    currentFileId: playback.currentFileId,
+    hasLyrics: currentTrackHasLyrics,
+    fromServer,
+    canEdit: canEditServerLyrics,
+    serverMode: serverMode,
+    center: notificationCenter,
+    onOpenEditor: () => {
+      openLyricsEditorFromMenu();
+      persistPlaybackPatch({ nowPlayingOpen: true });
+    },
+    onChangeFile: () => {
+      openLyricsPickerFromMenu();
+      persistPlaybackPatch({ nowPlayingOpen: true });
+    },
+  });
 
   // Identical at every call site (Now Playing's headerRight, the
   // playlist screen's HeaderRow right slot, and the library screen's

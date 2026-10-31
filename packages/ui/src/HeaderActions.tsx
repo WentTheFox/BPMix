@@ -6,6 +6,13 @@ import { NotificationBell } from './notifications/NotificationBell';
 import type { NotificationCenter } from './notifications/useNotificationCenter';
 import type { Colors } from './theme';
 
+/** The lyrics dropdown's actions; each one is left out of the menu when absent (a regular user of a server can only report). */
+export interface LyricsMenu {
+  onOpenEditor?: () => void;
+  onChangeFile?: () => void;
+  onReport?: () => void;
+}
+
 export interface HeaderActionsProps {
   colors: Colors;
   center: NotificationCenter;
@@ -22,10 +29,7 @@ export interface HeaderActionsProps {
    * hoisted headerActionsEl), not just Now Playing, so most of the time
    * there's no current-track context to act on at all.
    */
-  lyricsMenu?: {
-    onOpenEditor: () => void;
-    onChangeFile: () => void;
-  };
+  lyricsMenu?: LyricsMenu;
 }
 
 /**
@@ -43,24 +47,9 @@ export function HeaderActions({ colors, center, onOpenSettings, lyricsMenu }: He
         <IconMenuButton colors={colors} icon={mdiSubtitles} panelWidth={220} accessibilityLabel="Lyrics">
           {(close) => (
             <>
-              <Pressable
-                style={styles.menuItem}
-                onPress={() => {
-                  close();
-                  lyricsMenu.onOpenEditor();
-                }}
-              >
-                <Text style={[styles.menuItemText, { color: colors.text }]}>Lyrics editor</Text>
-              </Pressable>
-              <Pressable
-                style={styles.menuItem}
-                onPress={() => {
-                  close();
-                  lyricsMenu.onChangeFile();
-                }}
-              >
-                <Text style={[styles.menuItemText, { color: colors.text }]}>Change lyrics file...</Text>
-              </Pressable>
+              {lyricsMenu.onOpenEditor && menuItem('Lyrics editor', lyricsMenu.onOpenEditor, close, colors)}
+              {lyricsMenu.onChangeFile && menuItem('Change lyrics file...', lyricsMenu.onChangeFile, close, colors)}
+              {lyricsMenu.onReport && menuItem('Report bad lyrics', lyricsMenu.onReport, close, colors)}
             </>
           )}
         </IconMenuButton>
@@ -70,6 +59,22 @@ export function HeaderActions({ colors, center, onOpenSettings, lyricsMenu }: He
       </Pressable>
       <NotificationBell colors={colors} center={center} />
     </View>
+  );
+}
+
+/** One row of the lyrics dropdown: closes the panel, then runs the action. */
+function menuItem(label: string, onPress: () => void, close: () => void, colors: Colors) {
+  return (
+    <Pressable
+      key={label}
+      style={styles.menuItem}
+      onPress={() => {
+        close();
+        onPress();
+      }}
+    >
+      <Text style={[styles.menuItemText, { color: colors.text }]}>{label}</Text>
+    </Pressable>
   );
 }
 

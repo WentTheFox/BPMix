@@ -18,7 +18,7 @@ import {
   type LastFmStatusDto,
 } from './lastfm';
 import { mutationsResponseSchema, type MutationDto, type MutationsResponseDto } from './mutations';
-import { API_VERSION, API_VERSION_HEADER, lyricsSchema, lyricsSourceSchema, type LyricsDto, type LyricsSaveRequestDto, type LyricsSourceDto, type Page, type TrackDto, pageSchema, trackSchema } from './schemas';
+import { API_VERSION, API_VERSION_HEADER, lyricsReportListSchema, lyricsSchema, type LyricsReportDto, lyricsSourceSchema, type LyricsDto, type LyricsSaveRequestDto, type LyricsSourceDto, type Page, type TrackDto, pageSchema, trackSchema } from './schemas';
 import { syncChangesResponseSchema, syncSnapshotResponseSchema, type SyncChangesResponseDto, type SyncSnapshotResponseDto } from './sync';
 import { utf8Decode } from './encoding';
 import { encodeTrackKey } from './trackKey';
@@ -250,6 +250,21 @@ export class ApiClient {
       if (err instanceof ApiError && err.status === 404) return null;
       throw err;
     }
+  }
+
+  /** Flags the track's lyrics as wrong (or missing a line, in the wrong language, ...) for an admin to review. Reporting again replaces the earlier report. */
+  async reportLyrics(trackKey: string, reason?: string): Promise<void> {
+    await this.send('POST', `/api/v1/tracks/${trackKey}/lyrics/report`, { body: reason ? { reason } : {} });
+  }
+
+  /** Admin only. Lyrics reports waiting for review, newest first. */
+  lyricsReports(): Promise<LyricsReportDto[]> {
+    return this.request('GET', '/api/v1/lyrics/reports', lyricsReportListSchema);
+  }
+
+  /** Admin only. Marks a report as dealt with. */
+  async resolveLyricsReport(id: string): Promise<void> {
+    await this.send('DELETE', `/api/v1/lyrics/reports/${encodeURIComponent(id)}`);
   }
 
   /** Admin only. The file assigned to the track's lyrics and every file it could be assigned. */

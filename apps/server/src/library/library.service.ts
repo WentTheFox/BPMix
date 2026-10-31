@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { encodeTrackKey, type ListTracksQuery, type LyricsDto, type LyricsSaveRequestDto, type LyricsSourceDto, type Page, type PlaylistDto, type RootDto, type TrackDto } from '@bpmix/api';
+import { encodeTrackKey, type ListTracksQuery, type LyricsDto, type LyricsReportDto, type LyricsSaveRequestDto, type LyricsSourceDto, type Page, type PlaylistDto, type RootDto, type TrackDto } from '@bpmix/api';
 import { formatLrc, getLyricsFileIndex, loadAssignedLyrics, parseLrc, resolveAssignedLyricsFile } from '@bpmix/core';
 import { DatabaseService } from '../db/database.module.js';
 import { Prisma } from '../generated/prisma/client.js';
@@ -66,6 +66,24 @@ export class LibraryService {
     if (!embedded?.text) return null;
     const parsed = parseLrc(embedded.text);
     return { synced: parsed.synced, tags: parsed.tags, lines: parsed.lines };
+  }
+
+  /** Flags the track's lyrics for review. One report per user and track: reporting again replaces the earlier one. */
+  async reportLyrics(fileId: string, userId: string, reason: string | undefined): Promise<void> {
+    const track = await this.db.prisma.track.findUnique({ where: { fileId }, select: { relativePath: true } });
+    if (!track) throw new NotFoundException('No such track');
+    const data = { relativePath: track.relativePath, reason: reason || null, createdAt: new Date() };
+    await this.db.prisma.lyricsReport.upsert({ where: { userId_fileId: { userId, fileId } }, create: { fileId, userId, ...data }, update: data });
+  }
+
+  async lyricsReports(): Promise<LyricsReportDto[]> {
+    const rows = await this.db.prisma.lyricsReport.findMany({ orderBy: { createdAt: 'desc' }, include: { user: { select: { displayName: true } } } });
+    return rows.map((r) => ({ id: r.id, trackId: encodeTrackKey(r.fileId), relativePath: r.relativePath, reportedBy: r.user.displayName, reason: r.reason, createdAt: r.createdAt.toISOString() }));
+  }
+
+  async resolveLyricsReport(id: string): Promise<void> {
+    const { count } = await this.db.prisma.lyricsReport.deleteMany({ where: { id } });
+    if (count === 0) throw new NotFoundException('No such report');
   }
 
   private async lyricsScopes() {

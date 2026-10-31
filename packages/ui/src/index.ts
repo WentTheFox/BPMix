@@ -98,3 +98,4 @@ export * from './useViewportTier';
 export * from './useTrackMetadata';
 export * from './VolumeSlider';
 export * from './store';
+export * from './useLyricsMenu';

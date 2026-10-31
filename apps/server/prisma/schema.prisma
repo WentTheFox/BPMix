@@ -83,6 +83,22 @@ model EmbeddedLyrics {
   @@map("embedded_lyrics")
 }
 
+/// A user's "these lyrics are wrong" flag on a track, for an admin to review. One per user and track
+/// (reporting again replaces it); kept by file id with the path as it was, so it outlives a rescan.
+model LyricsReport {
+  id           String   @id @default(uuid())
+  fileId       String   @map("file_id")
+  relativePath String   @map("relative_path")
+  userId       String   @map("user_id")
+  reason       String?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, fileId])
+  @@map("lyrics_reports")
+}
+
 model LyricsScope {
   rootId       String @map("root_id")
   relativePath String @map("relative_path")
@@ -139,6 +155,7 @@ model User {
   invites        Invite[]
   settings       UserSetting[]
   playbackStates PlaybackStateRow[]
+  lyricsReports  LyricsReport[]
   playlists      UserPlaylist[]
   lastFm         LastFmConnection?
 
