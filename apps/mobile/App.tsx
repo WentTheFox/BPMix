@@ -100,6 +100,7 @@ import {
 } from 'react-native-safe-area-context';
 import { createAppUpdateBridge } from './src/adapters/appUpdate';
 import { createAudioEngine } from './src/adapters/audioEngine';
+import { backgroundSafeFetch } from './src/adapters/backgroundSafeFetch';
 import { createBackgroundTicks } from './src/adapters/backgroundTicks';
 import { createDiscordPresenceBridge } from './src/adapters/discordRpc';
 import { createCoverArtResizer } from './src/adapters/coverArtResizer';
@@ -135,6 +136,8 @@ const serverMode = new ServerMode({
   store: localLibraryStore,
   // The device token lives in the Android Keystore, not in the library database.
   secretStore: createSecretStore('server-token'),
+  // The stock fetch only settles from a JS timer, which is paused while backgrounded (see the adapter).
+  fetch: backgroundSafeFetch,
   deviceName: () => {
     const constants = Platform.constants as { Brand?: string; Model?: string };
     return Platform.OS === 'android' && constants.Model ? `${constants.Brand ?? 'Android'} ${constants.Model}`.trim() : 'BPMix app';
