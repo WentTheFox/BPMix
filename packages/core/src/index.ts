@@ -88,3 +88,5 @@ export * from './store/services';
 export const CORE_PACKAGE_NAME = '@bpmix/core';
 export * from './offline/offlineLibrary';
 export * from './offline/types';
+export * from './metadata/readEmbeddedLyrics';
+export { utf8Decode } from '@bpmix/api';

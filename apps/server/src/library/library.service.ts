@@ -59,9 +59,13 @@ export class LibraryService {
   async getLyrics(fileId: string): Promise<LyricsDto | null> {
     const store = this.db.libraryStore;
     const scopes = await store.getLyricsScopes();
-    if (scopes.length === 0) return null;
-    const lyrics = await loadAssignedLyrics(this.fileAccess, store, scopes, fileId);
-    return lyrics ? { synced: lyrics.synced, tags: lyrics.tags, lines: lyrics.lines } : null;
+    const lyrics = scopes.length > 0 ? await loadAssignedLyrics(this.fileAccess, store, scopes, fileId) : null;
+    if (lyrics) return { synced: lyrics.synced, tags: lyrics.tags, lines: lyrics.lines };
+    // No linked .lrc file: fall back to what the audio file carries itself (read at scan time).
+    const embedded = await this.db.prisma.embeddedLyrics.findUnique({ where: { fileId }, select: { text: true } });
+    if (!embedded?.text) return null;
+    const parsed = parseLrc(embedded.text);
+    return { synced: parsed.synced, tags: parsed.tags, lines: parsed.lines };
   }
 
   private async lyricsScopes() {
@@ -193,12 +197,13 @@ export class LibraryService {
              m.title, m.artists, m.album, m.duration_seconds, m.content_hash,
              a.normalization_gain,
              (c.file_id IS NOT NULL) AS has_cover,
-             (l.lrc_file_id IS NOT NULL) AS has_lyrics
+             (l.lrc_file_id IS NOT NULL OR e.text IS NOT NULL) AS has_lyrics
       FROM tracks t
       LEFT JOIN track_metadata m ON m.file_id = t.file_id
       LEFT JOIN track_analysis a ON a.file_id = t.file_id
       LEFT JOIN cover_art c ON c.file_id = t.file_id
       LEFT JOIN lyrics_assignments l ON l.file_id = t.file_id
+      LEFT JOIN embedded_lyrics e ON e.file_id = t.file_id
       ${clause}
       ORDER BY t.file_id
       LIMIT ${limit}`;

@@ -1,3 +1,5 @@
+import { utf8Decode } from '@bpmix/core';
+
 /**
  * A `fetch` that keeps working while the Android app is backgrounded.
  *
@@ -38,7 +40,14 @@ const xhrFetch: typeof fetch = (input, init) =>
         const colon = line.indexOf(':');
         if (colon > 0) headers.append(line.slice(0, colon).trim(), line.slice(colon + 1).trim());
       }
-      resolve(new Response(xhr.status === 204 || xhr.status === 304 ? null : (xhr.response as ArrayBuffer), { status: xhr.status, statusText: xhr.statusText, headers }));
+      const buffer = xhr.status === 204 || xhr.status === 304 ? null : (xhr.response as ArrayBuffer);
+      const response = new Response(buffer, { status: xhr.status, statusText: xhr.statusText, headers });
+      if (buffer) {
+        // The polyfilled Response reads an ArrayBuffer body one byte per character (Latin-1), which garbles every non-ASCII title.
+        response.text = () => Promise.resolve(utf8Decode(new Uint8Array(buffer)));
+        response.json = () => response.text().then((text) => JSON.parse(text) as unknown);
+      }
+      resolve(response);
     };
     xhr.onerror = () => {
       finish();

@@ -29,3 +29,4 @@ export * from './metadata/contentHash';
 export * from './metadata/coverArtResizer';
 export * from './metadata/ensureMetadata';
 export * from './metadata/parseDuration';
+export * from './metadata/readEmbeddedLyrics';

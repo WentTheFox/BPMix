@@ -72,6 +72,17 @@ model CoverArt {
   @@map("cover_art")
 }
 
+/// Lyrics written into the audio file's own tags (ID3 USLT). One row per scanned MP3, text null when it has none;
+/// sizeBytes/lastModifiedMs are the freshness check, as for TrackAnalysis. A linked .lrc file wins over this.
+model EmbeddedLyrics {
+  fileId         String  @id @map("file_id")
+  text           String?
+  sizeBytes      BigInt  @map("size_bytes")
+  lastModifiedMs Float   @map("last_modified_ms")
+
+  @@map("embedded_lyrics")
+}
+
 model LyricsScope {
   rootId       String @map("root_id")
   relativePath String @map("relative_path")
