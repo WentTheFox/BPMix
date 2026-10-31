@@ -43,6 +43,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 .error { color: var(--danger); margin: 12px 0 0; }
 .ok { color: var(--ok); margin: 12px 0 0; }
 code, .code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; }
+.qr { display: block; width: 220px; height: 220px; margin: 12px auto; border-radius: 6px; }
 .bigcode { font-size: 2rem; letter-spacing: 0.15em; text-align: center; padding: 12px; display: block; }
 .codes { columns: 2; list-style: none; padding: 0; margin: 12px 0; }
 .codes li { font-family: ui-monospace, monospace; padding: 2px 0; }

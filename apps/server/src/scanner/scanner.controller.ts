@@ -1,4 +1,5 @@
-import { BadRequestException, Controller, Get, HttpCode, Post, Query } from '@nestjs/common';
+import { BadRequestException, Controller, Get, HttpCode, Post, Query, Sse, type MessageEvent } from '@nestjs/common';
+import { Observable } from 'rxjs';
 import {
   listScanFailuresQuerySchema,
   listScanJobsQuerySchema,
@@ -19,6 +20,32 @@ export class ScannerController {
   @Get()
   status(): Promise<ScanStatusDto> {
     return this.scanner.status();
+  }
+
+  /**
+   * Server-sent events for the admin page: a `changed` event (at most one a second) whenever the scan's state may
+   * have moved, so it re-reads the status then instead of polling. The `ping` every 25s only keeps the
+   * connection from being closed as idle by a proxy in between.
+   */
+  @Sse('events')
+  events(): Observable<MessageEvent> {
+    return new Observable<MessageEvent>((subscriber) => {
+      let pending: NodeJS.Timeout | null = null;
+      const onChanged = () => {
+        if (pending) return;
+        pending = setTimeout(() => {
+          pending = null;
+          subscriber.next({ type: 'changed', data: '' });
+        }, 1000);
+      };
+      this.scanner.changes.on('changed', onChanged);
+      const keepAlive = setInterval(() => subscriber.next({ type: 'ping', data: '' }), 25_000);
+      return () => {
+        this.scanner.changes.off('changed', onChanged);
+        clearInterval(keepAlive);
+        if (pending) clearTimeout(pending);
+      };
+    });
   }
 
   /** Kicks off a scan (or joins the running one) and returns immediately. */

@@ -548,6 +548,11 @@ describe('account pages', () => {
     const webauthn = await guest.fetch('/account-assets/webauthn.js');
     expect(webauthn.status).toBe(200);
     expect(await webauthn.text()).toContain('startRegistration');
+    // The authenticator step draws its QR code from this script (the CSP allows no third-party one).
+    const qr = await guest.fetch('/account-assets/qrcode.js');
+    expect(qr.status).toBe(200);
+    expect(qr.headers.get('content-type')).toMatch(/javascript/);
+    expect(await qr.text()).toContain('getModuleCount');
     expect((await guest.fetch('/account-assets/secret.txt')).status).toBe(404);
     expect((await guest.fetch('/account-assets/..%2Fpackage.json')).status).toBe(404);
   });

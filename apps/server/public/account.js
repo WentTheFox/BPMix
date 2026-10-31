@@ -282,10 +282,35 @@ function passwordSetup(body, finish, back) {
   );
 }
 
+/** The text as a QR code, drawn as an SVG out of DOM nodes (no markup strings, no inline styles: the page's CSP forbids both). */
+function qrCode(text) {
+  const qr = window.qrcode(0, 'M');
+  qr.addData(text);
+  qr.make();
+  const size = qr.getModuleCount();
+  const quiet = 4; // the blank border readers need around the code
+  let path = '';
+  for (let row = 0; row < size; row++) {
+    for (let col = 0; col < size; col++) {
+      if (qr.isDark(row, col)) path += `M${col + quiet} ${row + quiet}h1v1h-1z`;
+    }
+  }
+  const svg = (tag, attrs) => {
+    const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, value);
+    return el;
+  };
+  const root = svg('svg', { class: 'qr', viewBox: `0 0 ${size + quiet * 2} ${size + quiet * 2}`, role: 'img', 'aria-label': 'QR code for your authenticator app', 'shape-rendering': 'crispEdges' });
+  root.append(svg('rect', { width: size + quiet * 2, height: size + quiet * 2, fill: '#fff' }), svg('path', { d: path, fill: '#000' }));
+  return root;
+}
+
 function authenticatorStep(body, setup, finish) {
   body.replaceChildren(
     h('h2', {}, 'Add it to your authenticator app'),
-    h('p', { class: 'muted' }, 'Open your authenticator app and add an account with this key (or open the link on a phone that has one):'),
+    h('p', { class: 'muted' }, 'Scan this code with your authenticator app:'),
+    qrCode(setup.otpauthUri),
+    h('p', { class: 'muted' }, 'Can\u2019t scan it? Add an account with this key instead (or open the link on a phone that has an authenticator):'),
     h('code', { class: 'bigcode' }, setup.secret.replace(/(.{4})/g, '$1 ').trim()),
     h('p', {}, h('a', { href: setup.otpauthUri }, 'Open in authenticator app')),
     form(field('Code from the app', 'code', { inputMode: 'numeric', autocomplete: 'one-time-code', pattern: '[0-9]{6}', maxLength: 6 }), 'Turn on', async (values) => {
@@ -466,6 +491,9 @@ async function usersSection(reload) {
       h('button', { type: 'button', onclick: () => navigator.clipboard?.writeText(url) }, 'Copy link'),
     );
   };
+  // The only active admin can't be disabled or made a member (the server refuses too): it would lock everyone out of admin.
+  const activeAdmins = users.filter((u) => u.role === 'ADMIN' && !u.disabled).length;
+  const lastAdminProps = (u) => (u.role === 'ADMIN' && !u.disabled && activeAdmins === 1 ? { disabled: true, title: 'This is the only active admin. Make someone else an admin first.' } : {});
   return panel(
     h('h2', {}, 'People'),
     users.map((u) =>
@@ -473,8 +501,8 @@ async function usersSection(reload) {
         h('div', {}, u.displayName, h('span', { class: 'tag' }, u.role === 'ADMIN' ? 'admin' : 'member'), u.disabled ? h('span', { class: 'tag' }, 'disabled') : null, !u.enrolled && !u.disabled ? h('span', { class: 'tag' }, 'waiting to set up') : null, h('div', { class: 'muted' }, `@${u.username}`)),
         h('div', {},
           action('New link', async () => showLink(await api('POST', `/users/${u.id}/invite`, {}), u.displayName), async () => undefined),
-          action(u.disabled ? 'Enable' : 'Disable', () => api('PATCH', `/users/${u.id}`, { disabled: !u.disabled }), reload),
-          action(u.role === 'ADMIN' ? 'Make member' : 'Make admin', () => api('PATCH', `/users/${u.id}`, { role: u.role === 'ADMIN' ? 'USER' : 'ADMIN' }), reload),
+          action(u.disabled ? 'Enable' : 'Disable', () => api('PATCH', `/users/${u.id}`, { disabled: !u.disabled }), reload, lastAdminProps(u)),
+          action(u.role === 'ADMIN' ? 'Make member' : 'Make admin', () => api('PATCH', `/users/${u.id}`, { role: u.role === 'ADMIN' ? 'USER' : 'ADMIN' }), reload, lastAdminProps(u)),
         ),
       ),
     ),
@@ -488,11 +516,16 @@ async function usersSection(reload) {
   );
 }
 
-async function scanSection(reload) {
+// The scan section follows the server instead of asking it on a timer: one server-sent-events stream says
+// "something changed" and only then is the status read again.
+let scanEvents = null;
+window.addEventListener('pagehide', () => scanEvents?.close());
+
+async function scanContents(reload) {
   const status = await api('GET', '/scan');
   const skipped = status.jobs.skipped > 0 ? await api('GET', '/scan/jobs?state=SKIPPED&limit=20') : { items: [] };
   const last = status.last;
-  return panel(
+  return [
     h('h2', {}, 'Library scanning'),
     h('p', { class: 'muted' }, status.running ? 'Scanning now…' : last ? `Last scan ${when(last.finishedAtMs)}: ${last.tracks} tracks.` : 'No scan has finished yet.'),
     h('p', { class: 'muted' }, `${status.jobs.done} processed · ${status.jobs.pending} waiting${status.jobs.retrying ? ` (${status.jobs.retrying} retrying)` : ''} · ${status.jobs.skipped} skipped`),
@@ -502,7 +535,21 @@ async function scanSection(reload) {
           skipped.items.map((j) => h('div', { class: 'row' }, h('div', {}, j.relativePath ?? '(removed)', h('div', { class: 'muted' }, `${j.lastErrorStage ?? ''}: ${(j.lastError ?? '').slice(0, 160)}`))),
           ), action('Try them again', () => api('POST', '/scan/retry', {}), reload))
       : null,
-  );
+  ];
+}
+
+async function scanSection(reload) {
+  scanEvents?.close();
+  const el = panel(...(await scanContents(reload)));
+  // Refresh in place, not through `reload` (which would rebuild the whole page under the person's hands).
+  const refresh = () => scanContents(refresh).then((children) => el.replaceChildren(...children.filter(Boolean)), () => undefined);
+  if (window.EventSource) {
+    scanEvents = new EventSource('/api/v1/scan/events');
+    scanEvents.addEventListener('changed', () => void refresh());
+    // The stream reconnects by itself after a drop; re-read once when it does, since events in between were missed.
+    scanEvents.addEventListener('open', () => void refresh());
+  }
+  return el;
 }
 
 // ---------------------------------------------------------------- start

@@ -1,3 +1,4 @@
+import type { EventEmitter } from 'node:events';
 import { Inject, Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -69,6 +70,11 @@ export class ScannerService implements OnApplicationBootstrap {
       .catch((err: unknown) => this.logger.warn(`Pruning old failures failed: ${String(err)}`));
   }
 
+  /** Fires 'changed' whenever what status() reports may have changed. */
+  get changes(): EventEmitter {
+    return this.workers.changes;
+  }
+
   async status(): Promise<ScanStatus> {
     return { running: this.current !== null, last: this.last, jobs: await this.workers.queue.counts(), workers: this.workers.getStats() };
   }
@@ -123,8 +129,10 @@ export class ScannerService implements OnApplicationBootstrap {
     if (this.current) return this.current;
     const run = this.runScan().finally(() => {
       this.current = null;
+      this.changes.emit('changed');
     });
     this.current = run;
+    this.changes.emit('changed');
     return run;
   }
 

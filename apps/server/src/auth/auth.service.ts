@@ -461,18 +461,22 @@ export class AuthService implements OnApplicationBootstrap {
     const target = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!target) throw new NotFoundException('No such user');
     const losesAdmin = target.role === 'ADMIN' && target.disabledAt === null && (patch.role === 'USER' || patch.disabled === true);
-    if (losesAdmin) {
-      const others = await this.prisma.user.count({ where: { id: { not: userId }, role: 'ADMIN', disabledAt: null } });
-      if (others === 0) throw new ConflictException('There must always be at least one active admin');
-    }
-    const user = await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        ...(patch.displayName !== undefined ? { displayName: patch.displayName } : {}),
-        ...(patch.role !== undefined ? { role: patch.role } : {}),
-        ...(patch.disabled !== undefined ? { disabledAt: patch.disabled ? new Date() : null } : {}),
-      },
-      include: WITH_CREDENTIAL_COUNT,
+    // One transaction behind a lock, so two admins demoting each other at the same moment can't both see "another admin exists".
+    const user = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('bpmix:admin-roster'))`;
+      if (losesAdmin) {
+        const others = await tx.user.count({ where: { id: { not: userId }, role: 'ADMIN', disabledAt: null } });
+        if (others === 0) throw new ConflictException('There must always be at least one active admin');
+      }
+      return tx.user.update({
+        where: { id: userId },
+        data: {
+          ...(patch.displayName !== undefined ? { displayName: patch.displayName } : {}),
+          ...(patch.role !== undefined ? { role: patch.role } : {}),
+          ...(patch.disabled !== undefined ? { disabledAt: patch.disabled ? new Date() : null } : {}),
+        },
+        include: WITH_CREDENTIAL_COUNT,
+      });
     });
     if (patch.disabled === true) {
       // Cuts off browser sessions at once; device tokens and invites are refused by the disabled check.

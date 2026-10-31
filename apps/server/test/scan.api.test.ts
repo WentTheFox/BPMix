@@ -101,3 +101,27 @@ describe('scan observability API', () => {
     expect((await json<ScanFailureDto[]>('/api/v1/scan/failures')).length).toBe(6);
   });
 });
+
+describe('scan events', () => {
+  it('streams a "changed" event when a scan starts, so the admin page needn\'t poll', async () => {
+    const controller = new AbortController();
+    const res = await client.fetch('/api/v1/scan/events', { signal: controller.signal });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toMatch(/text\/event-stream/);
+    const reader = res.body!.getReader();
+    void app.get(ScannerService).scanAll();
+    let received = '';
+    const decoder = new TextDecoder();
+    while (!received.includes('event: changed')) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      received += decoder.decode(value);
+    }
+    controller.abort();
+    expect(received).toContain('event: changed');
+  });
+
+  it('is for admins only', async () => {
+    expect((await new TestClient(client.baseUrl).fetch('/api/v1/scan/events')).status).toBe(401);
+  });
+});

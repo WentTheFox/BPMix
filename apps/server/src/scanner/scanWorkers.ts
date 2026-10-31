@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import { availableParallelism } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { Injectable, Logger, type OnApplicationBootstrap, type OnModuleDestroy } from '@nestjs/common';
@@ -32,6 +33,8 @@ export function scanWorkerCount(config: ConfigService): number {
 export class ScanWorkers implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger('ScanWorkers');
   readonly queue: JobQueue;
+  /** Emits 'changed' whenever the scan's state may have moved (a job queued or finished, a scan started or ended), so the admin page can follow along without asking. */
+  readonly changes = new EventEmitter();
   readonly policy: RetryPolicy;
   private readonly workerCount: number;
   private readonly notifier: JobNotifier;
@@ -57,7 +60,10 @@ export class ScanWorkers implements OnApplicationBootstrap, OnModuleDestroy {
     };
     this.stats = { workers: this.workerCount, succeeded: 0, failedAttempts: 0, skipped: 0, inFlight: 0 };
     this.notifier = new JobNotifier(db.connectionString, (err) => this.logger.warn(`Job notifications interrupted: ${String(err)}`));
-    this.notifier.on('wake', () => this.wake());
+    this.notifier.on('wake', () => {
+      this.wake();
+      this.changes.emit('changed');
+    });
   }
 
   async onApplicationBootstrap(): Promise<void> {

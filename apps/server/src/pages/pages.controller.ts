@@ -37,6 +37,7 @@ const ASSETS: Record<string, string> = {
 export class PagesController {
   private readonly publicDir: string;
   private readonly webauthnBundle: string;
+  private readonly qrBundle: string;
 
   constructor(config: ConfigService) {
     const here = path.dirname(fileURLToPath(import.meta.url));
@@ -48,6 +49,8 @@ export class PagesController {
     // The browser half of @simplewebauthn, as its prebuilt single-file bundle.
     const entry = createRequire(import.meta.url).resolve('@simplewebauthn/browser');
     this.webauthnBundle = path.resolve(path.dirname(entry), '../dist/bundle/index.umd.min.js');
+    // The QR code for the authenticator step, drawn in the browser (the page's CSP allows only our own scripts).
+    this.qrBundle = createRequire(import.meta.url).resolve('qrcode-generator');
   }
 
   @Get(ACCOUNT_PAGE_PATHS.map((p) => p.slice(1)))
@@ -58,6 +61,11 @@ export class PagesController {
   @Get('account-assets/webauthn.js')
   webauthn(@Res() res: Response): void {
     res.set({ ...SECURITY_HEADERS, 'Cache-Control': 'public, max-age=3600' }).type('text/javascript; charset=utf-8').sendFile(this.webauthnBundle, SEND_OPTIONS);
+  }
+
+  @Get('account-assets/qrcode.js')
+  qrcode(@Res() res: Response): void {
+    res.set({ ...SECURITY_HEADERS, 'Cache-Control': 'public, max-age=3600' }).type('text/javascript; charset=utf-8').sendFile(this.qrBundle, SEND_OPTIONS);
   }
 
   @Get('account-assets/:file')
