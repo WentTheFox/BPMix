@@ -7,6 +7,7 @@ import {
   createPlaylistFolderChosen,
   createPlaylistStarted,
   externalConnectionsOpened,
+  serverScreenOpened,
   lyricsEditorOpenedFromMenu,
   lyricsPickerOpenedFromMenu,
   nowPlayingOpenChanged,
@@ -21,6 +22,7 @@ describe('navigation slice', () => {
     expect(makeStore().getState().navigation).toEqual({
       settingsOpen: false,
       externalConnectionsOpen: false,
+      serverScreenOpen: false,
       nowPlayingOpen: false,
       lyricsEditorOpen: false,
       lyricsPickerOpen: false,
@@ -41,6 +43,14 @@ describe('navigation slice', () => {
     store.dispatch(externalConnectionsOpened());
     store.dispatch(settingsClosed());
     expect(store.getState().navigation).toMatchObject({ settingsOpen: false, externalConnectionsOpen: false });
+  });
+
+  it('closing Settings also closes its BPMix server sub-screen', () => {
+    const store = makeStore();
+    store.dispatch(settingsOpened());
+    store.dispatch(serverScreenOpened());
+    store.dispatch(settingsClosed());
+    expect(store.getState().navigation).toMatchObject({ settingsOpen: false, serverScreenOpen: false });
   });
 
   it('opening the lyrics editor/picker from the menu also opens Now Playing', () => {

@@ -1,6 +1,8 @@
 export interface BackNavigationState {
   /** The "External connections" sub-screen reached from within Settings (see ExternalConnectionsScreen) - nested one level deeper than settingsOpen, so it has to close first. */
   externalConnectionsOpen: boolean;
+  /** The "BPMix server" sub-screen, nested under Settings the same way. */
+  serverScreenOpen: boolean;
   settingsOpen: boolean;
   nowPlayingOpen: boolean;
   screenKind: 'library' | 'playlist';
@@ -8,6 +10,7 @@ export interface BackNavigationState {
 
 export interface BackNavigationActions {
   closeExternalConnections: () => void;
+  closeServerScreen: () => void;
   closeSettings: () => void;
   closeNowPlaying: () => void;
   closePlaylist: () => void;
@@ -16,7 +19,7 @@ export interface BackNavigationActions {
 /**
  * The single priority order a back press (Android's hardware back button, or
  * the browser's back button on web - see useBackNavigation.ts/.web.ts) walks
- * through: External connections, then Settings, then Now Playing, then
+ * through: External connections / the BPMix server screen, then Settings, then Now Playing, then
  * Playlist back to Library. Both apps call this same function so the two
  * platforms can't drift apart on which overlay closes first when more than
  * one happens to be open at once. Returns true if it closed something,
@@ -28,6 +31,10 @@ export interface BackNavigationActions {
 export function handleBackNavigation(state: BackNavigationState, actions: BackNavigationActions): boolean {
   if (state.externalConnectionsOpen) {
     actions.closeExternalConnections();
+    return true;
+  }
+  if (state.serverScreenOpen) {
+    actions.closeServerScreen();
     return true;
   }
   if (state.settingsOpen) {

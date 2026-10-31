@@ -49,6 +49,8 @@ export interface NavigationState {
   settingsOpen: boolean;
   /** The "External connections" sub-screen reached from within Settings - always closes before Settings does (see handleBackNavigation). */
   externalConnectionsOpen: boolean;
+  /** The "BPMix server" sub-screen reached from within Settings - closes before Settings does, like External connections. */
+  serverScreenOpen: boolean;
   /** Whether the Now Playing overlay is open. Meaningful as an overlay only in the narrow tier; docked tiers ignore it. */
   nowPlayingOpen: boolean;
   /** Lifted out of LyricsSection so the header menu can open them from outside Now Playing. */
@@ -82,6 +84,7 @@ export interface NavigationState {
 export const initialNavigationState: NavigationState = {
   settingsOpen: false,
   externalConnectionsOpen: false,
+  serverScreenOpen: false,
   nowPlayingOpen: false,
   lyricsEditorOpen: false,
   lyricsPickerOpen: false,
@@ -106,6 +109,13 @@ export const navigationSlice = createSlice({
     settingsClosed(state) {
       state.settingsOpen = false;
       state.externalConnectionsOpen = false;
+      state.serverScreenOpen = false;
+    },
+    serverScreenOpened(state) {
+      state.serverScreenOpen = true;
+    },
+    serverScreenClosed(state) {
+      state.serverScreenOpen = false;
     },
     externalConnectionsOpened(state) {
       state.externalConnectionsOpen = true;
@@ -224,6 +234,8 @@ export const {
   settingsClosed,
   externalConnectionsOpened,
   externalConnectionsClosed,
+  serverScreenOpened,
+  serverScreenClosed,
   nowPlayingOpenChanged,
   lyricsEditorOpenChanged,
   lyricsPickerOpenChanged,

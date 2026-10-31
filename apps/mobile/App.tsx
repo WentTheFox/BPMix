@@ -44,11 +44,13 @@ import {
   HeaderRow,
   LibraryScreen,
   LocateMissingFileScreen,
+  OnboardingScreen,
   LyricsFolderSection,
   MultiPaneLayout,
   PlayerControlsRow,
   RestoringScreen,
   ScreenLayer,
+  ServerScreen,
   SettingsScreen,
   TrackList,
   useAppSettings,
@@ -74,6 +76,7 @@ import {
   useBackNavigation,
   useHasLyrics,
   useLyricsMenu,
+  useOnboarding,
   usePlaybackPersistence,
   usePlaylistTransport,
   useRestoringProgress,
@@ -321,6 +324,7 @@ function AppContent() {
   const {
     settingsOpen,
     externalConnectionsOpen,
+    serverScreenOpen,
     nowPlayingOpen: nowPlayingScreenOpen,
     lyricsEditorOpen,
     lyricsPickerOpen,
@@ -330,6 +334,8 @@ function AppContent() {
     closeSettings,
     openExternalConnections,
     closeExternalConnections,
+    openServerScreen,
+    closeServerScreen,
     setNowPlayingOpen,
     setLyricsEditorOpen,
     setLyricsPickerOpen,
@@ -422,9 +428,10 @@ function AppContent() {
   // extraHandler runs first: it closes BPMix's Android-only folder-picker
   // overlays, which the web app has no equivalent of at all.
   useBackNavigation(
-    { externalConnectionsOpen, settingsOpen, nowPlayingOpen: tier === 'narrow' && nowPlayingScreenOpen, screenKind: screen.kind },
+    { externalConnectionsOpen, serverScreenOpen, settingsOpen, nowPlayingOpen: tier === 'narrow' && nowPlayingScreenOpen, screenKind: screen.kind },
     {
       closeExternalConnections,
+      closeServerScreen,
       closeSettings,
       closeNowPlaying: () => {
         setNowPlayingOpen(false);
@@ -705,6 +712,7 @@ function AppContent() {
   const server = useServerConnection(Platform.OS === 'android' ? serverMode : undefined);
   const offline = useOffline(offlineLibrary);
   const fromServer = server?.status.active === true;
+  const onboarding = useOnboarding({ store: localLibraryStore, serverAvailable: Platform.OS === 'android', rootsLoaded: !isLoadingRoots, hasRoots: rootsWithLibrary.length > 0, serverActive: fromServer });
   // Admins (and, until the role is known, anyone - the server decides) may change the shared library's lyrics.
   const canEditServerLyrics = server?.status.isAdmin !== false;
   // Signed in to a server, Last.fm is linked there (once per user, for every device); otherwise this device holds its own link.
@@ -938,6 +946,8 @@ function AppContent() {
         appUpdate={appUpdateBridge ? appUpdate : undefined}
         lastFm={lastFm}
         onOpenExternalConnections={() => openExternalConnections()}
+        server={server}
+        onOpenServer={() => openServerScreen()}
       />
     </ScreenLayer>
   );
@@ -953,10 +963,22 @@ function AppContent() {
         onUpdateSettings={updateSettings}
         lastFm={lastFm}
         lastFmServerManaged={fromServer}
-        server={server}
-        offline={offline}
         onClose={() => closeExternalConnections()}
       />
+    </ScreenLayer>
+  );
+
+  // The BPMix server connection, its own sub-screen off Settings (same layer as External connections).
+  const serverScreen = serverScreenOpen && server && (
+    <ScreenLayer zIndex={21} colors={colors} paddingTop={insets.top} paddingBottom={insets.bottom} paddingLeft={insets.left} paddingRight={insets.right}>
+      <ServerScreen colors={colors} server={server} offline={offline} onClose={() => closeServerScreen()} />
+    </ScreenLayer>
+  );
+
+  // First run, on a fresh install: connecting to a server is the main way in, folders the alternative.
+  const onboardingScreen = onboarding.visible && server && (
+    <ScreenLayer zIndex={30} colors={colors} paddingTop={insets.top} paddingBottom={insets.bottom} paddingLeft={insets.left} paddingRight={insets.right}>
+      <OnboardingScreen colors={colors} server={server} onUseLocalFolders={onboarding.finish} />
     </ScreenLayer>
   );
 
@@ -1256,10 +1278,12 @@ function AppContent() {
         {miniPlayerBar}
         {settingsScreen}
         {externalConnectionsScreen}
+        {serverScreen}
         {editPlaylistFileScreen}
         {missingFileDialog}
         {addToPlaylistDialog}
         {userPlaylists.dialogs}
+        {onboardingScreen}
       </View>
     </>
   );

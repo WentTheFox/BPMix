@@ -4,6 +4,8 @@ import {
   createPlaylistStarted,
   externalConnectionsClosed,
   externalConnectionsOpened,
+  serverScreenClosed,
+  serverScreenOpened,
   lyricsEditorOpenChanged,
   lyricsEditorOpenedFromMenu,
   lyricsPickerOpenChanged,
@@ -19,7 +21,7 @@ import { useAppDispatch, useAppSelector } from '../store/hooks';
 /** The overlay/modal part of NavigationState - the open playlist screen has its own view, see usePlaylistScreen. */
 export type OverlayState = Pick<
   NavigationState,
-  'settingsOpen' | 'externalConnectionsOpen' | 'nowPlayingOpen' | 'lyricsEditorOpen' | 'lyricsPickerOpen' | 'createPlaylistRootId' | 'createPlaylistTarget'
+  'settingsOpen' | 'externalConnectionsOpen' | 'serverScreenOpen' | 'nowPlayingOpen' | 'lyricsEditorOpen' | 'lyricsPickerOpen' | 'createPlaylistRootId' | 'createPlaylistTarget'
 >;
 
 export interface NavigationActions {
@@ -27,6 +29,8 @@ export interface NavigationActions {
   closeSettings: () => void;
   openExternalConnections: () => void;
   closeExternalConnections: () => void;
+  openServerScreen: () => void;
+  closeServerScreen: () => void;
   setNowPlayingOpen: (open: boolean) => void;
   setLyricsEditorOpen: (open: boolean) => void;
   setLyricsPickerOpen: (open: boolean) => void;
@@ -44,7 +48,7 @@ export interface NavigationActions {
  */
 export function useNavigation(): OverlayState & NavigationActions {
   const dispatch = useAppDispatch();
-  const { settingsOpen, externalConnectionsOpen, nowPlayingOpen, lyricsEditorOpen, lyricsPickerOpen, createPlaylistRootId, createPlaylistTarget } =
+  const { settingsOpen, externalConnectionsOpen, serverScreenOpen, nowPlayingOpen, lyricsEditorOpen, lyricsPickerOpen, createPlaylistRootId, createPlaylistTarget } =
     useAppSelector((s) => s.navigation);
   const actions = useMemo<NavigationActions>(
     () => ({
@@ -52,6 +56,8 @@ export function useNavigation(): OverlayState & NavigationActions {
       closeSettings: () => dispatch(settingsClosed()),
       openExternalConnections: () => dispatch(externalConnectionsOpened()),
       closeExternalConnections: () => dispatch(externalConnectionsClosed()),
+      openServerScreen: () => dispatch(serverScreenOpened()),
+      closeServerScreen: () => dispatch(serverScreenClosed()),
       setNowPlayingOpen: (open) => dispatch(nowPlayingOpenChanged(open)),
       setLyricsEditorOpen: (open) => dispatch(lyricsEditorOpenChanged(open)),
       setLyricsPickerOpen: (open) => dispatch(lyricsPickerOpenChanged(open)),
@@ -67,6 +73,7 @@ export function useNavigation(): OverlayState & NavigationActions {
     () => ({
       settingsOpen,
       externalConnectionsOpen,
+      serverScreenOpen,
       nowPlayingOpen,
       lyricsEditorOpen,
       lyricsPickerOpen,
@@ -74,6 +81,6 @@ export function useNavigation(): OverlayState & NavigationActions {
       createPlaylistTarget,
       ...actions,
     }),
-    [settingsOpen, externalConnectionsOpen, nowPlayingOpen, lyricsEditorOpen, lyricsPickerOpen, createPlaylistRootId, createPlaylistTarget, actions],
+    [settingsOpen, externalConnectionsOpen, serverScreenOpen, nowPlayingOpen, lyricsEditorOpen, lyricsPickerOpen, createPlaylistRootId, createPlaylistTarget, actions],
   );
 }

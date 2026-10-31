@@ -41,7 +41,9 @@ import {
   MultiPaneLayout,
   PlayerControlsRow,
   RestoringScreen,
+  OnboardingScreen,
   ScreenLayer,
+  ServerScreen,
   SettingsScreen,
   TrackList,
   ExternalConnectionsScreen,
@@ -65,6 +67,7 @@ import {
   useBackNavigation,
   useHasLyrics,
   useLyricsMenu,
+  useOnboarding,
   usePlaybackPersistence,
   usePlaylistTransport,
   useRestoringProgress,
@@ -250,6 +253,7 @@ function AppContent() {
   const {
     settingsOpen,
     externalConnectionsOpen,
+    serverScreenOpen,
     nowPlayingOpen: nowPlayingScreenOpen,
     lyricsEditorOpen,
     lyricsPickerOpen,
@@ -259,6 +263,8 @@ function AppContent() {
     closeSettings,
     openExternalConnections,
     closeExternalConnections,
+    openServerScreen,
+    closeServerScreen,
     setNowPlayingOpen,
     setLyricsEditorOpen,
     setLyricsPickerOpen,
@@ -394,9 +400,10 @@ function AppContent() {
   // that's permanently visible, so it's simply excluded from this
   // priority stack in that case.
   useBackNavigation(
-    { externalConnectionsOpen, settingsOpen, nowPlayingOpen: tier === 'narrow' && nowPlayingScreenOpen, screenKind: screen.kind },
+    { externalConnectionsOpen, serverScreenOpen, settingsOpen, nowPlayingOpen: tier === 'narrow' && nowPlayingScreenOpen, screenKind: screen.kind },
     {
       closeExternalConnections,
+      closeServerScreen,
       closeSettings,
       closeNowPlaying: () => {
         setNowPlayingOpen(false);
@@ -622,6 +629,18 @@ function AppContent() {
   // remounted would lose its accumulated listen time.
   const server = useServerConnection(serverMode);
   const fromServer = server?.status.active === true;
+  // Whether this page is served by a BPMix server (null while that's being asked, and on a static host): only then is there a server to connect to.
+  const [serverHosted, setServerHosted] = useState<{ setupRequired: boolean } | null | undefined>(undefined);
+  useEffect(() => {
+    void serverMode.probeSameOrigin().then(setServerHosted);
+  }, []);
+  const onboarding = useOnboarding({
+    store: localLibraryStore,
+    serverAvailable: serverHosted === undefined ? null : serverHosted !== null,
+    rootsLoaded: !isLoadingRoots,
+    hasRoots: rootsWithLibrary.length > 0,
+    serverActive: fromServer,
+  });
   // Admins (and, until the role is known, anyone - the server decides) may change the shared library's lyrics.
   const canEditServerLyrics = server?.status.isAdmin !== false;
   // Signed in to a server, Last.fm is linked there (once per user, for every device); otherwise this device holds its own link.
@@ -842,6 +861,8 @@ function AppContent() {
         onChangeVolume={handleVolumeChange}
         lastFm={lastFm}
         onOpenExternalConnections={() => openExternalConnections()}
+        server={serverHosted ? server : null}
+        onOpenServer={() => openServerScreen()}
       />
     </ScreenLayer>
   );
@@ -851,7 +872,21 @@ function AppContent() {
   // has to sit on top of it, not beside it.
   const externalConnectionsScreen = externalConnectionsOpen && (
     <ScreenLayer zIndex={21} colors={colors}>
-      <ExternalConnectionsScreen colors={colors} settings={settings} onUpdateSettings={updateSettings} lastFm={lastFm} lastFmServerManaged={fromServer} server={server} offline={offline} onClose={() => closeExternalConnections()} />
+      <ExternalConnectionsScreen colors={colors} settings={settings} onUpdateSettings={updateSettings} lastFm={lastFm} lastFmServerManaged={fromServer} onClose={() => closeExternalConnections()} />
+    </ScreenLayer>
+  );
+
+  // The BPMix server connection, its own sub-screen off Settings (same layer as External connections).
+  const serverScreen = serverScreenOpen && server && (
+    <ScreenLayer zIndex={21} colors={colors}>
+      <ServerScreen colors={colors} server={server} offline={offline} onClose={() => closeServerScreen()} />
+    </ScreenLayer>
+  );
+
+  // First run on a server-hosted page with nothing set up: connecting is the main way in, folders the alternative.
+  const onboardingScreen = onboarding.visible && server && (
+    <ScreenLayer zIndex={30} colors={colors}>
+      <OnboardingScreen colors={colors} server={server} setupRequired={serverHosted?.setupRequired === true} onUseLocalFolders={onboarding.finish} />
     </ScreenLayer>
   );
 
@@ -1137,10 +1172,12 @@ function AppContent() {
         {nowPlayingScreen}
         {settingsScreen}
         {externalConnectionsScreen}
+        {serverScreen}
         {editPlaylistFileScreen}
         {missingFileDialog}
         {addToPlaylistDialog}
         {userPlaylists.dialogs}
+        {onboardingScreen}
       </View>
     );
   }
@@ -1153,10 +1190,12 @@ function AppContent() {
       {miniPlayerBar}
       {settingsScreen}
       {externalConnectionsScreen}
+      {serverScreen}
       {editPlaylistFileScreen}
       {missingFileDialog}
       {addToPlaylistDialog}
       {userPlaylists.dialogs}
+      {onboardingScreen}
     </View>
   );
 }

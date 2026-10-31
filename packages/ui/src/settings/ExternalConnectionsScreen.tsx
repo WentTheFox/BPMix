@@ -4,11 +4,8 @@ import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } fro
 import { BackButton } from '../BackButton';
 import { HeaderRow } from '../HeaderRow';
 import type { UseLastFmConnectionResult } from '../scrobble/useLastFmConnection';
-import type { UseOfflineResult } from '../offline/useOffline';
-import type { UseServerConnectionResult } from '../server/useServerConnection';
 import type { Colors } from '../theme';
 import { withAlpha } from '../theme';
-import { ServerSection } from './ServerSection';
 import { Section } from './SettingsScreen';
 import type { AppSettings } from './types';
 
@@ -21,15 +18,11 @@ export interface ExternalConnectionsScreenProps {
   lastFm: UseLastFmConnectionResult;
   /** The Last.fm link is kept by the server (signed in to one): no app credentials to choose here. */
   lastFmServerManaged?: boolean;
-  /** Where the library comes from. Absent on a platform that has no server mode (yet), which hides the section. */
-  server?: UseServerConnectionResult | null;
-  /** Offline downloads, shown under the server section. */
-  offline?: UseOfflineResult | null;
   onClose: () => void;
 }
 
 /**
- * Third-party service connections (currently just Last.fm) - its own
+ * Third-party service connections (currently just Last.fm; the BPMix server has its own screen, see ServerScreen) - its own
  * sub-screen off Settings rather than an inline section there, and its own
  * explicit Save button rather than writing to LibraryStore's settings
  * store on every keystroke (SettingsScreen's other fields - sliders,
@@ -47,7 +40,7 @@ export interface ExternalConnectionsScreenProps {
  * Last.fm API app instead", for a fork or self-hoster who'd rather use
  * their own app identity.
  */
-export function ExternalConnectionsScreen({ colors, settings, onUpdateSettings, lastFm, lastFmServerManaged, server, offline, onClose }: ExternalConnectionsScreenProps) {
+export function ExternalConnectionsScreen({ colors, settings, onUpdateSettings, lastFm, lastFmServerManaged, onClose }: ExternalConnectionsScreenProps) {
   const usingDefaultCredentials = settings.lastFmApiKey === DEFAULT_LASTFM_API_KEY && settings.lastFmApiSecret === DEFAULT_LASTFM_API_SECRET;
   const [showOwnKey, setShowOwnKey] = useState(!usingDefaultCredentials);
   const [apiKeyDraft, setApiKeyDraft] = useState(settings.lastFmApiKey);
@@ -81,7 +74,6 @@ export function ExternalConnectionsScreen({ colors, settings, onUpdateSettings, 
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <HeaderRow style={styles.header} left={<BackButton text="External connections" color={colors.text} onPress={onClose} />} />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        {server && <ServerSection colors={colors} server={server} offline={offline} />}
         <Section title="Last.fm" colors={colors}>
           {lastFm.status === 'connected' ? (
             <>

@@ -1,4 +1,4 @@
-import { BUILD_COMMIT, BUILD_TIME, BUILD_VERSION, GITHUB_REPO_URL } from '@bpmix/core';
+import { BUILD_COMMIT, BUILD_TIME, BUILD_VERSION, GITHUB_REPO_URL, type ServerStatus } from '@bpmix/core';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -41,6 +41,9 @@ export interface SettingsScreenProps {
    */
   lastFm?: UseLastFmConnectionResult;
   onOpenExternalConnections: () => void;
+  /** Where the library comes from. Absent on a platform that has no server mode (yet), which hides the BPMix server row. */
+  server?: { status: ServerStatus } | null;
+  onOpenServer?: () => void;
 }
 
 export interface AppUpdateState {
@@ -119,6 +122,8 @@ export function SettingsScreen({
   appUpdate,
   lastFm,
   onOpenExternalConnections,
+  server,
+  onOpenServer,
 }: SettingsScreenProps) {
   const [confirmResetOpen, setConfirmResetOpen] = useState(false);
   return (
@@ -128,6 +133,19 @@ export function SettingsScreen({
         left={<BackButton text="Settings" color={colors.text} onPress={onClose} />}
       />
       <ScrollView contentContainerStyle={styles.content}>
+        {server && onOpenServer && (
+          <Section title="Library" colors={colors}>
+            <NavRow
+              label="BPMix server"
+              value={server.status.active ? `Signed in as ${server.status.userName ?? 'unknown'}` : 'Not connected'}
+              onPress={onOpenServer}
+              colors={colors}
+            />
+            {!server.status.active && (
+              <Text style={[styles.rowValue, { color: colors.subtleText, marginTop: 4 }]}>Using folders on this device. Connect a server to sync your library, playlists and lyrics.</Text>
+            )}
+          </Section>
+        )}
         <Section title="Theme" colors={colors}>
           <View style={styles.choiceRow}>
             {THEME_MODE_OPTIONS.map(({ mode, label }) => {

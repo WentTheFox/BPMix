@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { formatAgo } from '../formatAgo';
 import { navigateTo } from '../navigateTo';
 import { formatBytes } from '../offline/formatBytes';
@@ -8,6 +7,7 @@ import type { UseServerConnectionResult } from '../server/useServerConnection';
 import type { Colors } from '../theme';
 import { withAlpha } from '../theme';
 import { AppSwitch } from './AppSwitch';
+import { ServerSignInForm } from './ServerSignInForm';
 import { Section } from './SettingsScreen';
 
 export interface ServerSectionProps {
@@ -31,9 +31,7 @@ const STORAGE_LIMITS = [
  * handles a password.
  */
 export function ServerSection({ colors, server, offline }: ServerSectionProps) {
-  const [address, setAddress] = useState(server.status.url);
   const { status } = server;
-  const input = [styles.input, { color: colors.text, borderColor: withAlpha(colors.text, 0.25) }];
   const hint = [styles.hint, { color: colors.subtleText }];
   const spaced = { marginBottom: 20 };
   const link = (enabled = true) => [styles.linkValue, { color: enabled ? colors.accent : colors.subtleText }];
@@ -119,63 +117,10 @@ export function ServerSection({ colors, server, offline }: ServerSectionProps) {
     );
   }
 
-  if (server.usesBrowserSession) {
-    return (
-      <View style={spaced}>
-        <Section title="BPMix server" colors={colors}>
-          <Text style={hint}>Take your library from this BPMix server instead of this browser&apos;s folders.</Text>
-          {status.error && <Text style={[styles.error, { color: '#dc2626' }]}>{status.error}</Text>}
-          <Pressable onPress={() => server.signIn('')} style={styles.actionButton}>
-            <Text style={link()}>Sign in</Text>
-          </Pressable>
-        </Section>
-      </View>
-    );
-  }
-
-  const busy = server.phase === 'starting' || server.phase === 'awaitingApproval';
   return (
     <View style={spaced}>
       <Section title="BPMix server" colors={colors}>
-        <Text style={hint}>Take your library from a BPMix server instead of this device&apos;s folders.</Text>
-        {status.error && <Text style={[styles.error, { color: '#dc2626' }]}>{status.error}</Text>}
-        <TextInput
-          style={input}
-          placeholder="https://music.example.com"
-          placeholderTextColor={colors.subtleText}
-          value={address}
-          onChangeText={setAddress}
-          editable={!busy}
-          keyboardType="url"
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-        {server.phase === 'awaitingApproval' && server.pendingCode ? (
-          <>
-            <Text style={[styles.code, { color: colors.text }]} selectable>
-              {server.pendingCode.userCode}
-            </Text>
-            <Text style={hint}>Approve this device in a browser where you&apos;re signed in to your server, using the code above.</Text>
-            <Pressable onPress={server.openApprovalPage} style={styles.actionButton}>
-              <Text style={link()}>Open the sign-in page</Text>
-            </Pressable>
-            <Text style={hint}>Waiting for approval…</Text>
-          </>
-        ) : server.phase === 'starting' ? (
-          <Text style={hint}>Contacting the server…</Text>
-        ) : (
-          <Pressable disabled={address.trim().length === 0} onPress={() => server.signIn(address)} style={styles.actionButton}>
-            <Text style={link(address.trim().length > 0)}>Sign in</Text>
-          </Pressable>
-        )}
-        {busy && (
-          <Pressable onPress={server.cancelSignIn} style={styles.actionButton}>
-            <Text style={link()}>Cancel</Text>
-          </Pressable>
-        )}
-        {server.phase === 'denied' && <Text style={[styles.error, { color: '#dc2626' }]}>That request was denied.</Text>}
-        {server.phase === 'expired' && <Text style={[styles.error, { color: '#dc2626' }]}>That code expired. Try again.</Text>}
-        {server.errorMessage && <Text style={[styles.error, { color: '#dc2626' }]}>{server.errorMessage}</Text>}
+        <ServerSignInForm colors={colors} server={server} />
       </Section>
     </View>
   );

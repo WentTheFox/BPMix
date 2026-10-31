@@ -287,6 +287,19 @@ export class ServerMode {
     return result;
   }
 
+  /**
+   * Whether the page itself was served by a BPMix server (the web app on a self-hosted server, as opposed to a
+   * static host): its public status answers. Says whether the first account still has to be created, too.
+   */
+  async probeSameOrigin(): Promise<{ setupRequired: boolean } | null> {
+    try {
+      const { setupRequired } = await new ApiClient({ baseUrl: '', fetch: this.deps.fetch }).authStatus();
+      return { setupRequired };
+    } catch {
+      return null;
+    }
+  }
+
   /** The web app, served by the server itself: nothing to type, just whether the session cookie is signed in. */
   async connectSameOrigin(): Promise<boolean> {
     await this.ready;
