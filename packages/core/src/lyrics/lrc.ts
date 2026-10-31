@@ -92,6 +92,15 @@ export function formatTimestamp(totalSeconds: number): string {
 }
 
 /**
+ * Moves every timed line by `deltaSeconds` (negative = earlier), for a file whose timings are
+ * consistent with each other but all start too early or late. Untimed lines stay untimed, and a line
+ * that would land before the start of the track is held at 0 rather than dropped.
+ */
+export function shiftLyricTimes(lines: LyricLine[], deltaSeconds: number): LyricLine[] {
+  return lines.map((line) => (line.timeSeconds === null ? line : { ...line, timeSeconds: Math.max(0, Math.round((line.timeSeconds + deltaSeconds) * 1000) / 1000) }));
+}
+
+/**
  * Inverse of parseLrc, for writing a freshly hand-synced result back out
  * (see LyricsSyncScreen) - a line with a null timeSeconds is written as
  * plain unsynced text (parseLrc already tolerates a mix of timed and

@@ -1,4 +1,4 @@
-import { formatTimestamp, type LyricLine } from '@bpmix/core';
+import { formatTimestamp, shiftLyricTimes, type LyricLine } from '@bpmix/core';
 import { mdiAlertCircleOutline, mdiClose, mdiMinus, mdiPlus } from '@mdi/js';
 import { useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, TextInput, View, type ListRenderItemInfo } from 'react-native';
@@ -30,6 +30,15 @@ function parseTimeInput(text: string): number | null {
   return Number.isFinite(plain) ? plain : null;
 }
 
+/** A signed number of seconds ("-1.5", "+2", "0.3") for the shift-all box; null when it isn't one. */
+function parseSignedSeconds(text: string): number | null {
+  const value = Number(text.trim().replace(',', '.'));
+  return text.trim() !== '' && Number.isFinite(value) ? value : null;
+}
+
+/** Step of the shift-all quick buttons: lyrics that start a whole beat or two off are the usual case. */
+const SHIFT_ALL_STEP_SECONDS = 1;
+
 /**
  * The dedicated per-line timestamp editor (see CLAUDE.md's lyrics-editor
  * TODO, "a more advanced desktop-only editing mode with a dedicated
@@ -54,6 +63,7 @@ function parseTimeInput(text: string): number | null {
 export function LyricsEditScreen({ colors, entries, onEntriesChange, saving }: LyricsEditScreenProps) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [draftText, setDraftText] = useState('');
+  const [shiftDraft, setShiftDraft] = useState('');
 
   const updateEntry = (index: number, timeSeconds: number | null) => {
     const next = entries.slice();
@@ -65,6 +75,17 @@ export function LyricsEditScreen({ colors, entries, onEntriesChange, saving }: L
     const current = entries[index]!.timeSeconds;
     setDraftText(current === null ? '' : formatTimestamp(current));
     setEditingIndex(index);
+  };
+
+  const shiftAll = (deltaSeconds: number) => {
+    if (deltaSeconds !== 0) onEntriesChange(shiftLyricTimes(entries, deltaSeconds));
+  };
+
+  const applyShiftDraft = () => {
+    const delta = parseSignedSeconds(shiftDraft);
+    if (delta === null) return;
+    shiftAll(delta);
+    setShiftDraft('');
   };
 
   const commitDraft = (index: number) => {
@@ -121,7 +142,35 @@ export function LyricsEditScreen({ colors, entries, onEntriesChange, saving }: L
     );
   };
 
-  return <FlatList data={entries} keyExtractor={(_item, index) => String(index)} renderItem={renderItem} style={styles.list} />;
+  const shiftDelta = parseSignedSeconds(shiftDraft);
+  const header = (
+    <View style={styles.shiftBar}>
+      <Text style={[styles.shiftLabel, { color: colors.text }]}>Shift all lines</Text>
+      <Pressable style={styles.stepButton} onPress={() => shiftAll(-SHIFT_ALL_STEP_SECONDS)} disabled={saving} accessibilityLabel={`Shift all lines ${SHIFT_ALL_STEP_SECONDS} second earlier`}>
+        <Icon path={mdiMinus} size={16} color={colors.text} />
+      </Pressable>
+      <Text style={[styles.shiftStepText, { color: colors.subtleText }]}>{SHIFT_ALL_STEP_SECONDS}s</Text>
+      <Pressable style={styles.stepButton} onPress={() => shiftAll(SHIFT_ALL_STEP_SECONDS)} disabled={saving} accessibilityLabel={`Shift all lines ${SHIFT_ALL_STEP_SECONDS} second later`}>
+        <Icon path={mdiPlus} size={16} color={colors.text} />
+      </Pressable>
+      <TextInput
+        style={[styles.shiftInput, { color: colors.text, borderColor: colors.subtleText }]}
+        value={shiftDraft}
+        onChangeText={setShiftDraft}
+        onSubmitEditing={applyShiftDraft}
+        placeholder="± sec"
+        placeholderTextColor={colors.subtleText}
+        keyboardType="numbers-and-punctuation"
+        editable={!saving}
+        accessibilityLabel="Seconds to shift all lines by (negative for earlier)"
+      />
+      <Pressable onPress={applyShiftDraft} disabled={saving || shiftDelta === null} accessibilityLabel="Apply the shift to all lines">
+        <Text style={[styles.shiftApply, { color: shiftDelta === null ? colors.subtleText : colors.accent }]}>Apply</Text>
+      </Pressable>
+    </View>
+  );
+
+  return <FlatList data={entries} keyExtractor={(_item, index) => String(index)} renderItem={renderItem} style={styles.list} ListHeaderComponent={header} />;
 }
 
 const styles = StyleSheet.create({
@@ -163,6 +212,37 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     paddingHorizontal: 4,
     paddingVertical: 2,
+  },
+  shiftBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(128,128,128,0.25)',
+  },
+  shiftLabel: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  shiftStepText: {
+    fontSize: 12,
+  },
+  shiftInput: {
+    width: 56,
+    fontSize: 12,
+    fontWeight: '600',
+    borderWidth: 1,
+    borderRadius: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    textAlign: 'center',
+  },
+  shiftApply: {
+    fontSize: 12,
+    fontWeight: '600',
+    paddingHorizontal: 4,
   },
   stepButton: {
     padding: 4,

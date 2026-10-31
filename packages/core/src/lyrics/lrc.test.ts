@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatLrc, parseLrc } from './lrc';
+import { formatLrc, parseLrc, shiftLyricTimes } from './lrc';
 
 describe('parseLrc', () => {
   it('parses timestamps and tags, sorted by time', () => {
@@ -111,5 +111,21 @@ describe('formatLrc', () => {
       { timeSeconds: 5.25, text: 'Second line' },
     ];
     expect(parseLrc(formatLrc(lines)).lines).toEqual(lines);
+  });
+});
+
+describe('shiftLyricTimes', () => {
+  it('moves timed lines, leaves untimed ones alone, and holds anything that would go negative at 0', () => {
+    const lines = [
+      { timeSeconds: 0.5, text: 'early' },
+      { timeSeconds: null, text: 'plain' },
+      { timeSeconds: 10.1, text: 'later', translation: 'x' },
+    ];
+    expect(shiftLyricTimes(lines, -1)).toEqual([
+      { timeSeconds: 0, text: 'early' },
+      { timeSeconds: null, text: 'plain' },
+      { timeSeconds: 9.1, text: 'later', translation: 'x' },
+    ]);
+    expect(shiftLyricTimes(lines, 0.2)[2]!.timeSeconds).toBe(10.3);
   });
 });
