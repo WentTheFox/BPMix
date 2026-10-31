@@ -1,5 +1,5 @@
 import { formatDuration, isMetadataCurrent, trackDisplayName, type LibraryStore, type TrackRecord } from '@bpmix/core';
-import { mdiAlertCircleOutline, mdiCheck, mdiChevronDown, mdiChevronUp, mdiPause, mdiPlay, mdiPlaylistPlus, mdiSubtitles } from '@mdi/js';
+import { mdiAlertCircleOutline, mdiCheck, mdiChevronDown, mdiChevronUp, mdiDownload, mdiPause, mdiPlay, mdiPlaylistPlus, mdiSubtitles } from '@mdi/js';
 import { memo, useEffect, useRef } from 'react';
 import { ActivityIndicator, Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Icon } from './Icon';
@@ -41,6 +41,8 @@ export interface TrackRowProps {
   isMissing?: boolean;
   /** Shows a per-row "add to playlist" button when given (see AddToPlaylistDialog) - only passed by the Unplaylisted automatic view today, since a track already sitting in a real playlist has nowhere new to be added to from here. Omitted (not just falsy) elsewhere, so an ordinary playlist screen's rows look exactly as they did before this existed. */
   onAddToPlaylist?: (track: TrackRecord) => void;
+  /** The file is stored on this device for offline play (see OfflinePlaylistControl.isAvailable) - shows a small download glyph next to the title. */
+  offlineAvailable?: boolean;
   /** True while the playlist screen is in reorder mode (see TrackList) - replaces this row's normal trailing content (duration/missing-icon/add-to-playlist icon) with either a selected checkmark or insert-above/insert-below buttons, and changes what a tap on the row does (see onPress below). */
   reorderMode?: boolean;
   isSelected?: boolean;
@@ -74,6 +76,7 @@ export const TrackRow = memo(function TrackRow({
   onPress,
   libraryStore,
   isMissing,
+  offlineAvailable,
   onAddToPlaylist,
   reorderMode,
   isSelected,
@@ -135,6 +138,7 @@ export const TrackRow = memo(function TrackRow({
               {title}
             </Text>
             {hasLyrics && <Icon path={mdiSubtitles} size={13} color={isCurrent ? colors.accent : textColor} />}
+            {offlineAvailable && <Icon path={mdiDownload} size={13} color={isCurrent ? colors.accent : textColor} />}
           </View>
           {artistLine ? (
             <Text style={[styles.trackArtist, { color: textColor }]} numberOfLines={1}>

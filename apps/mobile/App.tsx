@@ -76,6 +76,7 @@ import {
   useBackNavigation,
   useHasLyrics,
   useLyricsMenu,
+  useOfflineNotifications,
   useOnboarding,
   usePlaybackPersistence,
   usePlaylistTransport,
@@ -711,6 +712,7 @@ function AppContent() {
   // remounted would lose its accumulated listen time.
   const server = useServerConnection(Platform.OS === 'android' ? serverMode : undefined);
   const offline = useOffline(offlineLibrary);
+  useOfflineNotifications(offline, notificationCenter);
   const fromServer = server?.status.active === true;
   const onboarding = useOnboarding({ store: localLibraryStore, serverAvailable: Platform.OS === 'android', rootsLoaded: !isLoadingRoots, hasRoots: rootsWithLibrary.length > 0, serverActive: fromServer });
   // Admins (and, until the role is known, anyone - the server decides) may change the shared library's lyrics.

@@ -1,7 +1,7 @@
 import { trackDisplayName, type LibraryStore, type TrackRecord } from '@bpmix/core';
 import { mdiCheck, mdiClose, mdiDownload, mdiPencilOutline, mdiSwapVertical, mdiTrashCanOutline } from '@mdi/js';
 import { useCallback, useMemo, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { ConfirmDialog } from './ConfirmDialog';
 import { IconLabel } from './IconLabel';
 import type { OfflinePlaylistControl } from './offline/useOffline';
@@ -156,6 +156,7 @@ export function TrackList({
           onPress={onPressTrack}
           libraryStore={libraryStore}
           isMissing={track.missing || missingFileIds?.has(fileId)}
+          offlineAvailable={offline?.isAvailable(fileId)}
           onAddToPlaylist={onAddToPlaylist}
           reorderMode={reorderModeActive}
           isSelected={selectedFileIds.has(fileId)}
@@ -175,6 +176,7 @@ export function TrackList({
       );
     },
     [
+      offline,
       tracksById,
       currentFileId,
       isPlaying,
@@ -228,20 +230,20 @@ export function TrackList({
               )}
               {offline && (
                 <Pressable onPress={offline.toggle}>
-                  <IconLabel
-                    path={offline.status === 'all' ? mdiCheck : mdiDownload}
-                    text={
-                      offline.status === 'all'
-                        ? 'Offline'
-                        : offline.status === 'downloading'
-                          ? `Downloading ${offline.downloaded}/${offline.total}`
-                          : offline.status === 'partial'
-                            ? `Offline ${offline.downloaded}/${offline.total}`
-                            : 'Download'
-                    }
-                    color={colors.accent}
-                    iconSize={14}
-                  />
+                  {offline.status === 'downloading' ? (
+                    // The progress itself is a notification (see useOfflineNotifications); here the button only says it's busy.
+                    <View style={styles.downloadingLabel}>
+                      <ActivityIndicator size="small" color={colors.accent} />
+                      <Text style={{ color: colors.accent }}>Downloading</Text>
+                    </View>
+                  ) : (
+                    <IconLabel
+                      path={offline.status === 'all' ? mdiCheck : mdiDownload}
+                      text={offline.status === 'all' ? 'Offline' : offline.status === 'partial' ? `Offline ${offline.downloaded}/${offline.total}` : 'Download'}
+                      color={colors.accent}
+                      iconSize={14}
+                    />
+                  )}
                 </Pressable>
               )}
               {onRename && (
@@ -277,7 +279,7 @@ export function TrackList({
         // scrolling), which read as the highlight lagging a tap by however
         // long that took to happen on its own. reorderModeActive/
         // selectedFileIds need the same treatment for the same reason.
-        extraData={[currentFileId, isPlaying, isLoading, missingFileIds, reorderModeActive, selectedFileIds]}
+        extraData={[currentFileId, isPlaying, isLoading, missingFileIds, reorderModeActive, selectedFileIds, offline?.downloaded, offline?.status]}
         // Only valid while filteredFileIds is the unfiltered list - a
         // filtered list's rows keep TRACK_ROW_HEIGHT each, but their offsets
         // no longer correspond to `index * TRACK_ROW_HEIGHT` against the
@@ -349,6 +351,11 @@ const styles = StyleSheet.create({
   },
   selectedCount: {
     fontSize: 13,
+  },
+  downloadingLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   list: {
     flex: 1,

@@ -92,6 +92,7 @@ export class OfflineLibrary {
       downloadedBytes,
       queuedCount: this.queue.length,
       activeCount: this.active.size,
+      requestedCount: [...this.queue, ...this.active.keys()].filter((fileId) => this.wantsPin.get(fileId) === true).length,
       progress: Object.fromEntries(this.progress),
       budgetBytes: this.budgetBytes,
       cacheOnPlay: this.cacheOnPlay,

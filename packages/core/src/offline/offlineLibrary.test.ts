@@ -340,6 +340,17 @@ describe('OfflineLibrary storage', () => {
       expect(library.isAvailable('Music:three.mp3')).toBe(true);
     });
 
+    it('does not count a played track toward the downloads the person asked for', async () => {
+      const { library, backend } = await setup({ concurrency: 4 });
+      await library.setCacheOnPlay(true);
+      library.request(['Music:chosen.mp3'], { pin: true });
+      void library.fetchForPlayback('Music:played.mp3');
+      await settle();
+      // Both are in flight, but only the chosen one is a download the person is waiting on.
+      expect(backend.started).toEqual(['Music:chosen.mp3', 'Music:played.mp3']);
+      expect(library.getState()).toMatchObject({ activeCount: 2, requestedCount: 1 });
+    });
+
     it('leaves no trace when the fetch fails, so playback just streams it', async () => {
       const { library, backend } = await setup();
       await library.setCacheOnPlay(true);

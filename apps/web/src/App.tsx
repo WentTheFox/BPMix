@@ -67,6 +67,7 @@ import {
   useBackNavigation,
   useHasLyrics,
   useLyricsMenu,
+  useOfflineNotifications,
   useOnboarding,
   usePlaybackPersistence,
   usePlaylistTransport,
@@ -651,6 +652,7 @@ function AppContent() {
   // What the person's other devices were playing (server mode), offered as "Continue on <device>" on the library screen.
   const continueElsewhere = useContinueElsewhere(serverMode, libraryStore, fromServer, server?.status.lastSyncedAtMs ?? null, playback.currentFileId, () => persistPlaybackPatch({ nowPlayingOpen: true }));
   const offline = useOffline(offlineLibrary);
+  useOfflineNotifications(offline, notificationCenter);
   const userPlaylists = useUserPlaylistActions(colors);
   const playbackBridges = (
     <>

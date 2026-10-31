@@ -71,6 +71,7 @@ export * from './settings/ExternalConnectionsScreen';
 export * from './settings/ServerScreen';
 export * from './onboarding/OnboardingScreen';
 export * from './onboarding/useOnboarding';
+export * from './offline/useOfflineNotifications';
 export * from './settings/ServerSection';
 export * from './settings/CrossfadeSlider';
 export * from './settings/HorizontalVolumeSlider';
