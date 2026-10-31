@@ -100,7 +100,7 @@ import {
 } from 'react-native-safe-area-context';
 import { createAppUpdateBridge } from './src/adapters/appUpdate';
 import { createAudioEngine } from './src/adapters/audioEngine';
-import { backgroundSafeFetch } from './src/adapters/backgroundSafeFetch';
+import { createBackgroundSafeFetch } from './src/adapters/backgroundSafeFetch';
 import { createBackgroundTicks } from './src/adapters/backgroundTicks';
 import { createDiscordPresenceBridge } from './src/adapters/discordRpc';
 import { createCoverArtResizer } from './src/adapters/coverArtResizer';
@@ -126,6 +126,10 @@ const SHOW_MEMORY_OVERLAY = false;
 
 const TRANSPORT_THROTTLE_MS = 300;
 
+// The stock fetch only settles from a JS timer, which is paused while backgrounded (see the adapter);
+// swapped globally so the server client, Last.fm and the rest all keep working in the background.
+globalThis.fetch = createBackgroundSafeFetch(globalThis.fetch);
+
 const localFileAccess = createFileAccess();
 const localLibraryStore = createLibraryStore();
 // Signed in to a BPMix server, the library (and the audio) comes from there; otherwise from the local
@@ -136,8 +140,6 @@ const serverMode = new ServerMode({
   store: localLibraryStore,
   // The device token lives in the Android Keystore, not in the library database.
   secretStore: createSecretStore('server-token'),
-  // The stock fetch only settles from a JS timer, which is paused while backgrounded (see the adapter).
-  fetch: backgroundSafeFetch,
   deviceName: () => {
     const constants = Platform.constants as { Brand?: string; Model?: string };
     return Platform.OS === 'android' && constants.Model ? `${constants.Brand ?? 'Android'} ${constants.Model}`.trim() : 'BPMix app';

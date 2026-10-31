@@ -9,8 +9,16 @@
  * anywhere in the path.
  *
  * Only what the app's API client uses is supported: string bodies, and an `AbortSignal` to cancel.
+ * Anything that isn't an http(s) address (local file:// reads) goes to the original `fetch`.
  */
-export const backgroundSafeFetch: typeof fetch = (input, init) =>
+export function createBackgroundSafeFetch(original: typeof fetch): typeof fetch {
+  return (input, init) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    return /^https?:/i.test(url) ? xhrFetch(input, init) : original(input, init);
+  };
+}
+
+const xhrFetch: typeof fetch = (input, init) =>
   new Promise<Response>((resolve, reject) => {
     const request = new Request(input, init);
     const signal = init?.signal ?? undefined;
