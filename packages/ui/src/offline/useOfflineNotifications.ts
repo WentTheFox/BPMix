@@ -3,22 +3,37 @@ import type { NotificationCenter } from '../notifications/useNotificationCenter'
 import type { UseOfflineResult } from './useOffline';
 
 const NOTIFICATION_ID = 'offline-downloads';
+const REMOVAL_NOTIFICATION_ID = 'offline-removal';
 
 /**
  * Shows the progress of downloads the person asked for (tracks, or a playlist made available offline) in
  * the notification bell, one entry that follows the whole batch and stays until dismissed once it is done,
  * instead of counting up inside the playlist. Copies kept quietly because they were played don't count.
- * A batch is whatever is downloading from the moment something is queued until nothing is left, so asking
+ * Deleting offline copies gets its own entry the same way. A batch is whatever is downloading from the moment something is queued until nothing is left, so asking
  * for more while it runs just grows it.
  */
 export function useOfflineNotifications(offline: UseOfflineResult | null, center: NotificationCenter): void {
   const { upsertProgress, dismiss } = center;
   const state = offline?.state;
   const cancelAll = offline?.cancelAll;
+  const removal = useRef<{ total: number; shown: string } | null>(null);
   const batch = useRef<{ downloadedAtStart: number; failedAtStart: number; total: number; cancelled: boolean; shown: string } | null>(null);
 
   useEffect(() => {
     if (!state) return;
+    if (state.removing) {
+      const current = (removal.current ??= { total: 0, shown: '' });
+      current.total = Math.max(current.total, state.removing.total);
+      const key = `${state.removing.done}/${current.total}`;
+      if (key !== current.shown) {
+        current.shown = key;
+        upsertProgress(REMOVAL_NOTIFICATION_ID, 'Removing offline copies', state.removing.done, current.total, false);
+      }
+    } else if (removal.current) {
+      const { total } = removal.current;
+      removal.current = null;
+      upsertProgress(REMOVAL_NOTIFICATION_ID, 'Removed offline copies', total, total, true, `${total} track${total === 1 ? '' : 's'} removed from this device.`);
+    }
     const waiting = state.requestedCount;
     if (waiting > 0) {
       const current = (batch.current ??= { downloadedAtStart: state.downloadedCount, failedAtStart: state.failures.length, total: 0, cancelled: false, shown: '' });

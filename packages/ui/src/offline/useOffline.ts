@@ -14,7 +14,7 @@ export interface UseOfflineResult {
   isPinned: (fileId: string) => boolean;
 }
 
-const EMPTY_STATE: OfflineState = { downloadedCount: 0, downloadedBytes: 0, queuedCount: 0, activeCount: 0, requestedCount: 0, progress: {}, budgetBytes: 0, cacheOnPlay: false, paused: false, failures: [] };
+const EMPTY_STATE: OfflineState = { downloadedCount: 0, downloadedBytes: 0, queuedCount: 0, activeCount: 0, requestedCount: 0, removing: null, progress: {}, budgetBytes: 0, cacheOnPlay: false, paused: false, failures: [] };
 
 /** Offline downloads as React state. Null where a platform has no offline storage (yet), which hides the controls. */
 export function useOffline(library: OfflineLibrary | undefined): UseOfflineResult | null {
@@ -45,6 +45,8 @@ export interface OfflinePlaylistControl {
   total: number;
   /** Whether a track of this list is stored for offline play (downloaded on purpose or kept after being played). */
   isAvailable: (fileId: string) => boolean;
+  /** Pressing it would delete the stored copies (everything is stored on purpose): the caller asks first. */
+  removesOnToggle: boolean;
   /** Starts downloading what isn't stored; if everything already is, removes it all. */
   toggle: () => void;
 }
@@ -63,6 +65,7 @@ export function offlinePlaylistControl(offline: UseOfflineResult, fileIds: strin
     downloaded,
     total: unique.length,
     isAvailable: (fileId) => offline.isAvailable(fileId),
+    removesOnToggle: status === 'all' && allPinned,
     toggle: () => {
       // Everything is stored: remove it, unless some of it is only a play-cache copy, which this keeps for good instead.
       if (status === 'all' && allPinned) offline.removeTracks(unique);

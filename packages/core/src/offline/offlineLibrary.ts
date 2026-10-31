@@ -43,6 +43,8 @@ export class OfflineLibrary {
   private readonly progress = new Map<string, number>();
   /** Whether each queued track was asked for to keep (pinned) or only to have at hand (evictable). */
   private readonly wantsPin = new Map<string, boolean>();
+  private removalTotal = 0;
+  private removalDone = 0;
   private readonly listeners = new Set<(state: OfflineState) => void>();
   private failures: OfflineFailure[] = [];
   private budgetBytes = 0;
@@ -92,6 +94,7 @@ export class OfflineLibrary {
       downloadedBytes,
       queuedCount: this.queue.length,
       activeCount: this.active.size,
+      removing: this.removalTotal > 0 ? { done: this.removalDone, total: this.removalTotal } : null,
       requestedCount: [...this.queue, ...this.active.keys()].filter((fileId) => this.wantsPin.get(fileId) === true).length,
       progress: Object.fromEntries(this.progress),
       budgetBytes: this.budgetBytes,
@@ -228,11 +231,17 @@ export class OfflineLibrary {
   }
 
   private async forget(fileIds: string[]): Promise<void> {
+    this.removalTotal += fileIds.length;
+    this.publish();
     for (const fileId of fileIds) {
       this.records.delete(fileId);
       await this.deps.backend.remove(fileId).catch(() => undefined);
+      this.removalDone++;
+      this.publish();
     }
     await this.persist();
+    // Overlapping removals share one run: it is over only when everything asked for is gone.
+    if (this.removalDone >= this.removalTotal) this.removalDone = this.removalTotal = 0;
     this.publish();
   }
 

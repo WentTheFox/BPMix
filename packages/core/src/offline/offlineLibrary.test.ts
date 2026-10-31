@@ -340,6 +340,21 @@ describe('OfflineLibrary storage', () => {
       expect(library.isAvailable('Music:three.mp3')).toBe(true);
     });
 
+    it('reports a removal as it goes, and goes quiet when it is done', async () => {
+      const { library, backend } = await setup();
+      backend.autoFinish = true;
+      library.request(['Music:a.mp3', 'Music:b.mp3', 'Music:c.mp3']);
+      await settle();
+      expect(library.getState()).toMatchObject({ downloadedCount: 3, removing: null });
+      const seen: ({ done: number; total: number } | null)[] = [];
+      library.subscribe((state) => seen.push(state.removing));
+      await library.remove(['Music:a.mp3', 'Music:b.mp3']);
+      expect(seen).toContainEqual({ done: 0, total: 2 });
+      expect(seen).toContainEqual({ done: 1, total: 2 });
+      expect(seen).toContainEqual({ done: 2, total: 2 });
+      expect(library.getState()).toMatchObject({ downloadedCount: 1, removing: null });
+    });
+
     it('does not count a played track toward the downloads the person asked for', async () => {
       const { library, backend } = await setup({ concurrency: 4 });
       await library.setCacheOnPlay(true);

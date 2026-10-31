@@ -97,6 +97,8 @@ export function TrackList({
   const [pendingMove, setPendingMove] = useState<{ anchor: TrackRecord; position: 'before' | 'after' } | null>(null);
   const [pendingRemove, setPendingRemove] = useState(false);
   const [isCommitting, setIsCommitting] = useState(false);
+  // Pressing "Offline" on a fully stored playlist deletes the copies, so it asks first.
+  const [pendingOfflineRemoval, setPendingOfflineRemoval] = useState(false);
 
   const exitReorderMode = useCallback(() => {
     setReorderModeActive(false);
@@ -229,7 +231,7 @@ export function TrackList({
                 </Pressable>
               )}
               {offline && (
-                <Pressable onPress={offline.toggle}>
+                <Pressable onPress={() => (offline.removesOnToggle ? setPendingOfflineRemoval(true) : offline.toggle())}>
                   {offline.status === 'downloading' ? (
                     // The progress itself is a notification (see useOfflineNotifications); here the button only says it's busy.
                     <View style={styles.downloadingLabel}>
@@ -293,6 +295,19 @@ export function TrackList({
           ScreenLayer's own doc for the same lesson at the screen level) -
           confirmed live here as a tap landing on the FlatList row behind the
           dialog instead of the dialog's own Confirm/Cancel buttons. */}
+      {pendingOfflineRemoval && offline && (
+        <ConfirmDialog
+          colors={colors}
+          title="Remove offline copies"
+          message={`Delete the ${offline.total} downloaded track${offline.total === 1 ? '' : 's'} of this playlist from this device? They'll need the server to play again.`}
+          confirmLabel="Delete"
+          onConfirm={() => {
+            setPendingOfflineRemoval(false);
+            offline.toggle();
+          }}
+          onCancel={() => setPendingOfflineRemoval(false)}
+        />
+      )}
       {pendingMove && (
         <ConfirmDialog
           colors={colors}

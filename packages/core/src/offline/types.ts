@@ -44,6 +44,8 @@ export interface OfflineState {
   activeCount: number;
   /** Of those queued or in flight, how many the person asked for (a download or a playlist made available offline), as opposed to copies kept quietly because they were played. What a progress notification should be about. */
   requestedCount: number;
+  /** Offline copies being deleted right now: how many are gone out of how many were asked for; null when nothing is being removed. */
+  removing: { done: number; total: number } | null;
   /** Bytes received so far for each download in flight. */
   progress: Record<string, number>;
   /** 0 means no limit. Unpinned copies are evicted, least recently played first, to stay under it. */
