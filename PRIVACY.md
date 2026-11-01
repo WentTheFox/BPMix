@@ -81,4 +81,5 @@ with a new effective date.
 ## Contact
 
 Questions or requests: open an issue at
-<https://github.com/WentTheFox/Beatseam/issues>.
+<https://github.com/WentTheFox/Beatseam/issues> or contact the developer directly
+via the methods listed on <https://went.tf/#contact>.
