@@ -5,7 +5,7 @@
 
 .DESCRIPTION
   The certificate's subject MUST equal the Publisher attribute in
-  apps/mobile/windows/Mobile.Package/Package.appxmanifest (CN=WentTheFox) -
+  apps/mobile/windows/Beatseam.Package/Package.appxmanifest (CN=WentTheFox) -
   MSIX refuses to sign/install a package whose publisher doesn't match its
   signing certificate.
 

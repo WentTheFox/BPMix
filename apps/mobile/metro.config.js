@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('node:path');
 
 const projectRoot = __dirname;
+const defaultConfig = getDefaultConfig(projectRoot);
 const workspaceRoot = path.resolve(projectRoot, '../..');
 
 // On Windows, require.resolve through yarn workspace junctions can return paths
@@ -58,11 +59,18 @@ const config = {
     // zod (used by @beatseam/api, which @beatseam/core depends on) ships ESM that uses `export * as ns from`,
     // which this React Native preset can't transform, and Metro's package-exports handling picks that
     // ESM entry. Its CommonJS build needs no transform, so point `zod` straight at it.
+    //
+    // The React Native CLI installs its own resolveRequest as a framework default (see
+    // @react-native/community-cli-plugin's loadMetroConfig): for the `windows` platform it rewrites
+    // `react-native` imports to `react-native-windows`, which is where Platform.windows.js and the other
+    // Windows variants live. Setting resolveRequest here replaces that default, so this has to hand
+    // everything else back to it. Calling context.resolveRequest directly would skip it and bundle the
+    // real react-native for Windows, where Platform.js imports itself and `Platform.OS` is undefined at startup.
     resolveRequest: (context, moduleName, platform) => {
       if (moduleName === 'zod') {
         return {type: 'sourceFile', filePath: zodCommonJsEntry};
       }
-      return context.resolveRequest(context, moduleName, platform);
+      return (defaultConfig.resolver?.resolveRequest ?? context.resolveRequest)(context, moduleName, platform);
     },
     blockList: [
       // This stops "npx @react-native-community/cli run-windows" from causing the metro server to crash if its already running
@@ -85,4 +93,4 @@ const config = {
   },
 };
 
-module.exports = mergeConfig(getDefaultConfig(projectRoot), config);
+module.exports = mergeConfig(defaultConfig, config);
