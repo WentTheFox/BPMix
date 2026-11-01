@@ -275,6 +275,114 @@ jobs:
           path: windows-release/
           if-no-files-found: error
 
+  # The Microsoft Store upload package (.msixupload). Separate from the
+  # sideload build above on purpose: the Store requires the package
+  # identity Partner Center reserved for the app (a different Name and
+  # Publisher than the self-signed sideload package, so the two can't share
+  # one manifest or one build tree), and wants the package unsigned - the
+  # Store signs it itself on publish, so no certificate is involved here.
+  #
+  # Skipped until the three repository *variables* below exist (Settings >
+  # Secrets and variables > Actions > Variables; none of them is secret -
+  # they're all visible in any installed package). Copy them from Partner
+  # Center > the app > Product management > Product identity:
+  #   STORE_IDENTITY_NAME            Package/Identity/Name, e.g. 12345WentTheFox.Beatseam
+  #   STORE_IDENTITY_PUBLISHER       Package/Identity/Publisher, e.g. CN=XXXXXXXX-XXXX-...
+  #   STORE_PUBLISHER_DISPLAY_NAME   Package/Properties/PublisherDisplayName
+  #
+  # Not part of the release job's needs: a Store build failing shouldn't
+  # block the GitHub release, and the .msixupload is a workflow artifact
+  # for manual upload to Partner Center, not a public release asset.
+  windows-store:
+    if: (github.event_name != 'workflow_dispatch' || inputs.platform != 'android') && vars.STORE_IDENTITY_NAME != ''
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 11.22.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Generate build info
+        env:
+          GIT_COMMIT_OVERRIDE: ${{ github.sha }}
+          GIT_VERSION_OVERRIDE: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: node scripts/generate-build-info.mjs
+
+      - uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce # v2
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ hashFiles('apps/mobile/windows/**/packages.lock.json') }}
+          restore-keys: nuget-
+
+      - name: Restore NuGet packages
+        run: nuget restore apps/mobile/windows/Beatseam.sln
+
+      # The Store requires the package version's 4th part to be 0 (it
+      # reserves it) - vX.Y.Z -> X.Y.Z.0 already satisfies that. Each Store
+      # submission needs a version higher than the last one, which a new
+      # release tag gives it for free.
+      - name: Apply Store identity and version
+        shell: pwsh
+        env:
+          STORE_IDENTITY_NAME: ${{ vars.STORE_IDENTITY_NAME }}
+          STORE_IDENTITY_PUBLISHER: ${{ vars.STORE_IDENTITY_PUBLISHER }}
+          STORE_PUBLISHER_DISPLAY_NAME: ${{ vars.STORE_PUBLISHER_DISPLAY_NAME }}
+        run: |
+          foreach ($name in 'STORE_IDENTITY_NAME', 'STORE_IDENTITY_PUBLISHER', 'STORE_PUBLISHER_DISPLAY_NAME') {
+            if (-not (Get-Item "env:$name" -ErrorAction SilentlyContinue).Value) { throw "Repository variable $name is not set" }
+          }
+          $path = Resolve-Path 'apps/mobile/windows/Beatseam.Package/Package.appxmanifest'
+          [xml]$manifest = Get-Content $path -Raw
+          $manifest.Package.Identity.Name = $env:STORE_IDENTITY_NAME
+          $manifest.Package.Identity.Publisher = $env:STORE_IDENTITY_PUBLISHER
+          $manifest.Package.Properties.PublisherDisplayName = $env:STORE_PUBLISHER_DISPLAY_NAME
+          if ('${{ github.ref_type }}' -eq 'tag') {
+            if ('${{ github.ref_name }}' -notmatch '^v(\d+)\.(\d+)\.(\d+)') { throw "Tag ${{ github.ref_name }} isn't vX.Y.Z" }
+            $manifest.Package.Identity.Version = "$($Matches[1]).$($Matches[2]).$($Matches[3]).0"
+          }
+          $manifest.Save($path)
+          Write-Host "Store package: $($manifest.Package.Identity.Name) $($manifest.Package.Identity.Version)"
+
+      # StoreUpload + AppxBundle=Always is what produces the .msixupload
+      # (the bundle plus its symbols, zipped), the format Partner Center
+      # takes. Signing is explicitly off. PlatformToolset=v143: see the
+      # sideload build's Build step for why this override exists.
+      - name: Build
+        run: >
+          msbuild apps/mobile/windows/Beatseam.sln
+          /p:Configuration=Release /p:Platform=x64
+          /p:PlatformToolset=v143
+          /p:AppxBundlePlatforms=x64
+          /p:AppxBundle=Always
+          /p:UapAppxPackageBuildMode=StoreUpload
+          /p:AppxPackageSigningEnabled=false
+          /m
+
+      - name: Locate .msixupload
+        id: pkg
+        shell: pwsh
+        run: |
+          $upload = Get-ChildItem apps/mobile/windows/Beatseam.Package/AppPackages -Recurse -Filter '*.msixupload' | Select-Object -First 1
+          if (-not $upload) { throw 'No .msixupload was produced' }
+          Write-Host "Found $($upload.FullName) ($($upload.Length) bytes)"
+          "path=$($upload.FullName)" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: beatseam-windows-store
+          path: ${{ steps.pkg.outputs.path }}
+          if-no-files-found: error
+
   # Only for a real version-tag build (a workflow_dispatch run against a
   # branch has no version to name a release after) - covers both a tag
   # push and a manual dispatch explicitly run against a tag ref, since
