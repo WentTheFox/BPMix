@@ -98,12 +98,12 @@ jobs:
       - name: Decode release keystore
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-        run: echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "${{ runner.temp }}/bpmix-release.keystore"
+        run: echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "${{ runner.temp }}/beatseam-release.keystore"
 
       - name: Build release APK
         working-directory: apps/mobile/android
         env:
-          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/bpmix-release.keystore
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/beatseam-release.keystore
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
@@ -132,7 +132,7 @@ jobs:
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: bpmix-android-release-apk
+          name: beatseam-android-release-apk
           path: apps/mobile/android/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
 
@@ -177,7 +177,7 @@ jobs:
           restore-keys: nuget-
 
       - name: Restore NuGet packages
-        run: nuget restore apps/mobile/windows/BPMix.sln
+        run: nuget restore apps/mobile/windows/Beatseam.sln
 
       # Package.appxmanifest's Identity Version is checked in as a fixed
       # 1.0.0.0, and Add-AppxPackage won't install a different build over an
@@ -190,7 +190,7 @@ jobs:
         run: |
           if ('${{ github.ref_name }}' -notmatch '^v(\d+)\.(\d+)\.(\d+)') { throw "Tag ${{ github.ref_name }} isn't vX.Y.Z" }
           $version = "$($Matches[1]).$($Matches[2]).$($Matches[3]).0"
-          $path = Resolve-Path 'apps/mobile/windows/BPMix.Package/Package.appxmanifest'
+          $path = Resolve-Path 'apps/mobile/windows/Beatseam.Package/Package.appxmanifest'
           [xml]$manifest = Get-Content $path -Raw
           $manifest.Package.Identity.Version = $version
           $manifest.Save($path)
@@ -208,14 +208,14 @@ jobs:
           WINDOWS_SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
         run: |
           if (-not $env:WINDOWS_SIGNING_PFX_BASE64) { throw 'WINDOWS_SIGNING_PFX_BASE64 secret is not set' }
-          [IO.File]::WriteAllBytes("${{ runner.temp }}\bpmix-signing.pfx", [Convert]::FromBase64String($env:WINDOWS_SIGNING_PFX_BASE64))
+          [IO.File]::WriteAllBytes("${{ runner.temp }}\beatseam-signing.pfx", [Convert]::FromBase64String($env:WINDOWS_SIGNING_PFX_BASE64))
 
       # SideloadOnly, signed with the certificate above. The timestamp keeps
       # already-released packages installable after the certificate itself
       # expires; current signtool refuses a timestamp URL without an explicit
       # digest algorithm (/td), hence the second property.
       #
-      # PlatformToolset=v143 overrides apps/mobile/windows/BPMix/BPMix.vcxproj's
+      # PlatformToolset=v143 overrides apps/mobile/windows/Beatseam/Beatseam.vcxproj's
       # own <PlatformToolset>v145</PlatformToolset> (confirmed live: MSB8020,
       # "build tools for v145 cannot be found") - v145 only exists on
       # whatever newer/preview VS the project was last retargeted against
@@ -227,14 +227,14 @@ jobs:
       # the same VS-version class of problem on the user's own machine.
       - name: Build
         run: >
-          msbuild apps/mobile/windows/BPMix.sln
+          msbuild apps/mobile/windows/Beatseam.sln
           /p:Configuration=Release /p:Platform=x64
           /p:PlatformToolset=v143
           /p:AppxBundlePlatforms=x64
           /p:AppxBundle=Always
           /p:UapAppxPackageBuildMode=SideloadOnly
           /p:AppxPackageSigningEnabled=true
-          "/p:PackageCertificateKeyFile=${{ runner.temp }}\bpmix-signing.pfx"
+          "/p:PackageCertificateKeyFile=${{ runner.temp }}\beatseam-signing.pfx"
           "/p:PackageCertificatePassword=${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}"
           /p:AppxPackageSigningTimestampServerUrl=http://timestamp.digicert.com
           /p:AppxPackageSigningTimestampDigestAlgorithm=SHA256
@@ -252,16 +252,16 @@ jobs:
         env:
           WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
         run: |
-          $testDir = Get-ChildItem apps/mobile/windows/BPMix.Package/AppPackages -Directory | Select-Object -First 1
+          $testDir = Get-ChildItem apps/mobile/windows/Beatseam.Package/AppPackages -Directory | Select-Object -First 1
           $bundle = Get-ChildItem $testDir -Filter '*.msixbundle' | Select-Object -First 1
           if (-not $bundle) { throw "No .msixbundle in $testDir" }
-          $out = New-Item -ItemType Directory -Force 'windows-release/BPMix'
+          $out = New-Item -ItemType Directory -Force 'windows-release/Beatseam'
           Copy-Item $bundle.FullName $out
           New-Item -ItemType Directory -Force "$out/Dependencies" | Out-Null
           Copy-Item "$testDir/Dependencies/x64/*" "$out/Dependencies/"
           Copy-Item scripts/windows/Install.ps1, scripts/windows/Install.cmd $out
-          $pfx = [Security.Cryptography.X509Certificates.X509Certificate2]::new("${{ runner.temp }}\bpmix-signing.pfx", $env:WINDOWS_SIGNING_PFX_PASSWORD)
-          [IO.File]::WriteAllBytes("$out/BPMix.cer", $pfx.Export('Cert'))
+          $pfx = [Security.Cryptography.X509Certificates.X509Certificate2]::new("${{ runner.temp }}\beatseam-signing.pfx", $env:WINDOWS_SIGNING_PFX_PASSWORD)
+          [IO.File]::WriteAllBytes("$out/Beatseam.cer", $pfx.Export('Cert'))
           # Fail here rather than on a user's machine if the bundle somehow
           # came out unsigned.
           Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -271,7 +271,7 @@ jobs:
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: bpmix-windows-x64
+          name: beatseam-windows-x64
           path: windows-release/
           if-no-files-found: error
 
@@ -297,7 +297,7 @@ jobs:
       # The Android artifact is already just the .apk. The Windows one is the
       # sideload folder assembled in the windows job: the release gets it
       # zipped (the normal path - extract, double-click Install.cmd), plus
-      # the bare .msixbundle and BPMix.cer for anyone who'd rather trust the
+      # the bare .msixbundle and Beatseam.cer for anyone who'd rather trust the
       # certificate and install by hand.
       - name: Collect release assets
         run: |
@@ -307,15 +307,15 @@ jobs:
           # mv, not cp: the source lives under artifacts/ (a download-artifact
           # scratch dir nothing else reads), so there's no reason to leave an
           # old-named copy sitting in release-assets/ alongside the renamed one.
-          mv artifacts/bpmix-android-release-apk/*.apk "release-assets/bpmix-android-${version}.apk"
-          windows_dir=$(find artifacts/bpmix-windows-x64 -mindepth 1 -maxdepth 1 -type d | head -1)
+          mv artifacts/beatseam-android-release-apk/*.apk "release-assets/beatseam-android-${version}.apk"
+          windows_dir=$(find artifacts/beatseam-windows-x64 -mindepth 1 -maxdepth 1 -type d | head -1)
           # cp (not mv) here: $windows_dir's contents, including this
           # .msixbundle under its original name, still need to exist for the
           # zip step right below.
-          cp "$windows_dir"/*.msixbundle "release-assets/bpmix-windows-${version}.msixbundle"
-          cp "$windows_dir"/BPMix.cer release-assets/
-          (cd "$(dirname "$windows_dir")" && zip -rq "$assets_dir/bpmix-windows-${version}-sideload.zip" "$(basename "$windows_dir")")
-          # apps/mobile's in-app update flow (useAppUpdateCheck, @bpmix/core's
+          cp "$windows_dir"/*.msixbundle "release-assets/beatseam-windows-${version}.msixbundle"
+          cp "$windows_dir"/Beatseam.cer release-assets/
+          (cd "$(dirname "$windows_dir")" && zip -rq "$assets_dir/beatseam-windows-${version}-sideload.zip" "$(basename "$windows_dir")")
+          # apps/mobile's in-app update flow (useAppUpdateCheck, @beatseam/core's
           # checkForUpdate) verifies the downloaded APK's own computed SHA-256
           # against this file before ever installing it - see
           # AppUpdateModule.kt's downloadFile. Generated after the renames

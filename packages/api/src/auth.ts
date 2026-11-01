@@ -17,7 +17,7 @@ export const totpCodeSchema = z.string().trim().regex(/^\d{6}$/, 'A 6-digit code
 export const authStatusSchema = z.object({
   /** True until the first account is fully set up; the first sign-up becomes the admin. */
   setupRequired: z.boolean(),
-  /** Whether that first sign-up also needs the server's BPMIX_SETUP_TOKEN. */
+  /** Whether that first sign-up also needs the server's BEATSEAM_SETUP_TOKEN. */
   setupTokenRequired: z.boolean(),
 });
 export type AuthStatusDto = z.infer<typeof authStatusSchema>;

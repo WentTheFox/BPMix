@@ -1,4 +1,4 @@
-import { ApiError, NetworkError, type OfflineBackend } from '@bpmix/core';
+import { ApiError, NetworkError, type OfflineBackend } from '@beatseam/core';
 import { NativeEventEmitter, NativeModules } from 'react-native';
 import { base64ToArrayBuffer } from './base64';
 
@@ -12,7 +12,7 @@ interface NativeOffline {
   writeLocalText(fileName: string, content: string): Promise<void>;
 }
 
-const native = NativeModules.BPMixFileAccess as NativeOffline;
+const native = NativeModules.BeatseamFileAccess as NativeOffline;
 const MANIFEST = 'offline-manifest.json';
 
 /** Downloaded audio is plain files in the app's private storage; always available on Android. */
@@ -22,11 +22,11 @@ export function supportsOfflineStorage(): boolean {
 
 /**
  * Downloaded audio under the app's private files dir. The transfer and the SHA-256 happen natively
- * (BPMixFileAccessModule.kt's offlineDownload) so the bytes never cross the JS bridge on the way in.
+ * (BeatseamFileAccessModule.kt's offlineDownload) so the bytes never cross the JS bridge on the way in.
  * Files are named after a hash of the track id natively; a small manifest maps ids to sizes for list().
  */
 export function createOfflineBackend(): OfflineBackend {
-  const events = new NativeEventEmitter(NativeModules.BPMixFileAccess);
+  const events = new NativeEventEmitter(NativeModules.BeatseamFileAccess);
   let nextRequest = 0;
   let manifest: Promise<Record<string, number>> | null = null;
   let saving: Promise<void> = Promise.resolve();
@@ -50,7 +50,7 @@ export function createOfflineBackend(): OfflineBackend {
     async download({ fileId, url, headers, signal, onProgress }) {
       if (signal.aborted) throw Object.assign(new Error('Aborted'), { name: 'AbortError' });
       const requestId = String(++nextRequest);
-      const subscription = events.addListener('BPMixOfflineProgress', (event: { requestId: string; bytes: number }) => {
+      const subscription = events.addListener('BeatseamOfflineProgress', (event: { requestId: string; bytes: number }) => {
         if (event.requestId === requestId) onProgress?.(event.bytes);
       });
       const onAbort = () => native.offlineCancel(requestId);

@@ -3,11 +3,11 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Replaces the Storage Access Framework tree-picker flow entirely -
-         see BPMixFileAccessModule.kt's header comment for why (a broken
+         see BeatseamFileAccessModule.kt's header comment for why (a broken
          Samsung "My Files" SAF picker made requesting a new folder grant
          unreliable). tools:ignore="ScopedStorage" - Google Play policy
          restricts this permission to apps whose core function is file
-         management, but BPMix is sideloaded, never distributed through
+         management, but Beatseam is sideloaded, never distributed through
          Play, so that policy doesn't apply here. -->
     <uses-permission
         android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
@@ -18,7 +18,7 @@
          see apps/mobile/src/adapters/mediaSessionNotification.ts. The
          library's own AndroidManifest.xml (checked in node_modules)
          declares neither of these - its Expo config plugin would inject
-         them automatically, but BPMix is a bare RN app, so they're added
+         them automatically, but Beatseam is a bare RN app, so they're added
          by hand here instead. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
@@ -29,7 +29,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- In-app "download release APK from GitHub + install it" update flow
-         (tf.went.bpmix.appupdate.AppUpdateModule) - sideloaded apps have no
+         (tf.went.beatseam.appupdate.AppUpdateModule) - sideloaded apps have no
          Play Store to hand this off to. REQUEST_INSTALL_PACKAGES is the
          API 26+ per-app "install unknown apps" grant (checked/requested via
          PackageManager.canRequestPackageInstalls() at runtime, same as any
@@ -68,7 +68,7 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
-        <!-- Backs the "bpmix://library" / "bpmix://now-playing" launcher
+        <!-- Backs the "beatseam://library" / "beatseam://now-playing" launcher
              shortcuts declared in res/xml/shortcuts.xml - routed to a
              screen from JS via App.tsx's applyDeepLink (Linking module).
              singleTask above means a tap while the app is already running
@@ -79,17 +79,17 @@
             <action android:name="android.intent.action.VIEW" />
             <category android:name="android.intent.category.DEFAULT" />
             <category android:name="android.intent.category.BROWSABLE" />
-            <data android:scheme="bpmix" />
+            <data android:scheme="beatseam" />
         </intent-filter>
         <!-- Android App Link for the Last.fm auth callback
              (useLastFmConnection.ts) - verified via
-             /.well-known/assetlinks.json served from bpmix.went.tf
+             /.well-known/assetlinks.json served from beatseam.went.tf
              (apps/web/public/.well-known/assetlinks.json), so Last.fm's
-             redirect after approval opens straight back into BPMix instead
+             redirect after approval opens straight back into Beatseam instead
              of the browser, with no "which app?" prompt (autoVerify proves
              ownership). Scoped to exactly /lastfm-callback.html, not the
-             bare host - unlike the bpmix:// scheme above (which only this
-             app ever claims), matching the whole bpmix.went.tf host here
+             bare host - unlike the beatseam:// scheme above (which only this
+             app ever claims), matching the whole beatseam.went.tf host here
              would hijack ordinary links to the live web app itself into
              opening this native app instead of a browser, which is never
              what's wanted for a normal link to the site. -->
@@ -97,7 +97,7 @@
             <action android:name="android.intent.action.VIEW" />
             <category android:name="android.intent.category.DEFAULT" />
             <category android:name="android.intent.category.BROWSABLE" />
-            <data android:scheme="https" android:host="bpmix.went.tf" android:path="/lastfm-callback.html" />
+            <data android:scheme="https" android:host="beatseam.went.tf" android:path="/lastfm-callback.html" />
         </intent-filter>
         <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
       </activity>

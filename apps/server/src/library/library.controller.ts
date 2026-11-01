@@ -1,6 +1,6 @@
 import { BadRequestException, Controller, Get, NotFoundException, Param, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
-import { listTracksQuerySchema, type LyricsDto, type Page, type PlaylistDto, type RootDto, type TrackDto } from '@bpmix/api';
+import { listTracksQuerySchema, type LyricsDto, type Page, type PlaylistDto, type RootDto, type TrackDto } from '@beatseam/api';
 import { DeviceAccessible } from '../auth/principal.js';
 import { fileIdFromKey } from '../common/trackKeys.js';
 import { LibraryService } from './library.service.js';

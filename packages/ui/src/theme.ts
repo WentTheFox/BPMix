@@ -1,9 +1,9 @@
 import { useColorScheme } from 'react-native';
 
-import { DEFAULT_ACCENT_COLOR } from '@bpmix/core';
-import type { ThemeMode } from '@bpmix/core';
+import { DEFAULT_ACCENT_COLOR } from '@beatseam/core';
+import type { ThemeMode } from '@beatseam/core';
 
-// Defined in @bpmix/core (the settings slice owns them); re-exported so existing imports keep working.
+// Defined in @beatseam/core (the settings slice owns them); re-exported so existing imports keep working.
 export { DEFAULT_ACCENT_COLOR };
 export type { ThemeMode };
 

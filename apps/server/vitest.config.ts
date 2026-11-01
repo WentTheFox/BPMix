@@ -9,7 +9,7 @@ export default defineConfig({
   // esbuild drops the decorator metadata Nest's constructor injection reads; same SWC setup as tsup.config.ts.
   plugins: [swc.vite({ jsc: { target: 'es2022', parser: { syntax: 'typescript', decorators: true }, transform: { legacyDecorator: true, decoratorMetadata: true } } })],
   // Same portable core entry the production bundle uses (see tsup.config.ts).
-  resolve: { alias: { '@bpmix/core': path.resolve(dirname, '../../packages/core/src/server.ts') } },
+  resolve: { alias: { '@beatseam/core': path.resolve(dirname, '../../packages/core/src/server.ts') } },
   test: {
     include: ['test/**/*.test.ts'],
     globalSetup: ['test/globalSetup.ts'],

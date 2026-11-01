@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { analyzeTrack } from '@bpmix/core';
-import { encodeTrackKey, lyricsReportListSchema, lyricsSchema } from '@bpmix/api';
+import { analyzeTrack } from '@beatseam/core';
+import { encodeTrackKey, lyricsReportListSchema, lyricsSchema } from '@beatseam/api';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.js';
 import { DatabaseService } from '../src/db/database.module.js';
@@ -27,7 +27,7 @@ function tone(file: string, title: string, artist: string): void {
 }
 
 beforeAll(async () => {
-  base = await mkdtemp(path.join(tmpdir(), 'bpmix-lyrics-'));
+  base = await mkdtemp(path.join(tmpdir(), 'beatseam-lyrics-'));
   await mkdir(path.join(base, 'Music'), { recursive: true });
   await mkdir(path.join(base, 'Lyrics'), { recursive: true });
   tone(path.join(base, 'Music', 'Song One.mp3'), 'Song One', 'Ann');
@@ -35,9 +35,9 @@ beforeAll(async () => {
   await writeFile(path.join(base, 'Lyrics', 'Song One.lrc'), '[lang:pt]\n[00:01.00]ola\n[00:05.00]mundo\n');
   await writeFile(path.join(base, 'Lyrics', 'Song One.en.lrc'), '[00:01.10]hello\n[00:05.00]world\n');
 
-  Object.assign(process.env, { DATABASE_URL: TEST_DATABASE_URL, BPMIX_LIBRARY_ROOT: base, BPMIX_SCAN_ON_START: 'false', BPMIX_LYRICS_ROOTS: 'Lyrics', BPMIX_DATA_DIR: path.join(base, 'data') });
-  delete process.env.BPMIX_ORIGIN;
-  process.env.BPMIX_SETUP_TOKEN = 'none';
+  Object.assign(process.env, { DATABASE_URL: TEST_DATABASE_URL, BEATSEAM_LIBRARY_ROOT: base, BEATSEAM_SCAN_ON_START: 'false', BEATSEAM_LYRICS_ROOTS: 'Lyrics', BEATSEAM_DATA_DIR: path.join(base, 'data') });
+  delete process.env.BEATSEAM_ORIGIN;
+  process.env.BEATSEAM_SETUP_TOKEN = 'none';
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(ANALYZE_FILE)
     .useValue(async (absolutePath: string) => analyzeTrack(await decodeWithFfmpeg(absolutePath)))

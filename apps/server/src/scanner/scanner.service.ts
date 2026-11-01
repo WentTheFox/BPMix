@@ -2,8 +2,8 @@ import type { EventEmitter } from 'node:events';
 import { Inject, Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { encodeTrackKey, type ScanFailureDto, type ScanJobDto } from '@bpmix/api';
-import { isAudioFileName, matchLibraryLyrics, pruneOrphanedRootData, scanRoot, walkDirectory, type LyricsScope } from '@bpmix/core';
+import { encodeTrackKey, type ScanFailureDto, type ScanJobDto } from '@beatseam/api';
+import { isAudioFileName, matchLibraryLyrics, pruneOrphanedRootData, scanRoot, walkDirectory, type LyricsScope } from '@beatseam/core';
 import { DatabaseService } from '../db/database.module.js';
 import { FILE_ACCESS, type NodeFileAccess } from '../node/node.module.js';
 import type { JobCounts, JobSummary } from './jobQueue.js';
@@ -40,7 +40,7 @@ const FAILURE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
  * loudness - is done by the ScanWorkers pool off that queue, with retries; a
  * track that keeps failing is skipped until it changes. When the queue
  * settles, lyrics are matched across the library (they need every track).
- * Everything runs @bpmix/core's own scan code against the Node FileAccess and
+ * Everything runs @beatseam/core's own scan code against the Node FileAccess and
  * the Postgres LibraryStore, so clients never have to.
  */
 @Injectable()
@@ -57,7 +57,7 @@ export class ScannerService implements OnApplicationBootstrap {
   ) {}
 
   onApplicationBootstrap(): void {
-    if (this.config.get<string>('BPMIX_SCAN_ON_START') === 'false') return;
+    if (this.config.get<string>('BEATSEAM_SCAN_ON_START') === 'false') return;
     void this.scanAll().catch((err: unknown) => this.logger.error(`Startup scan failed: ${String(err)}`));
   }
 

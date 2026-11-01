@@ -1,6 +1,6 @@
 import type { INestApplication } from '@nestjs/common';
 import express, { type NextFunction, type Request, type RequestHandler, type Response } from 'express';
-import { API_VERSION_HEADER } from '@bpmix/api';
+import { API_VERSION_HEADER } from '@beatseam/api';
 import { AuthConfig } from './auth/auth.config.js';
 import { AuthService } from './auth/auth.service.js';
 import { SESSION_COOKIE, readCookie } from './auth/cookies.js';

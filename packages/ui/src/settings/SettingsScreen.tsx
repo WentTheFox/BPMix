@@ -1,4 +1,4 @@
-import { BUILD_COMMIT, BUILD_TIME, BUILD_VERSION, GITHUB_REPO_URL, type ServerStatus } from '@bpmix/core';
+import { BUILD_COMMIT, BUILD_TIME, BUILD_VERSION, GITHUB_REPO_URL, type ServerStatus } from '@beatseam/core';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -41,7 +41,7 @@ export interface SettingsScreenProps {
    */
   lastFm?: UseLastFmConnectionResult;
   onOpenExternalConnections: () => void;
-  /** Where the library comes from. Absent on a platform that has no server mode (yet), which hides the BPMix server row. */
+  /** Where the library comes from. Absent on a platform that has no server mode (yet), which hides the Beatseam server row. */
   server?: { status: ServerStatus } | null;
   onOpenServer?: () => void;
 }
@@ -107,7 +107,7 @@ function NavRow({ label, value, onPress, colors }: { label: string; value: strin
  * even if the Now Playing screen's own volume button is toggled off below
  * it - see AppSettings.showVolumeButtonOnNowPlaying), and the lyrics
  * toggle, with a reset-to-defaults button, plus a static "About" section
- * (author, version/build time/commit - see @bpmix/core's buildInfo.ts - and
+ * (author, version/build time/commit - see @beatseam/core's buildInfo.ts - and
  * repository/issue links). Reachable from the gear button next to
  * NotificationBell on every screen - see HeaderActions.
  */
@@ -136,7 +136,7 @@ export function SettingsScreen({
         {server && onOpenServer && (
           <Section title="Library" colors={colors}>
             <NavRow
-              label="BPMix server"
+              label="Beatseam server"
               value={server.status.active ? `Signed in as ${server.status.userName ?? 'unknown'}` : 'Not connected'}
               onPress={onOpenServer}
               colors={colors}

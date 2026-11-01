@@ -1,4 +1,4 @@
-import type { FileRef } from '@bpmix/core';
+import type { FileRef } from '@beatseam/core';
 import { mdiMusicNote } from '@mdi/js';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';

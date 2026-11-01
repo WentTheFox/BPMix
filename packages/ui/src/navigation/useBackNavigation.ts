@@ -10,7 +10,7 @@ import { handleBackNavigation } from './backNavigation';
  * apps close overlays in the same order regardless of platform.
  *
  * `extraHandler`, if given, is checked before the shared priority - for a
- * platform-only overlay the other app doesn't have at all (BPMix's Android
+ * platform-only overlay the other app doesn't have at all (Beatseam's Android
  * folder-picker screens), so that stays out of the shared logic instead of
  * needing a web no-op equivalent. Return true from it to mean "handled,
  * don't fall through to the shared priority."

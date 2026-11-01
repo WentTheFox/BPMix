@@ -5,39 +5,39 @@ services:
   postgres:
     image: postgres:18-alpine
     environment:
-      POSTGRES_USER: bpmix
-      POSTGRES_PASSWORD: ${BPMIX_DB_PASSWORD:-change-me}
-      POSTGRES_DB: bpmix
+      POSTGRES_USER: beatseam
+      POSTGRES_PASSWORD: ${BEATSEAM_DB_PASSWORD:-change-me}
+      POSTGRES_DB: beatseam
     volumes:
       - pgdata:/var/lib/postgresql
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U bpmix -d bpmix']
+      test: ['CMD-SHELL', 'pg_isready -U beatseam -d beatseam']
       interval: 5s
       timeout: 3s
       retries: 10
     restart: unless-stopped
 
-  bpmix:
+  beatseam:
     build: .
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://bpmix:${BPMIX_DB_PASSWORD:-change-me}@postgres:5432/bpmix
+      DATABASE_URL: postgresql://beatseam:${BEATSEAM_DB_PASSWORD:-change-me}@postgres:5432/beatseam
       # The public address, for passkeys and cross-site protection (set when serving over https):
-      # BPMIX_ORIGIN: https://music.example.com
-      # BPMIX_TRUST_PROXY: 1
+      # BEATSEAM_ORIGIN: https://music.example.com
+      # BEATSEAM_TRUST_PROXY: 1
       # The very first sign-up (the one that becomes the admin) needs a setup token. By default the server
-      # prints a generated one in its log (`docker compose logs bpmix`); set your own, or `none` to skip it:
-      # BPMIX_SETUP_TOKEN: change-me
-      # BPMIX_LYRICS_ROOTS: Lyrics
+      # prints a generated one in its log (`docker compose logs beatseam`); set your own, or `none` to skip it:
+      # BEATSEAM_SETUP_TOKEN: change-me
+      # BEATSEAM_LYRICS_ROOTS: Lyrics
     ports:
       - '8080:8080'
     volumes:
       - ~/Music:/music/MyLibrary:ro
       - appdata:/data
       # A folder of .lrc files with no matching audio - list its name in
-      # BPMIX_LYRICS_ROOTS (comma-separated for more than one) so the client
+      # BEATSEAM_LYRICS_ROOTS (comma-separated for more than one) so the client
       # treats it as a lyrics scope instead of a permanently-empty library.
       # See apps/server/README.md. Admins can fix and re-time lyrics from the apps;
       # that writes these files, so drop the `:ro` if you want it (otherwise the

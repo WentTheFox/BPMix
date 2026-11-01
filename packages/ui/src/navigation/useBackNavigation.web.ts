@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { BackNavigationActions, BackNavigationState } from './backNavigation';
 import { handleBackNavigation } from './backNavigation';
 
-const HISTORY_STATE_MARKER = 'bpmix-nav';
+const HISTORY_STATE_MARKER = 'beatseam-nav';
 
 /**
  * Web equivalent of useBackNavigation.ts's BackHandler wiring - see that
@@ -12,7 +12,7 @@ const HISTORY_STATE_MARKER = 'bpmix-nav';
  * that doesn't do that on its own, so without this the browser back button
  * would just navigate away from the app instead of closing the topmost
  * overlay. `extraHandler` exists for signature parity with the native hook
- * (BPMix's Android-only folder-picker overlays) - web never has one of
+ * (Beatseam's Android-only folder-picker overlays) - web never has one of
  * those open, so it's unused here.
  *
  * Tracks how many of the three overlays (settings/nowPlaying/playlist) are

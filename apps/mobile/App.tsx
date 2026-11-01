@@ -1,10 +1,10 @@
 /**
- * BPMix - Stage 3: playlist queue playback with loop modes and shuffle,
+ * Beatseam - Stage 3: playlist queue playback with loop modes and shuffle,
  * on top of Stage 2's single-track playback.
  * @format
  */
 
-import type { FileRef, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '@bpmix/core';
+import type { FileRef, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '@beatseam/core';
 import {
   BUILD_VERSION,
   DEFAULT_DISCORD_APPLICATION_ID,
@@ -30,7 +30,7 @@ import {
   PlaylistPlayer,
   scanLibraryMetadataQueued,
   trackDisplayName,
-} from '@bpmix/core';
+} from '@beatseam/core';
 import {
   AddToPlaylistDialog,
   BackButton,
@@ -94,7 +94,7 @@ import {
   useViewportTier,
   useVolumeControl,
   StoreProvider,
-} from '@bpmix/ui';
+} from '@beatseam/ui';
 import { mdiSubtitles } from '@mdi/js';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -137,7 +137,7 @@ globalThis.fetch = createBackgroundSafeFetch(globalThis.fetch);
 
 const localFileAccess = createFileAccess();
 const localLibraryStore = createLibraryStore();
-// Signed in to a BPMix server, the library (and the audio) comes from there; otherwise from the local
+// Signed in to a Beatseam server, the library (and the audio) comes from there; otherwise from the local
 // folders exactly as before. Android only for now: the Windows audio engine decodes files by local
 // path and can't play from a server yet, so Windows never offers the sign-in (see the Server section
 // wiring in AppContent) and this stays inactive there.
@@ -147,7 +147,7 @@ const serverMode = new ServerMode({
   secretStore: createSecretStore('server-token'),
   deviceName: () => {
     const constants = Platform.constants as { Brand?: string; Model?: string };
-    return Platform.OS === 'android' && constants.Model ? `${constants.Brand ?? 'Android'} ${constants.Model}`.trim() : 'BPMix app';
+    return Platform.OS === 'android' && constants.Model ? `${constants.Brand ?? 'Android'} ${constants.Model}`.trim() : 'Beatseam app';
   },
 });
 // Downloaded tracks (Android: native streaming downloader; Windows has none yet) play with no network.
@@ -426,7 +426,7 @@ function AppContent() {
   // Same close-priority order as the web app (see useBackNavigation's doc) -
   // Settings, then Now Playing, then Playlist back to Library, then (nothing
   // left of ours to close) the default hardware-back behavior of exiting.
-  // extraHandler runs first: it closes BPMix's Android-only folder-picker
+  // extraHandler runs first: it closes Beatseam's Android-only folder-picker
   // overlays, which the web app has no equivalent of at all.
   useBackNavigation(
     { externalConnectionsOpen, serverScreenOpen, settingsOpen, nowPlayingOpen: tier === 'narrow' && nowPlayingScreenOpen, screenKind: screen.kind },
@@ -483,20 +483,20 @@ function AppContent() {
     return () => registerRootBrowser(null);
   }, []);
 
-  // Loading lives in the refreshLibrary thunk (see @bpmix/core's store/library).
+  // Loading lives in the refreshLibrary thunk (see @beatseam/core's store/library).
   const refresh = useCallback(() => dispatch(refreshLibrary()), [dispatch]);
 
   const { isRestoring, persistPlaybackPatch, notifyUserTookOver } = usePlaybackPersistence();
 
-  // Routes BPMix's launcher shortcuts (AndroidManifest.xml's intent-filter +
-  // res/xml/shortcuts.xml, both "bpmix://<path>") to the matching screen -
+  // Routes Beatseam's launcher shortcuts (AndroidManifest.xml's intent-filter +
+  // res/xml/shortcuts.xml, both "beatseam://<path>") to the matching screen -
   // "library" and "now-playing" only. No shortcut for Settings (always one
   // gear tap away regardless of screen) or an individual playlist (a
   // playlist has no stable identity a static shortcut could target other
   // than "whichever one happens to already be loaded", which is already
   // what the ordinary cold-start restore above does on its own).
   const applyDeepLink = useCallback((url: string) => {
-    const path = url.replace(/^bpmix:\/\//, '').split(/[/?#]/)[0];
+    const path = url.replace(/^beatseam:\/\//, '').split(/[/?#]/)[0];
     if (path === 'library') {
       openLibrary();
       setNowPlayingOpen(false);
@@ -970,7 +970,7 @@ function AppContent() {
     </ScreenLayer>
   );
 
-  // The BPMix server connection, its own sub-screen off Settings (same layer as External connections).
+  // The Beatseam server connection, its own sub-screen off Settings (same layer as External connections).
   const serverScreen = serverScreenOpen && server && (
     <ScreenLayer zIndex={21} colors={colors} paddingTop={insets.top} paddingBottom={insets.bottom} paddingLeft={insets.left} paddingRight={insets.right}>
       <ServerScreen colors={colors} server={server} offline={offline} onClose={() => closeServerScreen()} />
@@ -1142,7 +1142,7 @@ function AppContent() {
   // real .m3u8, which neither virtual playlist (Unplaylisted, Now Playing)
   // has one of. See apps/web/src/App.tsx's identical block.
   const isRealPlaylistScreen = screen.kind === 'playlist' && !screen.playlist.id.startsWith('virtual:');
-  // A playlist you built yourself in server mode: reorder/remove/rename/delete go to the server (see userPlaylists in @bpmix/core).
+  // A playlist you built yourself in server mode: reorder/remove/rename/delete go to the server (see userPlaylists in @beatseam/core).
   const isUserPlaylistScreen = fromServer && screen.kind === 'playlist' && screen.playlist.id.startsWith('user:');
 
   const addToPlaylistDialog =
@@ -1255,7 +1255,7 @@ function AppContent() {
     <ConfirmDialog
       colors={colors}
       title="Missing File"
-      message={`BPMix couldn't find "${trackDisplayName(missingTrackRelocation.explainTarget.track)}" at its expected location (${missingTrackRelocation.explainTarget.track.relativePath}). It may have been moved, renamed, or deleted.`}
+      message={`Beatseam couldn't find "${trackDisplayName(missingTrackRelocation.explainTarget.track)}" at its expected location (${missingTrackRelocation.explainTarget.track.relativePath}). It may have been moved, renamed, or deleted.`}
       confirmLabel="Locate File…"
       onCancel={missingTrackRelocation.cancelExplain}
       onConfirm={missingTrackRelocation.beginLocate}

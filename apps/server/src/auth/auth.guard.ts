@@ -1,6 +1,6 @@
 import { type CanActivate, type ExecutionContext, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { API_VERSION_HEADER } from '@bpmix/api';
+import { API_VERSION_HEADER } from '@beatseam/api';
 import { AuthConfig } from './auth.config.js';
 import { AuthService } from './auth.service.js';
 import { SESSION_COOKIE, readCookie } from './cookies.js';

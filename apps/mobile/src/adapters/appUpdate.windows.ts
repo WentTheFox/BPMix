@@ -1,4 +1,4 @@
-import type { AppUpdateNativeBridge } from '@bpmix/core';
+import type { AppUpdateNativeBridge } from '@beatseam/core';
 
 /**
  * No APK/install-package concept on Windows (updates there would mean an

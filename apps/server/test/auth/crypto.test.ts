@@ -74,12 +74,12 @@ describe('totp', () => {
   });
 
   it('builds an otpauth uri', () => {
-    const uri = new URL(totpUri({ secret: 'ABC234', accountName: 'ann@example.com', issuer: 'BPMix' }));
+    const uri = new URL(totpUri({ secret: 'ABC234', accountName: 'ann@example.com', issuer: 'Beatseam' }));
     expect(uri.protocol).toBe('otpauth:');
     expect(uri.host).toBe('totp');
-    expect(decodeURIComponent(uri.pathname)).toBe('/BPMix:ann@example.com');
+    expect(decodeURIComponent(uri.pathname)).toBe('/Beatseam:ann@example.com');
     expect(uri.searchParams.get('secret')).toBe('ABC234');
-    expect(uri.searchParams.get('issuer')).toBe('BPMix');
+    expect(uri.searchParams.get('issuer')).toBe('Beatseam');
   });
 });
 
@@ -116,7 +116,7 @@ describe('secret box', () => {
 
   it('uses the configured key, else creates one key file and keeps reusing it', async () => {
     expect(await loadSecretKey('from-env', '/nonexistent')).toBe('from-env');
-    const dir = await mkdtemp(path.join(tmpdir(), 'bpmix-key-'));
+    const dir = await mkdtemp(path.join(tmpdir(), 'beatseam-key-'));
     try {
       const first = await loadSecretKey(undefined, path.join(dir, 'data'));
       expect(first).toMatch(/^[0-9a-f]{64}$/);

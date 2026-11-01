@@ -22,7 +22,7 @@ const resolveFromImporter: NonNullable<Options['esbuildPlugins']>[number] = {
   },
 };
 
-// tsc can't emit this server: @bpmix/core is raw extensionless TypeScript that
+// tsc can't emit this server: @beatseam/core is raw extensionless TypeScript that
 // Node ESM can't load, and Nest needs decorator metadata, which plain esbuild
 // doesn't emit. So SWC (via unplugin-swc) compiles everything, and core is
 // bundled in (through its portable server.ts entry, not the full index) while
@@ -35,9 +35,9 @@ export default defineConfig({
   outDir: 'dist',
   clean: true,
   sourcemap: true,
-  noExternal: ['@bpmix/core', '@bpmix/api'],
+  noExternal: ['@beatseam/core', '@beatseam/api'],
   esbuildOptions(options) {
-    options.alias = { ...options.alias, '@bpmix/core': path.resolve(dirname, '../../packages/core/src/server.ts') };
+    options.alias = { ...options.alias, '@beatseam/core': path.resolve(dirname, '../../packages/core/src/server.ts') };
   },
   esbuildPlugins: [
     resolveFromImporter,

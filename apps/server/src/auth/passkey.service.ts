@@ -7,7 +7,7 @@ import {
 } from '@simplewebauthn/server';
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server';
 import type { Request } from 'express';
-import type { PasskeyLoginOptionsDto, PasskeySummaryDto } from '@bpmix/api';
+import type { PasskeyLoginOptionsDto, PasskeySummaryDto } from '@beatseam/api';
 import { DatabaseService } from '../db/database.module.js';
 import { AuthConfig } from './auth.config.js';
 import { AuthService, type IssuedSession, type RequestMeta } from './auth.service.js';

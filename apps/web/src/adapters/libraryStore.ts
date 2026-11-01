@@ -7,10 +7,10 @@ import type {
   PlaylistRecord,
   TrackMetadata,
   TrackRecord,
-} from '@bpmix/core';
+} from '@beatseam/core';
 import { idbDelete, idbGet, idbGetAll, idbPut, openDb } from './indexedDb';
 
-const DB_NAME = 'bpmix-library';
+const DB_NAME = 'beatseam-library';
 // v7: added the generic settings store (see LibraryStore.getSetting's doc).
 const DB_VERSION = 7;
 const TRACKS_STORE = 'tracks';

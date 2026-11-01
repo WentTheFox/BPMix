@@ -1,5 +1,5 @@
-import { buildWebAuthUrl, deriveLastFmStatus, getSession, LastFmError } from '@bpmix/core';
-import type { LastFmAttemptStatus, LastFmCredentials } from '@bpmix/core';
+import { buildWebAuthUrl, deriveLastFmStatus, getSession, LastFmError } from '@beatseam/core';
+import type { LastFmAttemptStatus, LastFmCredentials } from '@beatseam/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AppSettings } from '../settings/types';
 import type { UseLastFmConnectionResult } from './useLastFmConnection';
@@ -52,7 +52,7 @@ export function useLastFmConnection(settings: AppSettings, onUpdateSettings: (pa
     function handleMessage(event: MessageEvent) {
       if (event.origin !== window.location.origin) return;
       const data = event.data as { source?: unknown; token?: unknown } | null;
-      if (data?.source === 'bpmix-lastfm' && typeof data.token === 'string') finishWithToken(data.token);
+      if (data?.source === 'beatseam-lastfm' && typeof data.token === 'string') finishWithToken(data.token);
     }
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
@@ -75,7 +75,7 @@ export function useLastFmConnection(settings: AppSettings, onUpdateSettings: (pa
     setErrorMessage(null);
 
     const callbackUrl = `${window.location.origin}/lastfm-callback.html`;
-    const popup = window.open(buildWebAuthUrl(credentials, callbackUrl), 'bpmix-lastfm-auth', 'width=500,height=650');
+    const popup = window.open(buildWebAuthUrl(credentials, callbackUrl), 'beatseam-lastfm-auth', 'width=500,height=650');
     if (!popup) {
       setErrorMessage('Your browser blocked the Last.fm authorization popup - allow popups for this site and try again.');
       activeCredentialsRef.current = null;

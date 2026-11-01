@@ -45,7 +45,7 @@ describe('navigation slice', () => {
     expect(store.getState().navigation).toMatchObject({ settingsOpen: false, externalConnectionsOpen: false });
   });
 
-  it('closing Settings also closes its BPMix server sub-screen', () => {
+  it('closing Settings also closes its Beatseam server sub-screen', () => {
     const store = makeStore();
     store.dispatch(settingsOpened());
     store.dispatch(serverScreenOpened());

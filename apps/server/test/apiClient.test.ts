@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { ApiClient, ApiError, NetworkError, ResyncRequiredError, type DeviceSignInProgress } from '@bpmix/api';
+import { ApiClient, ApiError, NetworkError, ResyncRequiredError, type DeviceSignInProgress } from '@beatseam/api';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from '../src/app.module.js';
@@ -44,14 +44,14 @@ async function signedInApiClient(): Promise<ApiClient> {
 }
 
 beforeAll(async () => {
-  base = await mkdtemp(path.join(tmpdir(), 'bpmix-apiclient-'));
+  base = await mkdtemp(path.join(tmpdir(), 'beatseam-apiclient-'));
   await mkdir(path.join(base, 'Music'), { recursive: true });
   for (const [file, hz] of [['a.mp3', 220], ['b.mp3', 330]] as const) {
     execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `sine=frequency=${hz}:duration=2`, '-metadata', `title=${file}`, path.join(base, 'Music', file)]);
   }
-  delete process.env.BPMIX_ORIGIN;
-  process.env.BPMIX_SETUP_TOKEN = 'none'; // open first sign-up, as most tests set up an admin directly
-  Object.assign(process.env, { DATABASE_URL: TEST_DATABASE_URL, BPMIX_LIBRARY_ROOT: base, BPMIX_SCAN_ON_START: 'false', BPMIX_DATA_DIR: path.join(base, 'data'), BPMIX_AUTH_RATE_LIMIT: '1000', BPMIX_DEVICE_WAIT_MS: '1500', BPMIX_SCAN_BACKOFF_MS: '0' });
+  delete process.env.BEATSEAM_ORIGIN;
+  process.env.BEATSEAM_SETUP_TOKEN = 'none'; // open first sign-up, as most tests set up an admin directly
+  Object.assign(process.env, { DATABASE_URL: TEST_DATABASE_URL, BEATSEAM_LIBRARY_ROOT: base, BEATSEAM_SCAN_ON_START: 'false', BEATSEAM_DATA_DIR: path.join(base, 'data'), BEATSEAM_AUTH_RATE_LIMIT: '1000', BEATSEAM_DEVICE_WAIT_MS: '1500', BEATSEAM_SCAN_BACKOFF_MS: '0' });
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).overrideProvider(CLOCK).useValue(clock.now).overrideProvider(ANALYZE_FILE).useValue(realAnalyze).compile();
   app = moduleRef.createNestApplication<NestExpressApplication>();
   configureHttp(app as NestExpressApplication);

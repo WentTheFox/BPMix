@@ -1,4 +1,4 @@
-import type { CoverArtResizer } from '@bpmix/core';
+import type { CoverArtResizer } from '@beatseam/core';
 
 const OUTPUT_MIME_TYPE = 'image/jpeg';
 const OUTPUT_QUALITY = 0.85;

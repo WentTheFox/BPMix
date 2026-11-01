@@ -1,4 +1,4 @@
-import type { CoarsePlayback, LoopMode, PlaybackState, PlaylistPlayer, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '@bpmix/core';
+import type { CoarsePlayback, LoopMode, PlaybackState, PlaylistPlayer, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '@beatseam/core';
 import { useCallback, useRef } from 'react';
 import { useDoublePressHandler } from './useDoublePressHandler';
 

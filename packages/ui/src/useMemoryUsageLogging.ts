@@ -1,4 +1,4 @@
-import { logMemorySnapshot } from '@bpmix/core';
+import { logMemorySnapshot } from '@beatseam/core';
 import { useEffect } from 'react';
 
 const DEFAULT_INTERVAL_MS = 45_000;

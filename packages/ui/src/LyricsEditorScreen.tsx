@@ -1,4 +1,4 @@
-import type { LyricLine } from '@bpmix/core';
+import type { LyricLine } from '@beatseam/core';
 import { mdiCheck, mdiClose } from '@mdi/js';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';

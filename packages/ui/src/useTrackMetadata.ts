@@ -1,4 +1,4 @@
-import { isMetadataCurrent, type LibraryStore, type TrackMetadata } from '@bpmix/core';
+import { isMetadataCurrent, type LibraryStore, type TrackMetadata } from '@beatseam/core';
 import { useEffect, useState } from 'react';
 
 const METADATA_RETRY_MS = 500;

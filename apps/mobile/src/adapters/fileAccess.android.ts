@@ -1,4 +1,4 @@
-import type { DirectoryEntry, FileAccess, FileRef, GrantedRoot } from '@bpmix/core';
+import type { DirectoryEntry, FileAccess, FileRef, GrantedRoot } from '@beatseam/core';
 import { NativeModules } from 'react-native';
 import { base64ToArrayBuffer } from './base64';
 
@@ -21,7 +21,7 @@ interface NativeFileAccess {
   writeLocalText(fileName: string, content: string): Promise<void>;
 }
 
-const native = NativeModules.BPMixFileAccess as NativeFileAccess;
+const native = NativeModules.BeatseamFileAccess as NativeFileAccess;
 const ROOTS_FILE = 'granted-roots.json';
 
 // Populated the first time anything here needs it (requestRoot(),
@@ -54,7 +54,7 @@ export function toRelativeDisplay(path: string): string {
 
 /**
  * Plain java.io.File paths, gated on MANAGE_EXTERNAL_STORAGE, instead of
- * Storage Access Framework tree URIs - see BPMixFileAccessModule.kt's
+ * Storage Access Framework tree URIs - see BeatseamFileAccessModule.kt's
  * header comment for why: a broken Samsung "My Files" SAF picker made
  * requesting a new folder grant unreliable (rejecting every folder,
  * including freshly-created ones, while its own normal browse mode saw
@@ -96,7 +96,7 @@ export function registerRootBrowser(browser: BrowseForRoot | null): void {
 /** Thrown by requestRoot() when MANAGE_EXTERNAL_STORAGE isn't granted yet - a distinct class (not just an error message) so callers can offer a direct "open Settings" action instead of just displaying the text. */
 export class AllFilesAccessRequiredError extends Error {
   constructor() {
-    super('Grant "All files access" for BPMix in Settings, then try again.');
+    super('Grant "All files access" for Beatseam in Settings, then try again.');
     this.name = 'AllFilesAccessRequiredError';
   }
 }

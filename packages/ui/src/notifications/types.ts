@@ -7,7 +7,7 @@
  * as it progresses rather than appended fresh each time.
  */
 export interface AppNotification {
-  // Mirrors @bpmix/core's NotificationEntry, except `action` carries the live
+  // Mirrors @beatseam/core's NotificationEntry, except `action` carries the live
   // callback (the slice itself only stores its label) - see useNotificationCenter.
   id: string;
   kind: 'error' | 'progress';
@@ -26,6 +26,6 @@ export interface AppNotification {
   progress?: { current: number; total: number; done: boolean };
   /** Optional secondary action rendered on the row (e.g. "Cancel" for an in-progress library scan the user might want to stop) - not tied to a specific kind, so any notification can carry one. Caller owns dismissing/updating the notification once the action's effect actually lands (e.g. once a cancelled scan's promise actually rejects), this doesn't do that itself. */
   action?: { label: string; onPress: () => void };
-  /** 'progress' kind only - set while the operation is waiting its turn on the task queue (see @bpmix/core's taskQueue.ts): 'queued' before it first starts, 'paused' while a background pass has yielded to foreground work. */
+  /** 'progress' kind only - set while the operation is waiting its turn on the task queue (see @beatseam/core's taskQueue.ts): 'queued' before it first starts, 'paused' while a background pass has yielded to foreground work. */
   status?: 'queued' | 'paused';
 }

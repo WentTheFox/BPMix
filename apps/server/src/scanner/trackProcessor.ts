@@ -10,7 +10,7 @@ import {
   type AnalysisResult,
   type FileRef,
   type TrackRecord,
-} from '@bpmix/core';
+} from '@beatseam/core';
 import { DatabaseService } from '../db/database.module.js';
 import { FILE_ACCESS, type NodeFileAccess } from '../node/node.module.js';
 import type { AnalyzeFile } from './analysisPool.js';

@@ -49,7 +49,7 @@ export interface NavigationState {
   settingsOpen: boolean;
   /** The "External connections" sub-screen reached from within Settings - always closes before Settings does (see handleBackNavigation). */
   externalConnectionsOpen: boolean;
-  /** The "BPMix server" sub-screen reached from within Settings - closes before Settings does, like External connections. */
+  /** The "Beatseam server" sub-screen reached from within Settings - closes before Settings does, like External connections. */
   serverScreenOpen: boolean;
   /** Whether the Now Playing overlay is open. Meaningful as an overlay only in the narrow tier; docked tiers ignore it. */
   nowPlayingOpen: boolean;

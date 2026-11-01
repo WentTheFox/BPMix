@@ -10,7 +10,7 @@ export class SecretBox {
 
   /** `keyMaterial` is any string or bytes of decent entropy; it's stretched to a 256-bit key. */
   constructor(keyMaterial: string | Uint8Array) {
-    this.key = Buffer.from(hkdfSync('sha256', keyMaterial, 'bpmix-secret-box', 'aes-256-gcm', 32));
+    this.key = Buffer.from(hkdfSync('sha256', keyMaterial, 'beatseam-secret-box', 'aes-256-gcm', 32));
   }
 
   seal(plaintext: string): string {
@@ -31,7 +31,7 @@ export class SecretBox {
 }
 
 /**
- * The server secret: BPMIX_SECRET_KEY if set, otherwise a random key generated
+ * The server secret: BEATSEAM_SECRET_KEY if set, otherwise a random key generated
  * once and kept in the data directory (a volume, so it survives restarts and
  * stays apart from the database it protects).
  */

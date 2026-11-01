@@ -1,4 +1,4 @@
-import { utf8Decode } from '@bpmix/core';
+import { utf8Decode } from '@beatseam/core';
 
 /**
  * A `fetch` that keeps working while the Android app is backgrounded.

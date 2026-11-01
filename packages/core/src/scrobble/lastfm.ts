@@ -3,7 +3,7 @@ import { md5 } from './md5';
 const API_ROOT = 'https://ws.audioscrobbler.com/2.0/';
 
 /**
- * BPMix's own registered Last.fm API application (last.fm/api/account/create)
+ * Beatseam's own registered Last.fm API application (last.fm/api/account/create)
  * - shared across every install rather than making each person register
  * their own app, the same way GNOME's own Last.fm integration
  * (gnome-online-accounts, used by GNOME Music) ships one baked-in
@@ -12,7 +12,7 @@ const API_ROOT = 'https://ws.audioscrobbler.com/2.0/';
  * app-level api_key/secret pair only identifies the app for request
  * signing - it never grants access to any specific person's account
  * without that person separately logging into their own Last.fm session
- * and approving BPMix there (see useLastFmConnection's auth flow), so
+ * and approving Beatseam there (see useLastFmConnection's auth flow), so
  * sharing one across installs doesn't expose any individual user's data.
  * A self-hoster/fork who'd rather use their own app identity can still
  * override both via Settings' "Use your own Last.fm API app" fields
@@ -116,11 +116,11 @@ export function buildAuthUrl(credentials: LastFmCredentials, token: string): str
  * Last.fm's "web application" auth variant: no auth.getToken call up front -
  * Last.fm mints the token itself and redirects the browser to
  * `callbackUrl?token=...` once the user approves, which the caller reads
- * back automatically (a same-origin popup message on web, a `bpmix://`
+ * back automatically (a same-origin popup message on web, a `beatseam://`
  * deep link on Android) instead of the desktop flow's manual "I've approved
  * it" confirmation. Unlike most OAuth providers, Last.fm doesn't require
  * `cb` to be pre-registered - any URL works at request time, which is what
- * makes this usable from an arbitrary self-hosted BPMix origin.
+ * makes this usable from an arbitrary self-hosted Beatseam origin.
  */
 export function buildWebAuthUrl(credentials: LastFmCredentials, callbackUrl: string): string {
   return `https://www.last.fm/api/auth/?api_key=${encodeURIComponent(credentials.apiKey)}&cb=${encodeURIComponent(callbackUrl)}`;

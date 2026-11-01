@@ -1,5 +1,5 @@
 import { parentPort, workerData } from 'node:worker_threads';
-import { analyzeTrack } from '@bpmix/core';
+import { analyzeTrack } from '@beatseam/core';
 import { decodeWithFfmpeg } from './ffmpegDecoder.js';
 
 // Runs in its own thread so the DSP (and the big PCM buffer) never blocks the

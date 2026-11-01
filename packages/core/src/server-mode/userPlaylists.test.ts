@@ -1,4 +1,4 @@
-import { encodeTrackKey, type MutationDto } from '@bpmix/api';
+import { encodeTrackKey, type MutationDto } from '@beatseam/api';
 import { describe, expect, it, vi } from 'vitest';
 import { ServerMode } from './serverMode';
 import { fakeServer, json, MemoryStore } from './testing';

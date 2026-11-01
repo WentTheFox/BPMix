@@ -24,6 +24,6 @@ export async function verifyPassword(storedHash: string, password: string): Prom
 // for an unknown username takes as long as one for a real user.
 let dummyHash: Promise<string> | null = null;
 export async function burnPasswordTime(password: string): Promise<void> {
-  dummyHash ??= hashPassword('bpmix-dummy-password');
+  dummyHash ??= hashPassword('beatseam-dummy-password');
   await verifyPassword(await dummyHash, password);
 }

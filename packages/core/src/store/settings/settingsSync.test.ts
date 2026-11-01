@@ -1,4 +1,4 @@
-import type { MutationDto } from '@bpmix/api';
+import type { MutationDto } from '@beatseam/api';
 import { describe, expect, it } from 'vitest';
 import { ServerMode } from '../../server-mode/serverMode';
 import { fakeServer, json, MemoryStore } from '../../server-mode/testing';

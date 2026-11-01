@@ -1,4 +1,4 @@
-import type { FileRef, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '@bpmix/core';
+import type { FileRef, PlaylistPlayerState, PlaylistRecord, TrackRecord } from '@beatseam/core';
 import {
   LOCAL_SCROBBLE_QUEUE_KEY,
   OfflineLibrary,
@@ -23,7 +23,7 @@ import {
   PlaylistPlayer,
   scanLibraryMetadataQueued,
   trackDisplayName,
-} from '@bpmix/core';
+} from '@beatseam/core';
 import {
   AddToPlaylistDialog,
   BackButton,
@@ -85,7 +85,7 @@ import {
   useViewportTier,
   useVolumeControl,
   StoreProvider,
-} from '@bpmix/ui';
+} from '@beatseam/ui';
 import { mdiSubtitles } from '@mdi/js';
 import type { CSSProperties, ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -105,7 +105,7 @@ const TRANSPORT_THROTTLE_MS = 300;
 // this writing) - the composite adapter's server roots (Docker self-host)
 // work regardless, but "Add Folder" itself needs this to pick local folders.
 const SUPPORTS_DIRECTORY_PICKER = typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function';
-const SELF_HOSTING_DOCS_URL = 'https://github.com/WentTheFox/BPMix/blob/main/apps/server/README.md';
+const SELF_HOSTING_DOCS_URL = 'https://github.com/WentTheFox/Beatseam/blob/main/apps/server/README.md';
 /** LibraryStore.getSetting/putSetting key for whether the user dismissed the "install this app" onboarding row - see the installOnboarding block below. */
 const INSTALL_ONBOARDING_DISMISSED_SETTING_KEY = 'installOnboardingDismissed';
 // A real DOM <a>, not an RN Text/Pressable - react-native-web's StyleSheet
@@ -114,7 +114,7 @@ const webLinkStyle: CSSProperties = { color: 'inherit', textDecoration: 'underli
 
 const localFileAccess = createCompositeFileAccess();
 const localLibraryStore = createLibraryStore();
-// Served by a BPMix server and signed in to it (the browser session): the library, and its audio,
+// Served by a Beatseam server and signed in to it (the browser session): the library, and its audio,
 // come from the server; otherwise the local folders / legacy server roots exactly as before.
 const serverMode = new ServerMode({ store: localLibraryStore, deviceName: () => 'Web browser', sameOrigin: true });
 // Downloaded tracks (browsers that can hold them) play with no connection; everything else streams.
@@ -199,7 +199,7 @@ const store = createStore({
   now: Date.now,
 });
 
-// A page served by a BPMix server whose visitor is signed in to it takes its library from there. One
+// A page served by a Beatseam server whose visitor is signed in to it takes its library from there. One
 // cheap request per load; a static host (or a signed-out visitor) just stays in the original mode.
 void serverMode.connectSameOrigin().then((signedIn) => {
   if (signedIn) void store.dispatch(refreshLibrary());
@@ -299,7 +299,7 @@ function AppContent() {
   // fileIds whose most recent decode attempt failed - TrackRow reads this to
   // show a missing-file indicator instead of pretending everything's fine
   // until the user taps play and it silently does nothing.
-  // Onboarding: nudges the user to install BPMix as a PWA once they're
+  // Onboarding: nudges the user to install Beatseam as a PWA once they're
   // actually relying on a browser-granted local folder (SUPPORTS_DIRECTORY_PICKER),
   // since only an installed PWA gets Chrome's persistent File System Access
   // permissions - a plain tab always eventually needs a fresh gesture-based
@@ -437,7 +437,7 @@ function AppContent() {
     return true;
   };
 
-  // Loading lives in the refreshLibrary thunk (see @bpmix/core's store/library).
+  // Loading lives in the refreshLibrary thunk (see @beatseam/core's store/library).
   const refresh = useCallback(() => dispatch(refreshLibrary()), [dispatch]);
 
   const { isRestoring, persistPlaybackPatch, notifyUserTookOver } = usePlaybackPersistence();
@@ -630,7 +630,7 @@ function AppContent() {
   // remounted would lose its accumulated listen time.
   const server = useServerConnection(serverMode);
   const fromServer = server?.status.active === true;
-  // Whether this page is served by a BPMix server (null while that's being asked, and on a static host): only then is there a server to connect to.
+  // Whether this page is served by a Beatseam server (null while that's being asked, and on a static host): only then is there a server to connect to.
   const [serverHosted, setServerHosted] = useState<{ setupRequired: boolean } | null | undefined>(undefined);
   useEffect(() => {
     void serverMode.probeSameOrigin().then(setServerHosted);
@@ -878,7 +878,7 @@ function AppContent() {
     </ScreenLayer>
   );
 
-  // The BPMix server connection, its own sub-screen off Settings (same layer as External connections).
+  // The Beatseam server connection, its own sub-screen off Settings (same layer as External connections).
   const serverScreen = serverScreenOpen && server && (
     <ScreenLayer zIndex={21} colors={colors}>
       <ServerScreen colors={colors} server={server} offline={offline} onClose={() => closeServerScreen()} />
@@ -1007,7 +1007,7 @@ function AppContent() {
   // real .m3u8, which neither virtual playlist (Unplaylisted, Now Playing)
   // has one of. See apps/mobile/App.tsx's identical block.
   const isRealPlaylistScreen = screen.kind === 'playlist' && !screen.playlist.id.startsWith('virtual:');
-  // A playlist you built yourself in server mode: reorder/remove/rename/delete go to the server (see userPlaylists in @bpmix/core).
+  // A playlist you built yourself in server mode: reorder/remove/rename/delete go to the server (see userPlaylists in @beatseam/core).
   const isUserPlaylistScreen = fromServer && screen.kind === 'playlist' && screen.playlist.id.startsWith('user:');
 
   const addToPlaylistDialog =
@@ -1116,7 +1116,7 @@ function AppContent() {
             {showInstallOnboarding && (
               <View style={[styles.installOnboarding, { borderColor: colors.accent }]}>
                 <Text style={[styles.installOnboardingText, { color: colors.text }]}>
-                  Install BPMix as an app to keep folder access working across reloads - a browser tab has to ask again every
+                  Install Beatseam as an app to keep folder access working across reloads - a browser tab has to ask again every
                   so often, but an installed app doesn’t.
                 </Text>
                 <View style={styles.installOnboardingActions}>
@@ -1158,7 +1158,7 @@ function AppContent() {
     <ConfirmDialog
       colors={colors}
       title="Missing File"
-      message={`BPMix couldn't find "${trackDisplayName(missingTrackRelocation.explainTarget.track)}" at its expected location (${missingTrackRelocation.explainTarget.track.relativePath}). It may have been moved, renamed, or deleted.`}
+      message={`Beatseam couldn't find "${trackDisplayName(missingTrackRelocation.explainTarget.track)}" at its expected location (${missingTrackRelocation.explainTarget.track.relativePath}). It may have been moved, renamed, or deleted.`}
       confirmLabel="Locate File…"
       onCancel={missingTrackRelocation.cancelExplain}
       onConfirm={missingTrackRelocation.beginLocate}

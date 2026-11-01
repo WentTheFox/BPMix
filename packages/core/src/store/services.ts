@@ -43,7 +43,7 @@ export interface Services {
   appUpdateBridge: AppUpdateNativeBridge | null;
   discordPresenceBridge: DiscordPresenceBridge | null;
   /**
-   * Takes the library from a BPMix server when signed in to one. Optional so a build without server
+   * Takes the library from a Beatseam server when signed in to one. Optional so a build without server
    * support (and tests) simply runs in the original local-folders mode.
    */
   serverMode?: ServerMode;

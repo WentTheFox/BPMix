@@ -43,7 +43,7 @@ export class PagesController {
     const here = path.dirname(fileURLToPath(import.meta.url));
     // Bundled, this file is dist/main.js; from source it's src/pages/. Either way `public/` is the package's own.
     this.publicDir =
-      config.get<string>('BPMIX_PUBLIC_DIR') ??
+      config.get<string>('BEATSEAM_PUBLIC_DIR') ??
       [path.resolve(here, '../public'), path.resolve(here, '../../public')].find((dir) => existsSync(path.join(dir, 'account.html'))) ??
       path.resolve(here, '../public');
     // The browser half of @simplewebauthn, as its prebuilt single-file bundle.

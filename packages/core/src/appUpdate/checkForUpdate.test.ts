@@ -4,7 +4,7 @@ import { checkForUpdate, parseChecksumsFile } from './checkForUpdate';
 function mockRelease(overrides: Partial<{ tag_name: string; assets: { name: string; browser_download_url: string }[] }> = {}) {
   return {
     tag_name: 'v0.2.0',
-    html_url: 'https://github.com/WentTheFox/BPMix/releases/tag/v0.2.0',
+    html_url: 'https://github.com/WentTheFox/Beatseam/releases/tag/v0.2.0',
     assets: [
       { name: 'app-release.apk', browser_download_url: 'https://example.com/app-release.apk' },
       { name: 'checksums.txt', browser_download_url: 'https://example.com/checksums.txt' },
@@ -34,7 +34,7 @@ describe('checkForUpdate', () => {
     const result = await checkForUpdate('v0.1.0');
     expect(result).toEqual({
       version: 'v0.2.0',
-      htmlUrl: 'https://github.com/WentTheFox/BPMix/releases/tag/v0.2.0',
+      htmlUrl: 'https://github.com/WentTheFox/Beatseam/releases/tag/v0.2.0',
       apkAsset: { name: 'app-release.apk', browserDownloadUrl: 'https://example.com/app-release.apk' },
       checksumsAsset: { name: 'checksums.txt', browserDownloadUrl: 'https://example.com/checksums.txt' },
     });

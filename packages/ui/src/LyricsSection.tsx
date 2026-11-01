@@ -8,7 +8,7 @@ import {
   type LyricLine,
   type LyricsScope,
   type ServerLyricsEditing,
-} from '@bpmix/core';
+} from '@beatseam/core';
 import { mdiSubtitles } from '@mdi/js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View, type ListRenderItemInfo } from 'react-native';

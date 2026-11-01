@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import { encodeTrackKey } from '@bpmix/api';
+import { encodeTrackKey } from '@beatseam/api';
 import { createPrismaClient } from '../src/db/prisma.js';
 import { createPrismaLibraryStore } from '../src/db/prismaLibraryStore.js';
 import { TEST_DATABASE_URL } from './testDatabase.js';

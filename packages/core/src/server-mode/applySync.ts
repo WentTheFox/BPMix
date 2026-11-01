@@ -1,4 +1,4 @@
-import { decodeTrackKey, type SyncChangeDto, type TrackDto } from '@bpmix/api';
+import { decodeTrackKey, type SyncChangeDto, type TrackDto } from '@beatseam/api';
 import { storeDevicePlayback } from './devicePlayback';
 import { SYNCED_SETTING_KEYS } from '../store/settings/settingsStorage';
 import { ANALYSIS_ALGORITHM_VERSION } from '../analysis/analyzeTrack';

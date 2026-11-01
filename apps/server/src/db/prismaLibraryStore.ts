@@ -1,5 +1,5 @@
-import { encodeTrackKey } from '@bpmix/api';
-import type { LibraryStore, LyricsScope, PlaybackState, PlaylistRecord, TrackMetadata, TrackRecord } from '@bpmix/core';
+import { encodeTrackKey } from '@beatseam/api';
+import type { LibraryStore, LyricsScope, PlaybackState, PlaylistRecord, TrackMetadata, TrackRecord } from '@beatseam/core';
 import type { PrismaClient } from './prisma.js';
 
 type TrackRow = { fileId: string; rootId: string; relativePath: string; sizeBytes: bigint; lastModifiedMs: number; missing: boolean };
@@ -21,7 +21,7 @@ function toPlaylist(row: { id: string; rootId: string; fileId: string; name: str
 }
 
 /**
- * The server's LibraryStore: lets @bpmix/core's scan/metadata/lyrics/analysis
+ * The server's LibraryStore: lets @beatseam/core's scan/metadata/lyrics/analysis
  * code run against Postgres unchanged. Library-scoped methods are the real
  * data; playback state and settings are per-user concerns the scanner never
  * calls, so they're a plain key/value fallback until the per-user tables land

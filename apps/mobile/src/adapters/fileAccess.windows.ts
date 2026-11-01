@@ -1,9 +1,9 @@
-import type { DirectoryEntry, FileAccess, FileRef, GrantedRoot } from '@bpmix/core';
+import type { DirectoryEntry, FileAccess, FileRef, GrantedRoot } from '@beatseam/core';
 import { NativeModules } from 'react-native';
 import { base64ToArrayBuffer } from './base64';
 
 /**
- * Backed by a real native module (windows/BPMix/FileAccessModule.h) built
+ * Backed by a real native module (windows/Beatseam/FileAccessModule.h) built
  * directly against WinRT's StorageFolder/FutureAccessList APIs - there is no
  * maintained folder-picker/file-access library for the current
  * react-native-windows C++/WinRT template, so this is a from-scratch
@@ -25,7 +25,7 @@ interface NativeFileAccess {
   readFileText(fileId: string): Promise<string>;
 }
 
-const native = NativeModules.BPMixFileAccess as NativeFileAccess;
+const native = NativeModules.BeatseamFileAccess as NativeFileAccess;
 
 /** Never thrown here - Windows has no MANAGE_EXTERNAL_STORAGE equivalent to gate on. Exported only for the same shared-App.tsx-import reason as registerRootBrowser below. */
 export class AllFilesAccessRequiredError extends Error {}

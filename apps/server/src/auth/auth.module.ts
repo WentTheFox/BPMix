@@ -22,7 +22,7 @@ import { UsersController } from './users.controller.js';
       provide: SECRET_BOX,
       inject: [ConfigService],
       useFactory: async (config: ConfigService) =>
-        new SecretBox(await loadSecretKey(config.get<string>('BPMIX_SECRET_KEY'), config.get<string>('BPMIX_DATA_DIR') ?? './data')),
+        new SecretBox(await loadSecretKey(config.get<string>('BEATSEAM_SECRET_KEY'), config.get<string>('BEATSEAM_DATA_DIR') ?? './data')),
     },
   ],
   exports: [AuthService, AuthConfig, AuthGuard, SECRET_BOX],

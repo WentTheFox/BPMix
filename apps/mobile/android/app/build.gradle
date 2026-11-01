@@ -106,7 +106,7 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace = "tf.went.bpmix"
+    namespace = "tf.went.beatseam"
     // AGP 8+ requires this explicit opt-in - without it, src/main/aidl/...
     // (the hand-rolled IDiscordRpc*.aidl interfaces - see DiscordRpcModule.kt's
     // doc for why they're hand-rolled instead of the official SDK) never gets
@@ -116,7 +116,7 @@ android {
         aidl true
     }
     defaultConfig {
-        applicationId "tf.went.bpmix"
+        applicationId "tf.went.beatseam"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode gitVersionCode
@@ -152,7 +152,7 @@ android {
     buildTypes {
         debug {
             signingConfig = signingConfigs.debug
-            // Separate applicationId from the release build (tf.went.bpmix)
+            // Separate applicationId from the release build (tf.went.beatseam)
             // so a Metro-connected debug build can be installed side by side
             // with the real, CI-signed release app instead of replacing it -
             // the two have different signing keys (see signingConfigs.release's

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import type { LastFmConnectResultDto, LastFmStatusDto } from '@bpmix/api';
+import type { LastFmConnectResultDto, LastFmStatusDto } from '@beatseam/api';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.js';
 import { CLOCK } from '../src/auth/auth.service.js';
@@ -41,9 +41,9 @@ const fakeLastFm = (async (input: string | URL | Request, init?: RequestInit) =>
 }) as typeof fetch;
 
 beforeAll(async () => {
-  base = await mkdtemp(path.join(tmpdir(), 'bpmix-lastfm-'));
-  delete process.env.BPMIX_ORIGIN;
-  Object.assign(process.env, { DATABASE_URL: TEST_DATABASE_URL, BPMIX_LIBRARY_ROOT: base, BPMIX_SCAN_ON_START: 'false', BPMIX_DATA_DIR: path.join(base, 'data'), BPMIX_AUTH_RATE_LIMIT: '1000', BPMIX_SETUP_TOKEN: 'none' });
+  base = await mkdtemp(path.join(tmpdir(), 'beatseam-lastfm-'));
+  delete process.env.BEATSEAM_ORIGIN;
+  Object.assign(process.env, { DATABASE_URL: TEST_DATABASE_URL, BEATSEAM_LIBRARY_ROOT: base, BEATSEAM_SCAN_ON_START: 'false', BEATSEAM_DATA_DIR: path.join(base, 'data'), BEATSEAM_AUTH_RATE_LIMIT: '1000', BEATSEAM_SETUP_TOKEN: 'none' });
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(CLOCK).useValue(clock.now)
     .overrideProvider(LASTFM_FETCH).useValue(fakeLastFm)

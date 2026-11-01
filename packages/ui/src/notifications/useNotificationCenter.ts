@@ -4,7 +4,7 @@ import {
   dismissNotification,
   runNotificationAction,
   upsertNotification,
-} from '@bpmix/core';
+} from '@beatseam/core';
 import { useCallback, useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import type { AppNotification } from './types';
@@ -37,7 +37,7 @@ export interface NotificationCenter {
 }
 
 /**
- * View over the store's `notifications` slice (see @bpmix/core's
+ * View over the store's `notifications` slice (see @beatseam/core's
  * store/notifications) for NotificationBell - session-only (not persisted
  * across a reload), shared between mobile/web so a future tweak to what
  * counts as a notification can't drift between the two apps. The slice only

@@ -1,13 +1,13 @@
-import { encodeBase64, type CoverArtResizer } from '@bpmix/core';
+import { encodeBase64, type CoverArtResizer } from '@beatseam/core';
 import { NativeModules } from 'react-native';
 import { base64ToArrayBuffer } from './base64';
 
-/** See windows/BPMix/CoverArtResizerModule.h - WinRT's BitmapDecoder/BitmapTransform/BitmapEncoder do the actual decode/resize/re-encode; this just handles the base64 bridge crossing (same convention as fileAccess.windows.ts's readFileBytesBase64). */
+/** See windows/Beatseam/CoverArtResizerModule.h - WinRT's BitmapDecoder/BitmapTransform/BitmapEncoder do the actual decode/resize/re-encode; this just handles the base64 bridge crossing (same convention as fileAccess.windows.ts's readFileBytesBase64). */
 interface NativeCoverArtResizer {
   resizeImage(base64Data: string, maxDimensionPx: number): Promise<{ mimeType: string; base64: string } | null>;
 }
 
-const native = NativeModules.BPMixCoverArtResizer as NativeCoverArtResizer;
+const native = NativeModules.BeatseamCoverArtResizer as NativeCoverArtResizer;
 
 export function createCoverArtResizer(): CoverArtResizer {
   return {

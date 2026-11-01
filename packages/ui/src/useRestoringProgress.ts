@@ -1,5 +1,5 @@
-import { selectCompletedSteps } from '@bpmix/core';
-import type { RestoringStepKey } from '@bpmix/core';
+import { selectCompletedSteps } from '@beatseam/core';
+import type { RestoringStepKey } from '@beatseam/core';
 import { useAppSelector } from './store/hooks';
 
 export interface RestoringProgress {

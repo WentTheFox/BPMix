@@ -1,9 +1,9 @@
-import { playbackPatched, restorePlayback, userTookOver } from '@bpmix/core';
-import type { PlaybackState, RootWithLibrary } from '@bpmix/core';
+import { playbackPatched, restorePlayback, userTookOver } from '@beatseam/core';
+import type { PlaybackState, RootWithLibrary } from '@beatseam/core';
 import { useCallback, useEffect } from 'react';
 import { useAppDispatch, useAppSelector } from './store/hooks';
 
-// Moved to @bpmix/core with the library slice; re-exported so existing imports keep working.
+// Moved to @beatseam/core with the library slice; re-exported so existing imports keep working.
 export type { RootWithLibrary };
 
 export interface PlaybackPersistence {
@@ -32,7 +32,7 @@ export interface PlaybackPersistence {
 
 /**
  * Starts the startup playback restore once on mount (see restorePlayback in
- * @bpmix/core - the ordering and race guards live there) and exposes the
+ * @beatseam/core - the ordering and race guards live there) and exposes the
  * persistence functions. Persistence itself is the store's `persistence`
  * slice plus its listener; this is a thin view over it.
  */

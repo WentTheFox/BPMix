@@ -1,4 +1,4 @@
-import { trackDisplayName, type LibraryStore, type TrackRecord } from '@bpmix/core';
+import { trackDisplayName, type LibraryStore, type TrackRecord } from '@beatseam/core';
 import { mdiCheck, mdiClose, mdiDownload, mdiPencilOutline, mdiSwapVertical, mdiTrashCanOutline } from '@mdi/js';
 import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';

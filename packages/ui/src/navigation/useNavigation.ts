@@ -13,8 +13,8 @@ import {
   nowPlayingOpenChanged,
   settingsClosed,
   settingsOpened,
-} from '@bpmix/core';
-import type { CreatePlaylistTarget, NavigationState } from '@bpmix/core';
+} from '@beatseam/core';
+import type { CreatePlaylistTarget, NavigationState } from '@beatseam/core';
 import { useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 

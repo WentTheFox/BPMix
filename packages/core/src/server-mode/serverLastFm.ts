@@ -1,4 +1,4 @@
-import { ApiError, type ApiClient } from '@bpmix/api';
+import { ApiError, type ApiClient } from '@beatseam/api';
 import { LastFmError } from '../scrobble/lastfm';
 import type { ScrobbleSink } from '../scrobble/scrobbleSink';
 

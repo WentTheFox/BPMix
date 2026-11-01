@@ -1,4 +1,4 @@
-import type { PlaybackStateDto } from '@bpmix/api';
+import type { PlaybackStateDto } from '@beatseam/api';
 import type { LibraryStore, LoopMode, PlaybackState } from '../library-store/types';
 
 const KEY = 'serverMode.devicePlayback';

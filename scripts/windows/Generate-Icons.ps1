@@ -5,16 +5,16 @@
 
 .DESCRIPTION
   Run after the app icon changes. PowerShell + System.Drawing only. Writes
-  apps/mobile/windows/BPMix/BPMix.ico (embedded as the exe's IDI_ICON1 and
-  set on the window in BPMix.cpp) and apps/mobile/windows/BPMix.Package/Images/*.png
-  (picked up by BPMix.Package.wapproj's Images\*.png wildcard; the manifest's
+  apps/mobile/windows/Beatseam/Beatseam.ico (embedded as the exe's IDI_ICON1 and
+  set on the window in Beatseam.cpp) and apps/mobile/windows/Beatseam.Package/Images/*.png
+  (picked up by Beatseam.Package.wapproj's Images\*.png wildcard; the manifest's
   unqualified names resolve to these scale-*/targetsize-* variants). The
   taskbar uses Square44x44Logo.targetsize-*_altform-unplated specifically.
 #>
 param(
   [string]$Source = (Join-Path $PSScriptRoot '..\..\apps\web\public\icons\icon-512.png'),
-  [string]$ImagesOut = (Join-Path $PSScriptRoot '..\..\apps\mobile\windows\BPMix.Package\Images'),
-  [string]$IcoOut = (Join-Path $PSScriptRoot '..\..\apps\mobile\windows\BPMix\BPMix.ico')
+  [string]$ImagesOut = (Join-Path $PSScriptRoot '..\..\apps\mobile\windows\Beatseam.Package\Images'),
+  [string]$IcoOut = (Join-Path $PSScriptRoot '..\..\apps\mobile\windows\Beatseam\Beatseam.ico')
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing

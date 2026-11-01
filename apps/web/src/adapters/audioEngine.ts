@@ -1,4 +1,4 @@
-import type { AudioEngine, DecodedAudio, FileAccess, FileRef, RampSpec, SourceNode } from '@bpmix/core';
+import type { AudioEngine, DecodedAudio, FileAccess, FileRef, RampSpec, SourceNode } from '@beatseam/core';
 
 function decodedAudioToBuffer(context: BaseAudioContext, decoded: DecodedAudio): AudioBuffer {
   const frameCount = decoded.channelData[0]?.length ?? 0;

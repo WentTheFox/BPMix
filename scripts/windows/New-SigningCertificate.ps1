@@ -9,8 +9,8 @@
   MSIX refuses to sign/install a package whose publisher doesn't match its
   signing certificate.
 
-  Writes <OutDir>\bpmix-signing.pfx (private key - keep it backed up, never
-  commit it) and <OutDir>\bpmix-signing.cer (public half). Regenerating the
+  Writes <OutDir>\beatseam-signing.pfx (private key - keep it backed up, never
+  commit it) and <OutDir>\beatseam-signing.cer (public half). Regenerating the
   certificate later is possible (updates only require the same Publisher
   string, not the same certificate), but every user would have to trust the
   new one, which Install.ps1 does automatically on their next install.
@@ -20,7 +20,7 @@
   .github/workflows/native-builds.yml reads.
 #>
 param(
-  [string]$OutDir = (Join-Path $HOME 'BPMix-signing'),
+  [string]$OutDir = (Join-Path $HOME 'Beatseam-signing'),
   [string]$Subject = 'CN=WentTheFox',
   [int]$ValidYears = 10,
   [switch]$SetGitHubSecrets,
@@ -30,8 +30,8 @@ param(
 $ErrorActionPreference = 'Stop'
 
 New-Item -ItemType Directory -Force $OutDir | Out-Null
-$pfxPath = Join-Path $OutDir 'bpmix-signing.pfx'
-$cerPath = Join-Path $OutDir 'bpmix-signing.cer'
+$pfxPath = Join-Path $OutDir 'beatseam-signing.pfx'
+$cerPath = Join-Path $OutDir 'beatseam-signing.cer'
 if (Test-Path $pfxPath) {
   throw "$pfxPath already exists - move it away first if you really want a new certificate."
 }
@@ -46,7 +46,7 @@ $password = ConvertTo-SecureString $passwordText -AsPlainText -Force
 $cert = New-SelfSignedCertificate `
   -Type Custom `
   -Subject $Subject `
-  -FriendlyName 'BPMix sideload signing' `
+  -FriendlyName 'Beatseam sideload signing' `
   -KeyUsage DigitalSignature `
   -KeyAlgorithm RSA -KeyLength 3072 `
   -KeyExportPolicy Exportable `

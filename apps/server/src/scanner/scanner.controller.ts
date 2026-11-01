@@ -7,7 +7,7 @@ import {
   type ScanFailureDto,
   type ScanJobDto,
   type ScanStatusDto,
-} from '@bpmix/api';
+} from '@beatseam/api';
 import { Roles } from '../auth/principal.js';
 import { fileIdFromKey } from '../common/trackKeys.js';
 import { ScannerService } from './scanner.service.js';

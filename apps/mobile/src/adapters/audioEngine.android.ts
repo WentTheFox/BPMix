@@ -1,4 +1,4 @@
-import type { AudioEngine, DecodedAudio, FileAccess, FileRef, RampSpec, SourceNode } from '@bpmix/core';
+import type { AudioEngine, DecodedAudio, FileAccess, FileRef, RampSpec, SourceNode } from '@beatseam/core';
 import { AudioContext, type AudioBuffer, type AudioBufferSourceNode } from 'react-native-audio-api';
 
 function decodedAudioToBuffer(context: AudioContext, decoded: DecodedAudio): AudioBuffer {

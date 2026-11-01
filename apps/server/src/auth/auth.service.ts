@@ -6,7 +6,7 @@ import type {
   SessionSummaryDto,
   TotpSetupDto,
   UserSummaryDto,
-} from '@bpmix/api';
+} from '@beatseam/api';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { DatabaseService } from '../db/database.module.js';
 import type { Prisma } from '../generated/prisma/client.js';
@@ -86,15 +86,15 @@ export class AuthService implements OnApplicationBootstrap {
   async onApplicationBootstrap(): Promise<void> {
     if ((await this.enrolledUserCount()) > 0) return;
     if (this.config.setupToken) {
-      this.logger.warn('No accounts exist yet: the first person to sign up becomes the admin, and needs BPMIX_SETUP_TOKEN for it.');
+      this.logger.warn('No accounts exist yet: the first person to sign up becomes the admin, and needs BEATSEAM_SETUP_TOKEN for it.');
     } else if (this.config.openSetup) {
-      this.logger.warn('No accounts exist yet, and BPMIX_SETUP_TOKEN=none: the first person to open the app and sign up becomes the admin.');
+      this.logger.warn('No accounts exist yet, and BEATSEAM_SETUP_TOKEN=none: the first person to open the app and sign up becomes the admin.');
     } else {
       // Nobody has to remember to configure a secret: without one, a new server makes its own, good until the first account is made.
       this.generatedSetupToken = generateToken();
       this.logger.warn(
         `No accounts exist yet. To create the first (admin) account, open the app and enter this setup token: ${this.generatedSetupToken}\n` +
-          '  (It is only valid until that account exists, and changes on every restart. Set BPMIX_SETUP_TOKEN to choose your own, or BPMIX_SETUP_TOKEN=none to skip it on a private network.)',
+          '  (It is only valid until that account exists, and changes on every restart. Set BEATSEAM_SETUP_TOKEN to choose your own, or BEATSEAM_SETUP_TOKEN=none to skip it on a private network.)',
       );
     }
   }
@@ -149,7 +149,7 @@ export class AuthService implements OnApplicationBootstrap {
     }
     const result = await this.prisma.$transaction(async (tx) => {
       // Serialises concurrent first sign-ups.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('bpmix-first-signup'))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('beatseam-first-signup'))`;
       if ((await tx.user.count({ where: ENROLLED_WHERE })) > 0) throw new ForbiddenException('Sign-up is closed; ask an admin to create an account for you');
       const graceEnds = new Date(Date.now() - this.config.setupGraceMs);
       await tx.user.deleteMany({ where: { NOT: ENROLLED_WHERE, createdAt: { lt: graceEnds } } });
@@ -463,7 +463,7 @@ export class AuthService implements OnApplicationBootstrap {
     const losesAdmin = target.role === 'ADMIN' && target.disabledAt === null && (patch.role === 'USER' || patch.disabled === true);
     // One transaction behind a lock, so two admins demoting each other at the same moment can't both see "another admin exists".
     const user = await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('bpmix:admin-roster'))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('beatseam:admin-roster'))`;
       if (losesAdmin) {
         const others = await tx.user.count({ where: { id: { not: userId }, role: 'ADMIN', disabledAt: null } });
         if (others === 0) throw new ConflictException('There must always be at least one active admin');

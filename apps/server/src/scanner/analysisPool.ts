@@ -1,5 +1,5 @@
 import { Worker } from 'node:worker_threads';
-import type { TrackAnalysis } from '@bpmix/core';
+import type { TrackAnalysis } from '@beatseam/core';
 
 export type AnalyzeFile = (absolutePath: string) => Promise<TrackAnalysis>;
 

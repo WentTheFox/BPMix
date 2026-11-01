@@ -3,7 +3,7 @@ import { availableParallelism } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { Injectable, Logger, type OnApplicationBootstrap, type OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { TrackRecord } from '@bpmix/core';
+import type { TrackRecord } from '@beatseam/core';
 import { DatabaseService } from '../db/database.module.js';
 import { JobNotifier } from './jobNotifier.js';
 import { JobQueue, type ClaimedJob, type JobStage, type RetryPolicy } from './jobQueue.js';
@@ -21,7 +21,7 @@ export interface WorkerStats {
 const LEASE_MS = 15 * 60_000;
 
 export function scanWorkerCount(config: ConfigService): number {
-  return Math.max(1, Number(config.get('BPMIX_SCAN_WORKERS') ?? Math.min(4, availableParallelism())));
+  return Math.max(1, Number(config.get('BEATSEAM_SCAN_WORKERS') ?? Math.min(4, availableParallelism())));
 }
 
 /**
@@ -54,8 +54,8 @@ export class ScanWorkers implements OnApplicationBootstrap, OnModuleDestroy {
     this.queue = new JobQueue(db.prisma);
     this.workerCount = scanWorkerCount(config);
     this.policy = {
-      maxAttempts: Math.max(1, Number(config.get('BPMIX_SCAN_MAX_ATTEMPTS') ?? 3)),
-      backoffBaseMs: Number(config.get('BPMIX_SCAN_BACKOFF_MS') ?? 30_000),
+      maxAttempts: Math.max(1, Number(config.get('BEATSEAM_SCAN_MAX_ATTEMPTS') ?? 3)),
+      backoffBaseMs: Number(config.get('BEATSEAM_SCAN_BACKOFF_MS') ?? 30_000),
       backoffFactor: 4,
     };
     this.stats = { workers: this.workerCount, succeeded: 0, failedAttempts: 0, skipped: 0, inFlight: 0 };

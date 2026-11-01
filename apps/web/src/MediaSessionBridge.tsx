@@ -1,4 +1,4 @@
-import { useFastDisplay } from '@bpmix/ui';
+import { useFastDisplay } from '@beatseam/ui';
 import { useMediaSessionNotification } from './adapters/mediaSessionNotification';
 import type { MediaSessionNotificationCallbacks, MediaSessionNotificationInfo } from './adapters/mediaSessionNotification';
 

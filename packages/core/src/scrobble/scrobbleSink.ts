@@ -2,7 +2,7 @@ import { scrobbleBatch, updateNowPlaying, type LastFmCredentials, type ScrobbleE
 
 /**
  * Where scrobbles and now-playing updates go once the tracker decides to send them: Last.fm directly (the
- * local-folder app, which holds its own session) or BPMix's server (which holds the user's link).
+ * local-folder app, which holds its own session) or Beatseam's server (which holds the user's link).
  * `scrobble` rejects with a LastFmError carrying a code when the service refused them for good (retrying
  * would fail the same way) and with any other error when trying again later could work.
  */

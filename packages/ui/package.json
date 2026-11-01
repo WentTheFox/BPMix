@@ -1,5 +1,5 @@
 {
-  "name": "@bpmix/ui",
+  "name": "@beatseam/ui",
   "version": "0.0.1",
   "private": true,
   "main": "src/index.ts",
@@ -8,7 +8,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@bpmix/core": "workspace:*",
+    "@beatseam/core": "workspace:*",
     "@mdi/js": "^7.4.47",
     "react-redux": "^9.3.0"
   },

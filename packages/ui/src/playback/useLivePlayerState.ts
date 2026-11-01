@@ -1,4 +1,4 @@
-import type { PlaylistPlayerState } from '@bpmix/core';
+import type { PlaylistPlayerState } from '@beatseam/core';
 import { useSyncExternalStore } from 'react';
 import { useLivePlayback } from './LivePlaybackContext';
 

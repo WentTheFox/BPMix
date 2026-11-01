@@ -4,7 +4,7 @@ import {
   lastFmScrobblesRequestSchema,
   type LastFmConnectResultDto,
   type LastFmStatusDto,
-} from '@bpmix/api';
+} from '@beatseam/api';
 import { CurrentPrincipal, DeviceAccessible, type Principal } from '../auth/principal.js';
 import { parseInput } from '../common/zod.js';
 import { LastFmService } from './lastfm.service.js';

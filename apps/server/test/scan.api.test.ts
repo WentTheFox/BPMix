@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { encodeTrackKey, type Page, type ScanFailureDto, type ScanJobDto, type ScanStatusDto } from '@bpmix/api';
+import { encodeTrackKey, type Page, type ScanFailureDto, type ScanJobDto, type ScanStatusDto } from '@beatseam/api';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.js';
 import { ScanWorkers } from '../src/scanner/scanWorkers.js';
@@ -23,17 +23,17 @@ const get = (p: string) => client.fetch(p);
 const json = async <T>(p: string): Promise<T> => (await get(p)).json() as Promise<T>;
 
 beforeAll(async () => {
-  base = await mkdtemp(path.join(tmpdir(), 'bpmix-scanapi-'));
+  base = await mkdtemp(path.join(tmpdir(), 'beatseam-scanapi-'));
   await mkdir(path.join(base, 'Music'));
   for (const name of ['good.mp3', 'bad.mp3']) {
     execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', path.join(base, 'Music', name)]);
   }
   Object.assign(process.env, {
     DATABASE_URL: TEST_DATABASE_URL,
-    BPMIX_LIBRARY_ROOT: base,
-    BPMIX_SCAN_ON_START: 'false',
-    BPMIX_SCAN_BACKOFF_MS: '0',
-    BPMIX_SCAN_WORKERS: '2',
+    BEATSEAM_LIBRARY_ROOT: base,
+    BEATSEAM_SCAN_ON_START: 'false',
+    BEATSEAM_SCAN_BACKOFF_MS: '0',
+    BEATSEAM_SCAN_WORKERS: '2',
   });
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(ANALYZE_FILE)

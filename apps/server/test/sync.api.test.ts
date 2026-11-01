@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { encodeTrackKey, type Page, type SyncChangesResponseDto, type SyncSnapshotResponseDto, type TrackDto } from '@bpmix/api';
+import { encodeTrackKey, type Page, type SyncChangesResponseDto, type SyncSnapshotResponseDto, type TrackDto } from '@beatseam/api';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.js';
 import { CLOCK } from '../src/auth/auth.service.js';
@@ -36,15 +36,15 @@ async function serverTracks(): Promise<Map<string, TrackDto>> {
 }
 
 beforeAll(async () => {
-  base = await mkdtemp(path.join(tmpdir(), 'bpmix-sync-'));
+  base = await mkdtemp(path.join(tmpdir(), 'beatseam-sync-'));
   await mkdir(path.join(base, 'Music', 'Album'), { recursive: true });
   for (const [file, hz] of [['Album/a.mp3', 220], ['Album/b.mp3', 330], ['c.mp3', 440], ['d.mp3', 550]] as const) {
     execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `sine=frequency=${hz}:duration=1`, '-metadata', `title=${file}`, path.join(base, 'Music', file)]);
   }
   await writeFile(path.join(base, 'Music', 'List.m3u8'), '#EXTM3U\nAlbum/b.mp3\nAlbum/a.mp3\n');
-  delete process.env.BPMIX_ORIGIN;
-  process.env.BPMIX_SETUP_TOKEN = 'none'; // open first sign-up, as most tests set up an admin directly
-  Object.assign(process.env, { DATABASE_URL: TEST_DATABASE_URL, BPMIX_LIBRARY_ROOT: base, BPMIX_SCAN_ON_START: 'false', BPMIX_DATA_DIR: path.join(base, 'data'), BPMIX_AUTH_RATE_LIMIT: '1000', BPMIX_SCAN_BACKOFF_MS: '0' });
+  delete process.env.BEATSEAM_ORIGIN;
+  process.env.BEATSEAM_SETUP_TOKEN = 'none'; // open first sign-up, as most tests set up an admin directly
+  Object.assign(process.env, { DATABASE_URL: TEST_DATABASE_URL, BEATSEAM_LIBRARY_ROOT: base, BEATSEAM_SCAN_ON_START: 'false', BEATSEAM_DATA_DIR: path.join(base, 'data'), BEATSEAM_AUTH_RATE_LIMIT: '1000', BEATSEAM_SCAN_BACKOFF_MS: '0' });
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(CLOCK)
     .useValue(clock.now)

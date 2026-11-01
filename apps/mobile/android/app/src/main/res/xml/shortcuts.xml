@@ -19,9 +19,9 @@
         android:shortcutLongLabel="@string/shortcut_library_long">
         <intent
             android:action="android.intent.action.VIEW"
-            android:targetPackage="tf.went.bpmix"
-            android:targetClass="tf.went.bpmix.MainActivity"
-            android:data="bpmix://library" />
+            android:targetPackage="tf.went.beatseam"
+            android:targetClass="tf.went.beatseam.MainActivity"
+            android:data="beatseam://library" />
     </shortcut>
     <shortcut
         android:shortcutId="now_playing"
@@ -31,8 +31,8 @@
         android:shortcutLongLabel="@string/shortcut_now_playing_long">
         <intent
             android:action="android.intent.action.VIEW"
-            android:targetPackage="tf.went.bpmix"
-            android:targetClass="tf.went.bpmix.MainActivity"
-            android:data="bpmix://now-playing" />
+            android:targetPackage="tf.went.beatseam"
+            android:targetClass="tf.went.beatseam.MainActivity"
+            android:data="beatseam://now-playing" />
     </shortcut>
 </shortcuts>

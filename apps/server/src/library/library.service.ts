@@ -1,6 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { encodeTrackKey, type ListTracksQuery, type LyricsDto, type LyricsReportDto, type LyricsSaveRequestDto, type LyricsSourceDto, type Page, type PlaylistDto, type RootDto, type TrackDto } from '@bpmix/api';
-import { formatLrc, getLyricsFileIndex, loadAssignedLyrics, parseLrc, resolveAssignedLyricsFile } from '@bpmix/core';
+import { encodeTrackKey, type ListTracksQuery, type LyricsDto, type LyricsReportDto, type LyricsSaveRequestDto, type LyricsSourceDto, type Page, type PlaylistDto, type RootDto, type TrackDto } from '@beatseam/api';
+import { formatLrc, getLyricsFileIndex, loadAssignedLyrics, parseLrc, resolveAssignedLyricsFile } from '@beatseam/core';
 import { DatabaseService } from '../db/database.module.js';
 import { Prisma } from '../generated/prisma/client.js';
 import { FILE_ACCESS, type NodeFileAccess } from '../node/node.module.js';
@@ -88,7 +88,7 @@ export class LibraryService {
 
   private async lyricsScopes() {
     const scopes = await this.db.libraryStore.getLyricsScopes();
-    if (scopes.length === 0) throw new ConflictException({ code: 'no_lyrics_folder', message: 'This server has no lyrics folder (see BPMIX_LYRICS_ROOTS)' });
+    if (scopes.length === 0) throw new ConflictException({ code: 'no_lyrics_folder', message: 'This server has no lyrics folder (see BEATSEAM_LYRICS_ROOTS)' });
     return scopes;
   }
 

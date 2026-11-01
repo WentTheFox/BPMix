@@ -3,7 +3,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 /**
  * Request-body size limit. Express's 100KB default would reject a legitimate batch of queued
  * changes (one playback state alone, with a long shuffle order, can pass it) before the per-item
- * limits in @bpmix/api get a say; those, not this, are the real rules. This is the outer fence.
+ * limits in @beatseam/api get a say; those, not this, are the real rules. This is the outer fence.
  */
 export const JSON_BODY_LIMIT = '2mb';
 
@@ -15,7 +15,7 @@ export function configureHttp(app: NestExpressApplication): void {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('X-Frame-Options', 'DENY');
-    // Only once the connection is known to be https (req.secure honours BPMIX_TRUST_PROXY); on plain http it would be ignored anyway.
+    // Only once the connection is known to be https (req.secure honours BEATSEAM_TRUST_PROXY); on plain http it would be ignored anyway.
     if (req.secure) res.setHeader('Strict-Transport-Security', 'max-age=15552000');
     // Sign-in responses carry who someone is and tokens; no cache or proxy should keep them.
     if (req.path.startsWith('/api/v1/auth')) res.setHeader('Cache-Control', 'no-store');

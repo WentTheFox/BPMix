@@ -1,6 +1,6 @@
-import type { PlaybackState, PlaylistPlayer } from '@bpmix/core';
+import type { PlaybackState, PlaylistPlayer } from '@beatseam/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { RAPID_PLAYBACK_PATCH_DEBOUNCE_MS } from '@bpmix/core';
+import { RAPID_PLAYBACK_PATCH_DEBOUNCE_MS } from '@beatseam/core';
 
 export interface VolumeControlInput {
   playlistPlayer: PlaylistPlayer;

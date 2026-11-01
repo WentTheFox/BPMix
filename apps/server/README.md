@@ -1,8 +1,8 @@
-# @bpmix/server
+# @beatseam/server
 
-A small backend for self-hosting BPMix: it serves the built web app
+A small backend for self-hosting Beatseam: it serves the built web app
 (`apps/web/dist`) and exposes a music library that's been mounted into the
-container as a Docker volume, so BPMix can play files it could never reach
+container as a Docker volume, so Beatseam can play files it could never reach
 through the browser alone.
 
 ## Why this exists
@@ -10,11 +10,11 @@ through the browser alone.
 The web app's default way of reading local files is the browser's
 [File System Access API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_API)
 (`window.showDirectoryPicker`) — you pick a folder, the browser remembers
-it, and BPMix reads files straight out of it. That only works in Chromium
+it, and Beatseam reads files straight out of it. That only works in Chromium
 browsers, and it only ever sees folders on the device the browser itself is
 running on.
 
-Running BPMix in a container sidesteps both limits: `apps/server` reads a
+Running Beatseam in a container sidesteps both limits: `apps/server` reads a
 folder that's been bind-mounted or volume-mounted into the container and
 serves it over a small HTTP API, so any browser — Chromium, Firefox,
 Safari, mobile — can browse and play it, and the library can live somewhere
@@ -33,13 +33,13 @@ The server keeps its scanned library in PostgreSQL, so it needs a database.
 Docker Compose (see `docker-compose.yml` at the repo root) sets one up for you:
 
 ```sh
-BPMIX_DB_PASSWORD=choose-something docker compose up -d --build
+BEATSEAM_DB_PASSWORD=choose-something docker compose up -d --build
 ```
 
 Then open `http://localhost:8080`. Every top-level subdirectory under
 `/music` inside the container becomes one library root, named after that
 subdirectory — the compose file mounts `~/Music` at `/music/MyLibrary`, which
-makes "MyLibrary" show up in BPMix. Mount as many folders as you want, each
+makes "MyLibrary" show up in Beatseam. Mount as many folders as you want, each
 under its own subdirectory of `/music` (edit the `volumes:` list for your
 own folder(s)).
 
@@ -47,9 +47,9 @@ To run the image against a database you already have instead:
 
 ```sh
 docker run -p 8080:8080 \
-  -e DATABASE_URL=postgresql://user:password@host:5432/bpmix \
+  -e DATABASE_URL=postgresql://user:password@host:5432/beatseam \
   -v ~/Music:/music/MyLibrary:ro \
-  bpmix
+  beatseam
 ```
 
 The container applies pending database migrations (`prisma migrate deploy`)
@@ -57,7 +57,7 @@ every time it starts.
 
 Building the image yourself (instead of pulling one) is documented in the
 root `Dockerfile`; CI publishes a multi-arch (amd64 + arm64) image to
-`ghcr.io/wentthefox/bpmix` on every push to `main`.
+`ghcr.io/wentthefox/beatseam` on every push to `main`.
 
 ## Configuration
 
@@ -66,23 +66,23 @@ Environment variables, all optional:
 | Variable              | Default   | Meaning                                                                 |
 | ---------------------- | --------- | ------------------------------------------------------------------------ |
 | `PORT`                | `8080`    | Port the server listens on.                                             |
-| `BPMIX_LIBRARY_ROOT`   | `/music`  | Base directory scanned for library roots (its immediate subdirectories).|
-| `BPMIX_LYRICS_ROOTS`   | *(none)*  | Comma-separated subdirectory names (under `BPMIX_LIBRARY_ROOT`) that hold only `.lrc` files rather than playable tracks — see below. |
-| `DATABASE_URL`         | *(required)* | PostgreSQL connection string, e.g. `postgresql://user:password@host:5432/bpmix`. |
-| `BPMIX_ORIGIN`         | *(derived from the request)* | The public address of the site, e.g. `https://music.example.com` (comma-separated for several). Used for passkeys and to refuse cross-site writes. Set it. |
-| `BPMIX_TRUST_PROXY`    | *(off)*   | How many reverse proxies to trust for the client address and protocol (`1`), or a subnet name such as `loopback`. |
-| `BPMIX_LASTFM_API_KEY` / `BPMIX_LASTFM_API_SECRET` | *(BPMix's shared Last.fm app)* | Your own Last.fm API app (last.fm/api/account/create), if you'd rather not use the shared one. Each user links their own Last.fm account from the app's settings; the server keeps the session (encrypted) and does the scrobbling. |
-| `BPMIX_SETUP_TOKEN`    | *(generated)* | Secret required by the very first sign-up (the one that becomes the admin). If unset, the server makes a one-time token at startup and prints it in its log (`docker logs <container>`). `none` skips it, for a server on a private network. |
-| `BPMIX_SECRET_KEY`     | *(generated)* | Key used to encrypt authenticator secrets. If unset, a random one is created once in `BPMIX_DATA_DIR`. |
-| `BPMIX_DATA_DIR`       | `./data` (`/data` in the image) | Where the generated secret key lives. Keep it on a volume. |
-| `BPMIX_DEVICE_WAIT_MS` | `25000` | How long one "wait for approval" request is held open before the app is told to ask again. |
-| `BPMIX_AUTH_RATE_LIMIT` | `10`     | Sign-in attempts allowed per minute per address and username. |
-| `BPMIX_SCAN_ON_START`  | `true`    | Set to `false` to not scan the library when the server starts (scans can still be started from the API, and run daily at 04:00 as a safety net). |
-| `BPMIX_SCAN_WORKERS`   | `min(4, CPU cores)` | How many tracks are processed (tags, cover art, loudness analysis) at once. |
-| `BPMIX_ANALYSIS_THREADS` | same as workers | Worker threads decoding and analysing audio. |
-| `BPMIX_SCAN_MAX_ATTEMPTS` | `3`   | How many times a track is tried before it is skipped. |
-| `BPMIX_SCAN_BACKOFF_MS` | `30000`  | Wait before the second attempt; each further attempt waits 4x longer. |
-| `BPMIX_WEB_DIST`       | `../web`  | Where the built web app's static files live. Only relevant if you're running `apps/server` outside the Docker image (its Dockerfile stage sets this for you). |
+| `BEATSEAM_LIBRARY_ROOT`   | `/music`  | Base directory scanned for library roots (its immediate subdirectories).|
+| `BEATSEAM_LYRICS_ROOTS`   | *(none)*  | Comma-separated subdirectory names (under `BEATSEAM_LIBRARY_ROOT`) that hold only `.lrc` files rather than playable tracks — see below. |
+| `DATABASE_URL`         | *(required)* | PostgreSQL connection string, e.g. `postgresql://user:password@host:5432/beatseam`. |
+| `BEATSEAM_ORIGIN`         | *(derived from the request)* | The public address of the site, e.g. `https://music.example.com` (comma-separated for several). Used for passkeys and to refuse cross-site writes. Set it. |
+| `BEATSEAM_TRUST_PROXY`    | *(off)*   | How many reverse proxies to trust for the client address and protocol (`1`), or a subnet name such as `loopback`. |
+| `BEATSEAM_LASTFM_API_KEY` / `BEATSEAM_LASTFM_API_SECRET` | *(Beatseam's shared Last.fm app)* | Your own Last.fm API app (last.fm/api/account/create), if you'd rather not use the shared one. Each user links their own Last.fm account from the app's settings; the server keeps the session (encrypted) and does the scrobbling. |
+| `BEATSEAM_SETUP_TOKEN`    | *(generated)* | Secret required by the very first sign-up (the one that becomes the admin). If unset, the server makes a one-time token at startup and prints it in its log (`docker logs <container>`). `none` skips it, for a server on a private network. |
+| `BEATSEAM_SECRET_KEY`     | *(generated)* | Key used to encrypt authenticator secrets. If unset, a random one is created once in `BEATSEAM_DATA_DIR`. |
+| `BEATSEAM_DATA_DIR`       | `./data` (`/data` in the image) | Where the generated secret key lives. Keep it on a volume. |
+| `BEATSEAM_DEVICE_WAIT_MS` | `25000` | How long one "wait for approval" request is held open before the app is told to ask again. |
+| `BEATSEAM_AUTH_RATE_LIMIT` | `10`     | Sign-in attempts allowed per minute per address and username. |
+| `BEATSEAM_SCAN_ON_START`  | `true`    | Set to `false` to not scan the library when the server starts (scans can still be started from the API, and run daily at 04:00 as a safety net). |
+| `BEATSEAM_SCAN_WORKERS`   | `min(4, CPU cores)` | How many tracks are processed (tags, cover art, loudness analysis) at once. |
+| `BEATSEAM_ANALYSIS_THREADS` | same as workers | Worker threads decoding and analysing audio. |
+| `BEATSEAM_SCAN_MAX_ATTEMPTS` | `3`   | How many times a track is tried before it is skipped. |
+| `BEATSEAM_SCAN_BACKOFF_MS` | `30000`  | Wait before the second attempt; each further attempt waits 4x longer. |
+| `BEATSEAM_WEB_DIST`       | `../web`  | Where the built web app's static files live. Only relevant if you're running `apps/server` outside the Docker image (its Dockerfile stage sets this for you). |
 
 The image runs as the unprivileged `node` user (uid 1000). A new named volume for `/data` just works; if you bind-mount
 a host folder for `/data` (or reuse a volume from an older, root-running image), make it writable for uid 1000
@@ -127,15 +127,15 @@ The server also logs each failed attempt, with the track and the reason.
 ### Mounting a separate lyrics folder
 
 If your `.lrc` files live in their own folder rather than next to each
-track, mount it as another subdirectory of `BPMIX_LIBRARY_ROOT` and list
-its name in `BPMIX_LYRICS_ROOTS`:
+track, mount it as another subdirectory of `BEATSEAM_LIBRARY_ROOT` and list
+its name in `BEATSEAM_LYRICS_ROOTS`:
 
 ```sh
 docker run -p 8080:8080 \
   -v ~/Music:/music/MyLibrary \
   -v ~/Music/Lyrics:/music/Lyrics:ro \
-  -e BPMIX_LYRICS_ROOTS=Lyrics \
-  bpmix
+  -e BEATSEAM_LYRICS_ROOTS=Lyrics \
+  beatseam
 ```
 
 Mount it without `:ro` if admins should be able to link, fix and re-time
@@ -143,7 +143,7 @@ lyrics from the apps (that writes the `.lrc` files, and the container user
 needs write access to the folder); read-only is fine if you only want to
 serve them.
 
-Without `BPMIX_LYRICS_ROOTS`, that mount would show up as its own
+Without `BEATSEAM_LYRICS_ROOTS`, that mount would show up as its own
 permanently-empty "Lyrics" library. With it, the client recognizes it as a
 lyrics-only scope and matches its `.lrc` files against tracks in every
 other root automatically — no picking a folder from the UI needed (the
@@ -183,9 +183,9 @@ There is **no open registration**.
 
 - **First run:** the first person to open the app and sign up becomes the
   admin, and must enter a setup token to do it. Unless you set
-  `BPMIX_SETUP_TOKEN` yourself, the server generates one at startup and
+  `BEATSEAM_SETUP_TOKEN` yourself, the server generates one at startup and
   prints it in its log (it changes on every restart and only matters until
-  the first account is set up); set `BPMIX_SETUP_TOKEN=none` to skip it on a
+  the first account is set up); set `BEATSEAM_SETUP_TOKEN=none` to skip it on a
   private network. After that, sign-up is closed for good. (An account that never finishes
   setting up its sign-in method is held for 15 minutes and then can be
   replaced, so you can't be locked out by a half-finished setup.)
@@ -202,7 +202,7 @@ There is **no open registration**.
   session cookies are HttpOnly + SameSite=Lax (+ Secure over https), writes
   from other websites are refused, and secrets (sessions, tokens, recovery
   codes) are stored only as hashes. Authenticator secrets are encrypted with
-  `BPMIX_SECRET_KEY`, or with a key generated once into `BPMIX_DATA_DIR`
+  `BEATSEAM_SECRET_KEY`, or with a key generated once into `BEATSEAM_DATA_DIR`
   (`/data` in the image — keep it on a volume, as the compose file does).
 
 **Native apps** sign in with a device code, which works on every platform:
@@ -217,8 +217,8 @@ change credentials, and stops working as soon as it is revoked
 (`DELETE /api/v1/auth/devices/:id`), the account is disabled, or it has been
 unused for 180 days.
 
-Running behind a reverse proxy (recommended, for https): set `BPMIX_ORIGIN` to
-the public address, e.g. `https://music.example.com`, and `BPMIX_TRUST_PROXY`
+Running behind a reverse proxy (recommended, for https): set `BEATSEAM_ORIGIN` to
+the public address, e.g. `https://music.example.com`, and `BEATSEAM_TRUST_PROXY`
 to the number of proxies in front (usually `1`) so the real client address
 and protocol are used.
 

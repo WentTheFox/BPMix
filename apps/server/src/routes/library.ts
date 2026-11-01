@@ -5,7 +5,7 @@ import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import express, { Router } from 'express';
 import type { ErrorRequestHandler } from 'express';
-import type { DirectoryEntry, FileRef, GrantedRoot } from '@bpmix/core';
+import type { DirectoryEntry, FileRef, GrantedRoot } from '@beatseam/core';
 import { discoverRoots } from '../rootDiscovery.js';
 import { resolveSafePath, resolveSafeWritePath, UnsafePathError } from '../pathSafety.js';
 
@@ -14,9 +14,9 @@ function toFileRef(rootId: string, relativePath: string, name: string, sizeBytes
 }
 
 /**
- * baseDir is the mounted library base (BPMIX_LIBRARY_ROOT); each top-level
+ * baseDir is the mounted library base (BEATSEAM_LIBRARY_ROOT); each top-level
  * subdir is a root. lyricsRootIds names the subset of those subdirs (from
- * BPMIX_LYRICS_ROOTS) that hold only .lrc files, not playable tracks - they
+ * BEATSEAM_LYRICS_ROOTS) that hold only .lrc files, not playable tracks - they
  * come back with kind: 'lyrics' so the client never scans them as a music
  * library and auto-registers them as a lyrics scope instead (see
  * GrantedRoot.kind's doc and apps/web/src/App.tsx's refresh()).
@@ -77,7 +77,7 @@ export function createLibraryRouter(baseDir: string, lyricsRootIds: ReadonlySet<
     }
   });
 
-  // Lets a client verify a track's actual content changed (see @bpmix/core's
+  // Lets a client verify a track's actual content changed (see @beatseam/core's
   // TrackMetadata.contentHash and ensureTrackMetadata's forceRefresh doc)
   // without downloading the file itself - the server hashes its own local
   // disk copy (cheap: no network transfer, just a local read) and returns

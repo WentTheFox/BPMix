@@ -2,7 +2,7 @@ import type { PrismaClient } from '../db/prisma.js';
 import { Prisma } from '../generated/prisma/client.js';
 
 /** Postgres NOTIFY channel that wakes idle workers (in this process or any other) when work appears. */
-export const JOB_CHANNEL = 'bpmix_track_jobs';
+export const JOB_CHANNEL = 'beatseam_track_jobs';
 
 export type JobStage = 'metadata' | 'analysis' | 'worker';
 

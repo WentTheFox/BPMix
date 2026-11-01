@@ -27,7 +27,7 @@ export interface PlaylistCandidateTrack {
  * offer sort-by-title/artist/album and a preview before the playlist is
  * actually written. Unlike scanRoot (which only ever treats "files
  * referenced by an existing playlist" as tracks), this is the one place
- * BPMix looks at a folder's audio files directly - see
+ * Beatseam looks at a folder's audio files directly - see
  * CLAUDE.md's "let the user create a playlist directly from a folder" TODO
  * this exists for. Playlist files themselves are excluded (a .m3u8 already
  * sitting in the folder shouldn't get "included" in a new one built from

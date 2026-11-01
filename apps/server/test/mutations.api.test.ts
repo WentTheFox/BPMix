@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { encodeTrackKey, type DeviceCodeResultDto, type DeviceWaitResultDto, type MutationDto, type MutationsResponseDto } from '@bpmix/api';
+import { encodeTrackKey, type DeviceCodeResultDto, type DeviceWaitResultDto, type MutationDto, type MutationsResponseDto } from '@beatseam/api';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from '../src/app.module.js';
@@ -33,10 +33,10 @@ const playlistOf = async (client: TestClient, id: string) => {
 };
 
 beforeAll(async () => {
-  base = await mkdtemp(path.join(tmpdir(), 'bpmix-mutations-'));
-  delete process.env.BPMIX_ORIGIN;
-  process.env.BPMIX_SETUP_TOKEN = 'none'; // open first sign-up, as most tests set up an admin directly
-  Object.assign(process.env, { DATABASE_URL: TEST_DATABASE_URL, BPMIX_LIBRARY_ROOT: base, BPMIX_SCAN_ON_START: 'false', BPMIX_DATA_DIR: path.join(base, 'data'), BPMIX_AUTH_RATE_LIMIT: '1000', BPMIX_DEVICE_WAIT_MS: '1500' });
+  base = await mkdtemp(path.join(tmpdir(), 'beatseam-mutations-'));
+  delete process.env.BEATSEAM_ORIGIN;
+  process.env.BEATSEAM_SETUP_TOKEN = 'none'; // open first sign-up, as most tests set up an admin directly
+  Object.assign(process.env, { DATABASE_URL: TEST_DATABASE_URL, BEATSEAM_LIBRARY_ROOT: base, BEATSEAM_SCAN_ON_START: 'false', BEATSEAM_DATA_DIR: path.join(base, 'data'), BEATSEAM_AUTH_RATE_LIMIT: '1000', BEATSEAM_DEVICE_WAIT_MS: '1500' });
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).overrideProvider(CLOCK).useValue(clock.now).compile();
   app = moduleRef.createNestApplication<NestExpressApplication>();
   configureHttp(app as NestExpressApplication);

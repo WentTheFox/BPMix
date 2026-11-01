@@ -7,7 +7,7 @@ import {
   type FileAccess,
   type FileRef,
   type TrackRecord,
-} from '@bpmix/core';
+} from '@beatseam/core';
 import { useCallback, useState } from 'react';
 
 export interface MissingTrackTarget {

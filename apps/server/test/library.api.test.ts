@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { analyzeTrack } from '@bpmix/core';
-import { encodeTrackKey, type Page, type PlaylistDto, type TrackDto } from '@bpmix/api';
+import { analyzeTrack } from '@beatseam/core';
+import { encodeTrackKey, type Page, type PlaylistDto, type TrackDto } from '@beatseam/api';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.js';
 import { DatabaseService } from '../src/db/database.module.js';
@@ -29,14 +29,14 @@ const get = (p: string, init?: Parameters<TestClient['fetch']>[1]) => client.fet
 const json = async <T>(p: string): Promise<T> => (await get(p)).json() as Promise<T>;
 
 beforeAll(async () => {
-  base = await mkdtemp(path.join(tmpdir(), 'bpmix-api-'));
+  base = await mkdtemp(path.join(tmpdir(), 'beatseam-api-'));
   await mkdir(path.join(base, 'Music', 'Album'), { recursive: true });
   tone(path.join(base, 'Music', 'Album', 'alpha.mp3'), 'Alpha', 'Ann', 440);
   tone(path.join(base, 'Music', 'Album', 'beta.mp3'), '100% Beta', 'Bob', 330);
   tone(path.join(base, 'Music', 'gamma.mp3'), 'Gamma', 'Ann', 220);
   await writeFile(path.join(base, 'Music', 'List.m3u8'), '#EXTM3U\nAlbum/beta.mp3\nAlbum/alpha.mp3\n');
 
-  Object.assign(process.env, { DATABASE_URL: TEST_DATABASE_URL, BPMIX_LIBRARY_ROOT: base, BPMIX_SCAN_ON_START: 'false' });
+  Object.assign(process.env, { DATABASE_URL: TEST_DATABASE_URL, BEATSEAM_LIBRARY_ROOT: base, BEATSEAM_SCAN_ON_START: 'false' });
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     // The production worker is a built file next to main.js; analyse in-process under test.
     .overrideProvider(ANALYZE_FILE)

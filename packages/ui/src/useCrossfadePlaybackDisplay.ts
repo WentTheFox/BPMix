@@ -7,7 +7,7 @@ import {
   type PlaylistPlayer,
   type TrackMetadata,
   type TrackRecord,
-} from '@bpmix/core';
+} from '@beatseam/core';
 import { useEffect, useState } from 'react';
 import { CROSSFADE_ART_TRANSITION_MS } from './CrossfadeArt';
 import { LOADING_TURNS_PER_SECOND, TURNS_PER_SONG } from './spin/spinConstants';

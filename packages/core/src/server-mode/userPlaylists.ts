@@ -1,4 +1,4 @@
-import { encodeTrackKey } from '@bpmix/api';
+import { encodeTrackKey } from '@beatseam/api';
 import type { LibraryStore, PlaylistRecord } from '../library-store/types';
 import { USER_PLAYLIST_ID_PREFIX } from './applySync';
 import type { ServerMode } from './serverMode';

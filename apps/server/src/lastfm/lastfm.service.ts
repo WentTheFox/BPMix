@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Inject, Injectable, Logger, Optional, UnprocessableEntityException, BadGatewayException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { LastFmNowPlayingRequestDto, LastFmScrobbleEntryDto, LastFmStatusDto } from '@bpmix/api';
-import { buildAuthUrl, DEFAULT_LASTFM_API_KEY, DEFAULT_LASTFM_API_SECRET, getAuthToken, getSession, LastFmError, scrobbleBatch, updateNowPlaying, type LastFmCredentials } from '@bpmix/core';
+import type { LastFmNowPlayingRequestDto, LastFmScrobbleEntryDto, LastFmStatusDto } from '@beatseam/api';
+import { buildAuthUrl, DEFAULT_LASTFM_API_KEY, DEFAULT_LASTFM_API_SECRET, getAuthToken, getSession, LastFmError, scrobbleBatch, updateNowPlaying, type LastFmCredentials } from '@beatseam/core';
 import { SECRET_BOX } from '../auth/auth.service.js';
 import type { SecretBox } from '../auth/crypto/secretBox.js';
 import { DatabaseService } from '../db/database.module.js';
@@ -11,13 +11,13 @@ export const LASTFM_FETCH = Symbol('LASTFM_FETCH');
 
 /** Last.fm's own error code for "this token hasn't been approved yet". */
 const UNAUTHORIZED_TOKEN = 14;
-/** Last.fm's "invalid session key": the user revoked BPMix on their side, or the key is otherwise dead. */
+/** Last.fm's "invalid session key": the user revoked Beatseam on their side, or the key is otherwise dead. */
 const INVALID_SESSION = 9;
 const PENDING_TOKEN_TTL_MS = 10 * 60_000;
 
 /**
- * Each user's Last.fm link, kept on the server: the app credentials (BPMIX_LASTFM_API_KEY/_SECRET, else
- * BPMix's shared app) never leave it, and neither does the session key, which is sealed at rest. Apps
+ * Each user's Last.fm link, kept on the server: the app credentials (BEATSEAM_LASTFM_API_KEY/_SECRET, else
+ * Beatseam's shared app) never leave it, and neither does the session key, which is sealed at rest. Apps
  * ask the server to connect, say what's playing, and hand over scrobbles; this is what signs and sends
  * them. That also means a link survives reinstalling an app and works from every device at once.
  */
@@ -38,8 +38,8 @@ export class LastFmService {
 
   private credentials(): LastFmCredentials {
     return {
-      apiKey: this.config.get<string>('BPMIX_LASTFM_API_KEY') || DEFAULT_LASTFM_API_KEY,
-      apiSecret: this.config.get<string>('BPMIX_LASTFM_API_SECRET') || DEFAULT_LASTFM_API_SECRET,
+      apiKey: this.config.get<string>('BEATSEAM_LASTFM_API_KEY') || DEFAULT_LASTFM_API_KEY,
+      apiSecret: this.config.get<string>('BEATSEAM_LASTFM_API_SECRET') || DEFAULT_LASTFM_API_SECRET,
       fetch: this.fetchImpl,
     };
   }
@@ -77,7 +77,7 @@ export class LastFmService {
       return { connected: true, username: session.username };
     } catch (err) {
       if (err instanceof LastFmError && err.code === UNAUTHORIZED_TOKEN) {
-        throw new ConflictException({ code: 'not_authorized', message: 'Not approved yet - approve BPMix on the Last.fm page, then try again' });
+        throw new ConflictException({ code: 'not_authorized', message: 'Not approved yet - approve Beatseam on the Last.fm page, then try again' });
       }
       return this.rethrow(err);
     }

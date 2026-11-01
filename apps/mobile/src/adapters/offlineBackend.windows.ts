@@ -1,4 +1,4 @@
-import type { OfflineBackend } from '@bpmix/core';
+import type { OfflineBackend } from '@beatseam/core';
 
 /** Windows has no native downloader yet (see the Server mode TODO in CLAUDE.md), so there is no offline storage there. */
 export function supportsOfflineStorage(): boolean {

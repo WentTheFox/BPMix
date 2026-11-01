@@ -1,4 +1,4 @@
-// Exists purely so Chrome treats BPMix as installable - installed PWAs get
+// Exists purely so Chrome treats Beatseam as installable - installed PWAs get
 // persistent File System Access permissions (survive reload/relaunch, no
 // re-prompt), which a plain browser tab never does. No offline caching is
 // attempted here (the app is inert without the user's own local/mounted

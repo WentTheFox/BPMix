@@ -3,7 +3,7 @@ import { createReadStream } from 'node:fs';
 import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import type { DirectoryEntry, FileAccess, FileRef, GrantedRoot } from '@bpmix/core';
+import type { DirectoryEntry, FileAccess, FileRef, GrantedRoot } from '@beatseam/core';
 import { discoverRoots } from '../rootDiscovery.js';
 import { resolveSafePath, resolveSafeWritePath } from '../pathSafety.js';
 
@@ -19,7 +19,7 @@ export type NodeFileAccess = FileAccess & {
 
 /**
  * FileAccess over the server's own disk, so the scan/metadata/lyrics code in
- * @bpmix/core runs unchanged on the server. Roots come from the volume
+ * @beatseam/core runs unchanged on the server. Roots come from the volume
  * mounts under baseDir (see discoverRoots), never from a user prompt, hence
  * requestRoot/revokeRoot are not supported.
  */

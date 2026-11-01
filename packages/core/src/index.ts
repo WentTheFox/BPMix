@@ -85,8 +85,8 @@ export * from './store/settings/types';
 export * from './store/services';
 
 /** Runtime marker used by the Stage 0 empty-shell screens to prove the workspace wiring resolves. */
-export const CORE_PACKAGE_NAME = '@bpmix/core';
+export const CORE_PACKAGE_NAME = '@beatseam/core';
 export * from './offline/offlineLibrary';
 export * from './offline/types';
 export * from './metadata/readEmbeddedLyrics';
-export { utf8Decode } from '@bpmix/api';
+export { utf8Decode } from '@beatseam/api';

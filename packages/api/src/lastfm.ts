@@ -4,7 +4,7 @@ import { z } from 'zod';
 export const lastFmStatusSchema = z.object({ connected: z.boolean(), username: z.string().nullable() });
 export type LastFmStatusDto = z.infer<typeof lastFmStatusSchema>;
 
-/** Step 1 of connecting: open this page in a browser and approve BPMix, then ask the server to complete. */
+/** Step 1 of connecting: open this page in a browser and approve Beatseam, then ask the server to complete. */
 export const lastFmConnectResultSchema = z.object({ authUrl: z.string() });
 export type LastFmConnectResultDto = z.infer<typeof lastFmConnectResultSchema>;
 

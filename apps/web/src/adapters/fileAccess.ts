@@ -1,4 +1,4 @@
-import { FileAccessPermissionPendingError, type DirectoryEntry, type FileAccess, type FileAccessCallOptions, type FileRef, type GrantedRoot } from '@bpmix/core';
+import { FileAccessPermissionPendingError, type DirectoryEntry, type FileAccess, type FileAccessCallOptions, type FileRef, type GrantedRoot } from '@beatseam/core';
 import { idbDelete, idbGet, idbGetAll, idbPut, openDb } from './indexedDb';
 
 interface StoredRoot {
@@ -9,7 +9,7 @@ interface StoredRoot {
   kind?: 'library' | 'lyrics';
 }
 
-const DB_NAME = 'bpmix-file-access';
+const DB_NAME = 'beatseam-file-access';
 const DB_VERSION = 1;
 const STORE_NAME = 'roots';
 

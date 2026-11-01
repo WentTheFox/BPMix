@@ -1,4 +1,4 @@
-import type { LibraryStore, ScrobbleSink, ScrobbleTrackInfo } from '@bpmix/core';
+import type { LibraryStore, ScrobbleSink, ScrobbleTrackInfo } from '@beatseam/core';
 import { useLastFmScrobbling } from '../scrobble/useLastFmScrobbling';
 import { useFastDisplay } from './useFastDisplay';
 

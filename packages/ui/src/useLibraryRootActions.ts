@@ -11,7 +11,7 @@ import {
   type FileAccess,
   type GrantedRoot,
   type LibraryStore,
-} from '@bpmix/core';
+} from '@beatseam/core';
 import { useCallback, useState, useSyncExternalStore } from 'react';
 import { lyricsScopeKey } from './LyricsFolderSection';
 
@@ -58,7 +58,7 @@ export interface LibraryRootActionsInput {
   /**
    * Called (fire-and-forget - rescan() doesn't await it) right after a
    * successful manual rescan, with the rootId that was just rescanned.
-   * Rescan is the one place a user explicitly asks BPMix to re-check a
+   * Rescan is the one place a user explicitly asks Beatseam to re-check a
    * folder, so it's also where the metadata-freshness gate that keeps the
    * normal background scan cheap (see ensureTrackMetadata's forceRefresh
    * doc / TrackMetadata.contentHash) makes sense to bypass for this root's

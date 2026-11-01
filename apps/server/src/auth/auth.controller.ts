@@ -25,7 +25,7 @@ import {
   type PasskeySummaryDto,
   type SessionSummaryDto,
   type TotpSetupDto,
-} from '@bpmix/api';
+} from '@beatseam/api';
 import { parseInput } from '../common/zod.js';
 import { AuthConfig } from './auth.config.js';
 import { AuthService, type IssuedSession, type RequestMeta } from './auth.service.js';

@@ -6,7 +6,7 @@ import {
   type PlaylistCandidateTrack,
   type PlaylistSortCriterion,
   type PlaylistSortOrder,
-} from '@bpmix/core';
+} from '@beatseam/core';
 import { mdiCheck } from '@mdi/js';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';

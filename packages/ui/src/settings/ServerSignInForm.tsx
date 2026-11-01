@@ -12,7 +12,7 @@ export interface ServerSignInFormProps {
 }
 
 /**
- * Signing in to a BPMix server, without any surrounding section: on a native app the server's address
+ * Signing in to a Beatseam server, without any surrounding section: on a native app the server's address
  * and then a code the person approves in a browser (passkeys and two-factor sign-in live there, so the
  * app never handles a password); on the web app served by the server itself just one button to its own
  * sign-in page. Shared by the server screen in Settings and the first-run onboarding.
@@ -27,7 +27,7 @@ export function ServerSignInForm({ colors, server, onAddressChange }: ServerSign
   if (server.usesBrowserSession) {
     return (
       <View>
-        <Text style={hint}>Take your library from this BPMix server instead of this browser&apos;s folders.</Text>
+        <Text style={hint}>Take your library from this Beatseam server instead of this browser&apos;s folders.</Text>
         {status.error && <Text style={[styles.error, { color: '#dc2626' }]}>{status.error}</Text>}
         <Pressable onPress={() => server.signIn('')} style={styles.actionButton}>
           <Text style={link()}>Sign in</Text>
@@ -39,7 +39,7 @@ export function ServerSignInForm({ colors, server, onAddressChange }: ServerSign
   const busy = server.phase === 'starting' || server.phase === 'awaitingApproval';
   return (
     <View>
-      <Text style={hint}>Take your library from a BPMix server instead of this device&apos;s folders.</Text>
+      <Text style={hint}>Take your library from a Beatseam server instead of this device&apos;s folders.</Text>
       {status.error && <Text style={[styles.error, { color: '#dc2626' }]}>{status.error}</Text>}
       <TextInput
         style={input}

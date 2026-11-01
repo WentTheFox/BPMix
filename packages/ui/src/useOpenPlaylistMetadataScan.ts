@@ -1,4 +1,4 @@
-import { scanLibraryMetadataQueued, type CoverArtResizer, type FileAccess, type LibraryStore, type PlaylistRecord, type TrackRecord } from '@bpmix/core';
+import { scanLibraryMetadataQueued, type CoverArtResizer, type FileAccess, type LibraryStore, type PlaylistRecord, type TrackRecord } from '@beatseam/core';
 import { useEffect } from 'react';
 
 export interface OpenPlaylistMetadataScanInput {

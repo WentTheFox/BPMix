@@ -1,4 +1,4 @@
-import { createUserPlaylistAndOpen, deleteOpenUserPlaylist, renameOpenUserPlaylist } from '@bpmix/core';
+import { createUserPlaylistAndOpen, deleteOpenUserPlaylist, renameOpenUserPlaylist } from '@beatseam/core';
 import { useCallback, useState, type ReactNode } from 'react';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useAppDispatch } from './store/hooks';
@@ -7,7 +7,7 @@ import type { Colors } from './theme';
 
 export interface UseUserPlaylistActionsResult {
   /** Asks for a name, then creates the playlist and opens it. */
-  startCreate: (callbacks?: { onOpened?: (playlist: import('@bpmix/core').PlaylistRecord, rootId: string) => void }) => void;
+  startCreate: (callbacks?: { onOpened?: (playlist: import('@beatseam/core').PlaylistRecord, rootId: string) => void }) => void;
   startRename: (currentName: string) => void;
   startDelete: (name: string) => void;
   /** The dialogs, to render once near the screen's root. Null when none is open. */
@@ -22,7 +22,7 @@ export interface UseUserPlaylistActionsResult {
 export function useUserPlaylistActions(colors: Colors): UseUserPlaylistActionsResult {
   const dispatch = useAppDispatch();
   const [dialog, setDialog] = useState<
-    | { kind: 'create'; onOpened?: (playlist: import('@bpmix/core').PlaylistRecord, rootId: string) => void }
+    | { kind: 'create'; onOpened?: (playlist: import('@beatseam/core').PlaylistRecord, rootId: string) => void }
     | { kind: 'rename'; currentName: string }
     | { kind: 'delete'; name: string }
     | null

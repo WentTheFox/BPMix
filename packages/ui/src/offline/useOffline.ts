@@ -1,4 +1,4 @@
-import type { OfflineLibrary, OfflineState } from '@bpmix/core';
+import type { OfflineLibrary, OfflineState } from '@beatseam/core';
 import { useCallback, useSyncExternalStore } from 'react';
 
 export interface UseOfflineResult {

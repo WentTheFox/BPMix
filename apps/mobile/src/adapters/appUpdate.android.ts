@@ -1,4 +1,4 @@
-import type { AppUpdateNativeBridge } from '@bpmix/core';
+import type { AppUpdateNativeBridge } from '@beatseam/core';
 import { NativeModules } from 'react-native';
 
 interface NativeAppUpdate {
@@ -8,7 +8,7 @@ interface NativeAppUpdate {
   installApk(filePath: string): Promise<void>;
 }
 
-const native = NativeModules.BPMixAppUpdate as NativeAppUpdate;
+const native = NativeModules.BeatseamAppUpdate as NativeAppUpdate;
 
 /** Thin wrapper over AppUpdateModule.kt - see AppUpdateNativeBridge's doc for the contract this fulfills. */
 export function createAppUpdateBridge(): AppUpdateNativeBridge {

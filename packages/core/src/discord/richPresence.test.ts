@@ -10,7 +10,7 @@ describe('buildSetActivityFrame', () => {
     expect(typeof frame.nonce).toBe('string');
     expect(frame.args.activity).toEqual({
       type: 2,
-      name: 'BPMix',
+      name: 'Beatseam',
       details: 'Track Title',
       state: 'Some Artist',
       timestamps: { start: 1700000000000 },
@@ -24,11 +24,11 @@ describe('buildSetActivityFrame', () => {
         title: 'Track Title',
         artist: 'Some Artist',
         startedAtUnixMs: 1700000000000,
-        albumArtUrl: 'https://bpmix.went.tf/art/abc.jpg',
+        albumArtUrl: 'https://beatseam.went.tf/art/abc.jpg',
       }),
     );
     expect(frame.args.activity.assets).toEqual({
-      large_image: 'https://bpmix.went.tf/art/abc.jpg',
+      large_image: 'https://beatseam.went.tf/art/abc.jpg',
       large_text: 'Track Title',
     });
   });

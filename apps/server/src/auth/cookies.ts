@@ -1,4 +1,4 @@
-export const SESSION_COOKIE = 'bpmix_session';
+export const SESSION_COOKIE = 'beatseam_session';
 
 export function readCookie(header: string | undefined, name: string): string | undefined {
   if (!header) return undefined;

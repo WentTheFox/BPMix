@@ -71,7 +71,7 @@ export type DeviceSignInProgress =
 export type DeviceSignInResult = { token: string; me: MeDto } | { denied: true } | { expired: true };
 
 /**
- * A small, typed client for the BPMix server. Shared by every app so the wire format lives in one
+ * A small, typed client for the Beatseam server. Shared by every app so the wire format lives in one
  * place; responses are validated against the same schemas the server is written against, so a
  * version mismatch fails loudly here instead of corrupting local data.
  */
@@ -186,7 +186,7 @@ export class ApiClient {
     return this.request('GET', '/api/v1/lastfm', lastFmStatusSchema);
   }
 
-  /** Starts linking: returns the Last.fm page to approve BPMix on. Then call lastFmComplete(). */
+  /** Starts linking: returns the Last.fm page to approve Beatseam on. Then call lastFmComplete(). */
   lastFmConnect(): Promise<LastFmConnectResultDto> {
     return this.request('POST', '/api/v1/lastfm/connect', lastFmConnectResultSchema, { body: {} });
   }

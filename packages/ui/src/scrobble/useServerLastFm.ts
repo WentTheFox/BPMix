@@ -1,4 +1,4 @@
-import { ApiError, createServerScrobbleSink, deriveLastFmStatus, type LastFmAttemptStatus, type LastFmStatusDto, type ScrobbleSink, type ServerMode } from '@bpmix/core';
+import { ApiError, createServerScrobbleSink, deriveLastFmStatus, type LastFmAttemptStatus, type LastFmStatusDto, type ScrobbleSink, type ServerMode } from '@beatseam/core';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Linking } from 'react-native';
 import type { UseLastFmConnectionResult } from './useLastFmConnection';
@@ -64,7 +64,7 @@ export function useServerLastFm(serverMode: ServerMode | undefined, signedIn: bo
       })
       .catch((err: unknown) => {
         if (err instanceof ApiError && err.code === 'not_authorized') {
-          setErrorMessage('Not approved yet - approve BPMix on the Last.fm page, then try again.');
+          setErrorMessage('Not approved yet - approve Beatseam on the Last.fm page, then try again.');
           setAttempt('awaitingAuthorization');
           return;
         }

@@ -1,5 +1,5 @@
 {
-  "name": "bpmix",
+  "name": "beatseam",
   "private": true,
   "packageManager": "pnpm@11.22.0",
   "engines": {
@@ -7,9 +7,9 @@
   },
   "scripts": {
     "postinstall": "node scripts/generate-build-info.mjs",
-    "android": "pnpm --filter @bpmix/mobile android",
-    "web": "pnpm --filter @bpmix/web dev",
-    "build": "pnpm --filter @bpmix/web build && pnpm --filter @bpmix/server build",
+    "android": "pnpm --filter @beatseam/mobile android",
+    "web": "pnpm --filter @beatseam/web dev",
+    "build": "pnpm --filter @beatseam/web build && pnpm --filter @beatseam/server build",
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm -r --if-present test",
     "lint": "eslint ."

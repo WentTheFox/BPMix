@@ -1,5 +1,5 @@
-import type { LibraryStore, ScrobbleEntry, ScrobbleSink, ScrobbleTrackInfo } from '@bpmix/core';
-import { appendToScrobbleQueue, decodeScrobbleQueue, encodeScrobbleQueue, LastFmError, ScrobbleTracker } from '@bpmix/core';
+import type { LibraryStore, ScrobbleEntry, ScrobbleSink, ScrobbleTrackInfo } from '@beatseam/core';
+import { appendToScrobbleQueue, decodeScrobbleQueue, encodeScrobbleQueue, LastFmError, ScrobbleTracker } from '@beatseam/core';
 import { useEffect, useRef } from 'react';
 
 /**

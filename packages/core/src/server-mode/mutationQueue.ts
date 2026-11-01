@@ -1,4 +1,4 @@
-import { ApiError, NetworkError, type ApiClient, type MutationDto } from '@bpmix/api';
+import { ApiError, NetworkError, type ApiClient, type MutationDto } from '@beatseam/api';
 import type { LibraryStore } from '../library-store/types';
 import { randomId } from './randomId';
 

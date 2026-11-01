@@ -1,4 +1,4 @@
-// The portable subset of @bpmix/core for apps/server, which bundles core
+// The portable subset of @beatseam/core for apps/server, which bundles core
 // (see apps/server/tsup.config.ts's alias). Everything here is plain TS over
 // the FileAccess/LibraryStore/AudioEngine interfaces - no Redux store, no
 // playback engine, no UI-facing helpers - so the server bundle doesn't drag

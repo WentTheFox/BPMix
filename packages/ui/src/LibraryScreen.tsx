@@ -1,4 +1,4 @@
-import type { GrantedRoot, PlaylistRecord, TrackRecord } from '@bpmix/core';
+import type { GrantedRoot, PlaylistRecord, TrackRecord } from '@beatseam/core';
 import { mdiFolder, mdiFolderMusic, mdiMusicNote, mdiPlay, mdiPlaylistMusic, mdiRefresh } from '@mdi/js';
 import type { ReactNode } from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';

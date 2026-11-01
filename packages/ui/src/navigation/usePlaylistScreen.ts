@@ -12,8 +12,8 @@ import {
   showNowPlaying,
   showUnplaylisted,
   toPlaylistContext,
-} from '@bpmix/core';
-import type { GrantedRoot, OpenedCallbacks, OpenScreen, PlayingContext, PlaylistRecord, TrackRecord } from '@bpmix/core';
+} from '@beatseam/core';
+import type { GrantedRoot, OpenedCallbacks, OpenScreen, PlayingContext, PlaylistRecord, TrackRecord } from '@beatseam/core';
 import { useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 

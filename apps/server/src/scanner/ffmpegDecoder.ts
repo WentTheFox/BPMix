@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import type { DecodedAudio } from '@bpmix/core';
+import type { DecodedAudio } from '@beatseam/core';
 
 const SAMPLE_RATE = 44100;
 const CHANNELS = 2;

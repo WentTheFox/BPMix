@@ -1,5 +1,5 @@
 {
-  "name": "@bpmix/web",
+  "name": "@beatseam/web",
   "version": "0.0.1",
   "private": true,
   "scripts": {
@@ -11,8 +11,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@bpmix/core": "workspace:*",
-    "@bpmix/ui": "workspace:*",
+    "@beatseam/core": "workspace:*",
+    "@beatseam/ui": "workspace:*",
     "@mdi/js": "^7.4.47",
     "react": "19.2.3",
     "react-dom": "19.2.3",

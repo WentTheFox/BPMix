@@ -1,4 +1,4 @@
-import { formatTimestamp, shiftLyricTimes, type LyricLine } from '@bpmix/core';
+import { formatTimestamp, shiftLyricTimes, type LyricLine } from '@beatseam/core';
 import { mdiAlertCircleOutline, mdiClose, mdiMinus, mdiPlus } from '@mdi/js';
 import { useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, TextInput, View, type ListRenderItemInfo } from 'react-native';

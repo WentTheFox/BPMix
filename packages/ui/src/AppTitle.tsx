@@ -8,7 +8,7 @@ export interface AppTitleProps {
 }
 
 /**
- * The "BPMix" title/app-icon header - identical in both apps' library and
+ * The "Beatseam" title/app-icon header - identical in both apps' library and
  * restoring screens (four call sites total before this was extracted).
  * Sized to match the plain-text back-link titles used by every other
  * screen's HeaderRow (the playlist/Now Playing screens) rather than
@@ -24,7 +24,7 @@ export function AppTitle({ color, accentColor }: AppTitleProps) {
   return (
     <View style={styles.row}>
       <AppIconMark accentColor={accentColor} size={22} />
-      <Text style={[styles.title, { color }]}>BPMix</Text>
+      <Text style={[styles.title, { color }]}>Beatseam</Text>
     </View>
   );
 }

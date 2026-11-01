@@ -10,7 +10,7 @@ import {
   type PlaybackStateDto,
   type UserPlaylistDto,
   type UserSettingDto,
-} from '@bpmix/api';
+} from '@beatseam/api';
 import { DatabaseService } from '../db/database.module.js';
 import type { Prisma } from '../generated/prisma/client.js';
 

@@ -1,4 +1,4 @@
-import { encodeTrackKey, type SyncChangeDto, type TrackDto } from '@bpmix/api';
+import { encodeTrackKey, type SyncChangeDto, type TrackDto } from '@beatseam/api';
 import { describe, expect, it, vi } from 'vitest';
 import { ANALYSIS_ALGORITHM_VERSION } from '../analysis/analyzeTrack';
 import { METADATA_PARSER_VERSION } from '../metadata/ensureMetadata';
@@ -9,7 +9,7 @@ import { createModeAwareFileAccess, ServerModeUnsupportedError } from './serverF
 import type { OfflineLibrary } from '../offline/offlineLibrary';
 import { isPlayingNow } from './devicePlayback';
 import { createServerScrobbleSink } from './serverLastFm';
-import { NetworkError } from '@bpmix/api';
+import { NetworkError } from '@beatseam/api';
 import { normalizeServerUrl, ServerMode } from './serverMode';
 import { fakeServer, json, MemoryStore } from './testing';
 
@@ -489,7 +489,7 @@ describe('ServerMode sign-in', () => {
     expect(mode.isActive()).toBe(false);
   });
 
-  it('does not connect when the page is not served by a BPMix server, or when the person has not finished enrolling', async () => {
+  it('does not connect when the page is not served by a Beatseam server, or when the person has not finished enrolling', async () => {
     const server = fakeServer();
     const mode = new ServerMode({ store: new MemoryStore(), deviceName: () => 'x', fetch: server.fetch, sameOrigin: true });
     server.handler = () => new Response('<!doctype html>', { status: 200, headers: { 'content-type': 'text/html' } }); // a static host's SPA fallback

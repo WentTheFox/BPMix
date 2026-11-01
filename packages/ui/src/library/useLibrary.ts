@@ -1,5 +1,5 @@
-import { libraryErrorSet, selectMissingFileIds, selectRootsWithLibrary } from '@bpmix/core';
-import type { GrantedRoot, LyricsScope, RootWithLibrary } from '@bpmix/core';
+import { libraryErrorSet, selectMissingFileIds, selectRootsWithLibrary } from '@beatseam/core';
+import type { GrantedRoot, LyricsScope, RootWithLibrary } from '@beatseam/core';
 import { useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 
@@ -17,7 +17,7 @@ export interface LibraryView {
 }
 
 /**
- * The store's `library` slice (see @bpmix/core's store/library) as a view
+ * The store's `library` slice (see @beatseam/core's store/library) as a view
  * plus stable setters, shared by both apps. Loading is done by the
  * refreshLibrary thunk, not here.
  */

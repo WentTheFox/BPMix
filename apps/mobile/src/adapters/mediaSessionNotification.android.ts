@@ -29,12 +29,12 @@ export interface MediaSessionNotificationCallbacks {
  * there) plus this JS glue.
  *
  * Deliberately does NOT re-push the notification on every position tick
- * (BPMix's own ~200ms poll) - the underlying PlaybackStateCompat carries a
+ * (Beatseam's own ~200ms poll) - the underlying PlaybackStateCompat carries a
  * position+speed pair that Android itself interpolates from between
  * updates (the same mechanism every proper MediaSession-based player
  * relies on for a smoothly-advancing lock-screen seek bar), so this only
  * needs to (and does) re-anchor on track/state changes. A known, accepted
- * gap: a manual seek via BPMix's own in-app seek bar (as opposed to the
+ * gap: a manual seek via Beatseam's own in-app seek bar (as opposed to the
  * notification's own seek bar, which calls onSeekTo below and IS covered)
  * won't immediately re-anchor the lock-screen's displayed position until
  * the next track/play-pause change - rare enough (seeking while actually

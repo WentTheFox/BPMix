@@ -1,6 +1,6 @@
 import { GoneException, Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { decodeTrackKey, encodeTrackKey, type SyncChangeDto, type SyncChangesResponseDto, type SyncSnapshotResponseDto } from '@bpmix/api';
+import { decodeTrackKey, encodeTrackKey, type SyncChangeDto, type SyncChangesResponseDto, type SyncSnapshotResponseDto } from '@beatseam/api';
 import { DatabaseService } from '../db/database.module.js';
 import { LibraryService } from '../library/library.service.js';
 import { UserDataService } from '../userdata/userdata.service.js';

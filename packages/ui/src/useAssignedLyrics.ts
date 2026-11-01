@@ -1,4 +1,4 @@
-import { loadAssignedLyrics, type FileAccess, type LibraryStore, type LyricsScope, type ParsedLyrics } from '@bpmix/core';
+import { loadAssignedLyrics, type FileAccess, type LibraryStore, type LyricsScope, type ParsedLyrics } from '@beatseam/core';
 import { useEffect, useState } from 'react';
 
 /** `undefined` while loading, `null` once loaded with no lyrics assigned/found. */

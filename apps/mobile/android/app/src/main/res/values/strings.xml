@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">BPMix</string>
+    <string name="app_name">Beatseam</string>
     <!-- Launcher shortcut labels - see res/xml/shortcuts.xml. -->
     <string name="shortcut_library_short">Library</string>
     <string name="shortcut_library_long">Library</string>

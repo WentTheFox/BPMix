@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Post } from '@nestjs/common';
-import { lyricsReportRequestSchema, type LyricsReportDto } from '@bpmix/api';
+import { lyricsReportRequestSchema, type LyricsReportDto } from '@beatseam/api';
 import { CurrentPrincipal, DeviceAccessible, Roles, type Principal } from '../auth/principal.js';
 import { fileIdFromKey } from '../common/trackKeys.js';
 import { parseInput } from '../common/zod.js';

@@ -3,7 +3,7 @@ import { z } from 'zod';
 /** Bumped only for breaking changes; additive changes stay within the same version. */
 export const API_VERSION = 1;
 /** Request header clients send; the server answers 426 when it can't serve that version. */
-export const API_VERSION_HEADER = 'X-BPMix-Api';
+export const API_VERSION_HEADER = 'X-Beatseam-Api';
 
 export const rootSchema = z.object({
   id: z.string(),

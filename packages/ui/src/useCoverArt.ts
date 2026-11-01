@@ -1,4 +1,4 @@
-import type { LibraryStore } from '@bpmix/core';
+import type { LibraryStore } from '@beatseam/core';
 import { useEffect, useState } from 'react';
 
 /**

@@ -1,4 +1,4 @@
-import type { DiscordPresenceBridge } from '@bpmix/core';
+import type { DiscordPresenceBridge } from '@beatseam/core';
 import { NativeModules } from 'react-native';
 
 interface NativeDiscordRpc {
@@ -7,7 +7,7 @@ interface NativeDiscordRpc {
   disconnect(): Promise<void>;
 }
 
-const native = NativeModules.BPMixDiscordRpc as NativeDiscordRpc;
+const native = NativeModules.BeatseamDiscordRpc as NativeDiscordRpc;
 
 /** Thin wrapper over DiscordRpcModule.kt - see DiscordPresenceBridge's doc for the contract this fulfills. */
 export function createDiscordPresenceBridge(): DiscordPresenceBridge | null {

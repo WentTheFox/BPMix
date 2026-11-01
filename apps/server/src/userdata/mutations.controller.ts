@@ -1,5 +1,5 @@
 import { Body, Controller, Post } from '@nestjs/common';
-import { mutationsRequestSchema, type MutationsResponseDto } from '@bpmix/api';
+import { mutationsRequestSchema, type MutationsResponseDto } from '@beatseam/api';
 import { CurrentPrincipal, DeviceAccessible, type Principal } from '../auth/principal.js';
 import { parseInput } from '../common/zod.js';
 import { UserDataService } from './userdata.service.js';

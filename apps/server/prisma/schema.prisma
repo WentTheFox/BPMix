@@ -10,10 +10,10 @@ datasource db {
   provider = "postgresql"
 }
 
-/// No FK relations from the per-file tables below on purpose: @bpmix/core's
+/// No FK relations from the per-file tables below on purpose: @beatseam/core's
 /// scanners may write metadata/lyrics for a fileId before (or after) its track
 /// row exists, and orphans are cleaned by pruneOrphanedRootData instead.
-/// Mirrors @bpmix/core's TrackRecord. fileId is `${rootId}:${relativePath}`
+/// Mirrors @beatseam/core's TrackRecord. fileId is `${rootId}:${relativePath}`
 /// (or a synthetic id for `missing` placeholders).
 model Track {
   fileId         String  @id @map("file_id")

@@ -1,4 +1,4 @@
-import { errorMessage, findPlaylistFile, type FileAccess, type PlaylistRecord } from '@bpmix/core';
+import { errorMessage, findPlaylistFile, type FileAccess, type PlaylistRecord } from '@beatseam/core';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { BackButton } from './BackButton';

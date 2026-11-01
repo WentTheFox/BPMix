@@ -1,4 +1,4 @@
-import { ApiError, NetworkError } from '@bpmix/api';
+import { ApiError, NetworkError } from '@beatseam/api';
 import type { LibraryStore } from '../library-store/types';
 import { errorMessage } from '../errorMessage';
 import type { ServerMode, ServerStatus } from '../server-mode/serverMode';

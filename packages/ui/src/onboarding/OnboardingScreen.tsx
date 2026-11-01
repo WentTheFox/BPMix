@@ -1,4 +1,4 @@
-import { normalizeServerUrl } from '@bpmix/core';
+import { normalizeServerUrl } from '@beatseam/core';
 import { useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { navigateTo } from '../navigateTo';
@@ -26,7 +26,7 @@ function setupAddress(typed: string): string | null {
 }
 
 /**
- * What a fresh install shows first: connecting to a BPMix server is the way to use the app (the library,
+ * What a fresh install shows first: connecting to a Beatseam server is the way to use the app (the library,
  * playlists, lyrics and playback position all follow the person between devices), with folders on this
  * device as the quieter alternative. Signing in finishes it by itself (see useOnboarding).
  */
@@ -38,9 +38,9 @@ export function OnboardingScreen({ colors, server, setupRequired = false, onUseL
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Text style={[styles.title, { color: colors.text }]}>Welcome to BPMix</Text>
+        <Text style={[styles.title, { color: colors.text }]}>Welcome to Beatseam</Text>
         <Text style={[styles.lead, { color: colors.subtleText }]}>
-          Connect to your BPMix server and your library, playlists and lyrics follow you from device to device.
+          Connect to your Beatseam server and your library, playlists and lyrics follow you from device to device.
         </Text>
 
         <View style={[styles.card, { borderColor: withAlpha(colors.text, 0.2) }]}>

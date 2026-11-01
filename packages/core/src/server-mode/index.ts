@@ -9,5 +9,5 @@ export * from './serverFileAccess';
 export * from './serverLastFm';
 export * from './serverMode';
 // The error types the UI tells apart, re-exported so apps and the UI needn't depend on the wire package.
-export { ApiError, NetworkError } from '@bpmix/api';
-export type { LastFmStatusDto } from '@bpmix/api';
+export { ApiError, NetworkError } from '@beatseam/api';
+export type { LastFmStatusDto } from '@beatseam/api';

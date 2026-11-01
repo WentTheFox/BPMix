@@ -1,4 +1,4 @@
-import { analyzeTrack, type TrackAnalysis } from '@bpmix/core';
+import { analyzeTrack, type TrackAnalysis } from '@beatseam/core';
 import type { DatabaseService } from '../src/db/database.module.js';
 import { createPrismaClient, type PrismaClient } from '../src/db/prisma.js';
 import { createPrismaLibraryStore } from '../src/db/prismaLibraryStore.js';
@@ -46,10 +46,10 @@ export interface ScanStack {
 export async function createScanStack(options: {
   base: string;
   analyze?: AnalyzeFn;
-  /** Config overrides, e.g. BPMIX_SCAN_WORKERS. Retries are due immediately (0ms backoff) unless overridden: the scan only waits for jobs that are due, so a nonzero backoff would make it race the retries. */
+  /** Config overrides, e.g. BEATSEAM_SCAN_WORKERS. Retries are due immediately (0ms backoff) unless overridden: the scan only waits for jobs that are due, so a nonzero backoff would make it race the retries. */
   env?: Record<string, string>;
 }): Promise<ScanStack> {
-  const env: Record<string, string> = { BPMIX_SCAN_WORKERS: '2', BPMIX_SCAN_BACKOFF_MS: '0', ...options.env };
+  const env: Record<string, string> = { BEATSEAM_SCAN_WORKERS: '2', BEATSEAM_SCAN_BACKOFF_MS: '0', ...options.env };
   const config = { get: (key: string) => env[key] } as never;
   const db = { prisma: testPrisma, libraryStore: createPrismaLibraryStore(testPrisma), connectionString: TEST_DATABASE_URL } as unknown as DatabaseService;
   const fileAccess = createNodeFileAccess(options.base, new Set(['Lyrics']));

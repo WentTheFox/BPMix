@@ -1,17 +1,17 @@
-import type { TrackMetadata, TrackRecord } from '@bpmix/core';
+import type { TrackMetadata, TrackRecord } from '@beatseam/core';
 import { createLibraryStore } from '../src/adapters/libraryStore.windows';
 
 // jest.mock below is hoisted above these imports by babel-jest, so the
 // store module sees the fake native module when it loads.
 //
-// In-memory stand-in for the BPMixLocalStorage native module - each call
+// In-memory stand-in for the BeatseamLocalStorage native module - each call
 // takes a macrotask, like the real WinRT file I/O, so concurrent callers
 // genuinely overlap.
 const mockFiles = new Map<string, string>();
 const mockStats = { writes: 0 };
 jest.mock('react-native', () => ({
   NativeModules: {
-    BPMixLocalStorage: {
+    BeatseamLocalStorage: {
       readText: (name: string) => new Promise((resolve) => setTimeout(() => resolve(mockFiles.get(name) ?? null), 0)),
       writeText: (name: string, content: string) =>
         new Promise<void>((resolve) =>

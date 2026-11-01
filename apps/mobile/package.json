@@ -1,5 +1,5 @@
 {
-  "name": "@bpmix/mobile",
+  "name": "@beatseam/mobile",
   "version": "0.0.1",
   "private": true,
   "scripts": {
@@ -16,8 +16,8 @@
   },
   "dependencies": {
     "@bam.tech/react-native-image-resizer": "^3.0.11",
-    "@bpmix/core": "workspace:*",
-    "@bpmix/ui": "workspace:*",
+    "@beatseam/core": "workspace:*",
+    "@beatseam/ui": "workspace:*",
     "@mdi/js": "^7.4.47",
     "base64-js": "^1.5.1",
     "hermes-compiler": "250829098.0.10",
@@ -56,8 +56,8 @@
   },
   "react-native-windows": {
     "init-windows": {
-      "name": "BPMix",
-      "namespace": "BPMix.Windows",
+      "name": "Beatseam",
+      "namespace": "Beatseam.Windows",
       "template": "cpp-app"
     }
   }

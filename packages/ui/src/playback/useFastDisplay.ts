@@ -1,5 +1,5 @@
-import { computeFastDisplay } from '@bpmix/core';
-import type { FastDisplay } from '@bpmix/core';
+import { computeFastDisplay } from '@beatseam/core';
+import type { FastDisplay } from '@beatseam/core';
 import { useMemo } from 'react';
 import { useLivePlayerState } from './useLivePlayerState';
 

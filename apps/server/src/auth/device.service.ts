@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { ConflictException, Injectable, Logger, NotFoundException, type OnModuleDestroy } from '@nestjs/common';
 import type { Request } from 'express';
-import type { DeviceCodeResultDto, DeviceLookupDto, DeviceTokenSummaryDto, DeviceWaitResultDto } from '@bpmix/api';
+import type { DeviceCodeResultDto, DeviceLookupDto, DeviceTokenSummaryDto, DeviceWaitResultDto } from '@beatseam/api';
 import { DatabaseService } from '../db/database.module.js';
 import { AuthConfig } from './auth.config.js';
 import { AuthService } from './auth.service.js';

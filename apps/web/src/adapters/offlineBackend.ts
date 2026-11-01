@@ -1,6 +1,6 @@
-import { ApiError, NetworkError, type OfflineBackend } from '@bpmix/core';
+import { ApiError, NetworkError, type OfflineBackend } from '@beatseam/core';
 
-const DIRECTORY = 'bpmix-offline';
+const DIRECTORY = 'beatseam-offline';
 const MANIFEST = 'manifest.json';
 
 const toHex = (bytes: ArrayBuffer) => Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, '0')).join('');

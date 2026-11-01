@@ -1,4 +1,4 @@
-import type { DirectoryEntry, FileAccess, FileRef, GrantedRoot } from '@bpmix/core';
+import type { DirectoryEntry, FileAccess, FileRef, GrantedRoot } from '@beatseam/core';
 
 /** Each "/"-separated segment must be encoded on its own - encoding the whole path would turn its "/"s into %2F. */
 function encodeRelativePath(relativePath: string): string {

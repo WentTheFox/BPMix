@@ -1,4 +1,4 @@
-import type { DirectoryEntry, FileAccess, FileAccessCallOptions, FileRef, GrantedRoot } from '@bpmix/core';
+import type { DirectoryEntry, FileAccess, FileAccessCallOptions, FileRef, GrantedRoot } from '@beatseam/core';
 import { createFileAccess } from './fileAccess';
 import { createServerFileAccess } from './fileAccess.server';
 

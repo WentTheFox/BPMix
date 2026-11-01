@@ -1,5 +1,5 @@
 import sharp from 'sharp';
-import type { CoverArtResizer } from '@bpmix/core';
+import type { CoverArtResizer } from '@beatseam/core';
 
 /** Downscales oversized embedded art to a WebP no larger than maxDimensionPx on either side. */
 export const sharpCoverArtResizer: CoverArtResizer = {

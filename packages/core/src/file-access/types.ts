@@ -139,7 +139,7 @@ export interface FileAccess {
 
   /**
    * When present, a real content hash for `ref` computed WITHOUT the
-   * caller having to download the file - see @bpmix/core's
+   * caller having to download the file - see @beatseam/core's
    * TrackMetadata.contentHash and ensureTrackMetadata's forceRefresh doc,
    * which is what this exists for. Only fileAccess.server.ts implements
    * this for real (the server hashes its own local disk copy and returns

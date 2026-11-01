@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react';
-import type { LivePlayback } from '@bpmix/core';
+import type { LivePlayback } from '@beatseam/core';
 
 /** Carries the app's LivePlayback so any component can subscribe to the fast-moving player state without it being threaded through props from the root. */
 export const LivePlaybackContext = createContext<LivePlayback | null>(null);

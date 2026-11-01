@@ -1,4 +1,4 @@
-import { createLocalScrobbleSink, type ScrobbleSink } from '@bpmix/core';
+import { createLocalScrobbleSink, type ScrobbleSink } from '@beatseam/core';
 import { useMemo } from 'react';
 import type { AppSettings } from '../settings/types';
 

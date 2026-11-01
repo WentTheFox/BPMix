@@ -1,4 +1,4 @@
-import type { DirectoryEntry, FileAccess } from '@bpmix/core';
+import type { DirectoryEntry, FileAccess } from '@beatseam/core';
 import { mdiArrowLeft, mdiFolder, mdiRefresh } from '@mdi/js';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';

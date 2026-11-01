@@ -1,6 +1,6 @@
 import { Global, Injectable, Module, type OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { LibraryStore } from '@bpmix/core';
+import type { LibraryStore } from '@beatseam/core';
 import { createPrismaClient, type PrismaClient } from './prisma.js';
 import { createPrismaLibraryStore } from './prismaLibraryStore.js';
 
@@ -10,7 +10,7 @@ export class DatabaseService implements OnModuleDestroy {
   readonly prisma: PrismaClient;
   /** For the few things Prisma can't do (LISTEN/NOTIFY needs a dedicated connection). */
   readonly connectionString: string;
-  /** The shared library, as @bpmix/core's LibraryStore, for running core's scanners server-side. */
+  /** The shared library, as @beatseam/core's LibraryStore, for running core's scanners server-side. */
   readonly libraryStore: LibraryStore;
 
   constructor(config: ConfigService) {

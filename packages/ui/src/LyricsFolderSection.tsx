@@ -1,4 +1,4 @@
-import type { LyricsScope } from '@bpmix/core';
+import type { LyricsScope } from '@beatseam/core';
 import { mdiRefresh, mdiSubtitles } from '@mdi/js';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { IconLabel } from './IconLabel';

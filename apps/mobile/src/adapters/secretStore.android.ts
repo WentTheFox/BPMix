@@ -1,4 +1,4 @@
-import type { SecretStore } from '@bpmix/core';
+import type { SecretStore } from '@beatseam/core';
 import { NativeModules } from 'react-native';
 
 interface NativeSecretStore {
@@ -7,9 +7,9 @@ interface NativeSecretStore {
   deleteSecret(name: string): Promise<void>;
 }
 
-const native = NativeModules.BPMixSecretStore as NativeSecretStore;
+const native = NativeModules.BeatseamSecretStore as NativeSecretStore;
 
-/** One named secret in the Android Keystore (BPMixSecretStoreModule.kt). */
+/** One named secret in the Android Keystore (BeatseamSecretStoreModule.kt). */
 export function createSecretStore(name: string): SecretStore {
   return {
     get: () => native.getSecret(name),

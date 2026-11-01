@@ -1,4 +1,4 @@
-import { ApiError, encodeTrackKey, NetworkError } from '@bpmix/api';
+import { ApiError, encodeTrackKey, NetworkError } from '@beatseam/api';
 import type { LibraryStore } from '../library-store/types';
 import type { ServerMode } from './serverMode';
 

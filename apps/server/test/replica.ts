@@ -1,4 +1,4 @@
-import type { PlaybackStateDto, PlaylistDto, SyncChangeDto, SyncChangesResponseDto, SyncSnapshotResponseDto, TrackDto, UserPlaylistDto, UserSettingDto } from '@bpmix/api';
+import type { PlaybackStateDto, PlaylistDto, SyncChangeDto, SyncChangesResponseDto, SyncSnapshotResponseDto, TrackDto, UserPlaylistDto, UserSettingDto } from '@beatseam/api';
 import type { TestClient } from './testClient.js';
 
 /** What a client holds: the entities it has been told about, and its place in the feed. */

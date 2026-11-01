@@ -1,4 +1,4 @@
-import { NetworkError, refreshLibrary, syncServerLibrary, type ServerMode, type ServerStatus } from '@bpmix/core';
+import { NetworkError, refreshLibrary, syncServerLibrary, type ServerMode, type ServerStatus } from '@beatseam/core';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Linking } from 'react-native';
 import { navigateTo } from '../navigateTo';
@@ -23,7 +23,7 @@ export interface UseServerConnectionResult {
 }
 
 /**
- * Drives the "BPMix server" connection: native sign-in with a device code (the person approves it in
+ * Drives the "Beatseam server" connection: native sign-in with a device code (the person approves it in
  * a browser, so passkeys and 2FA happen there, not in the app), manual resync, and sign-out. Signing
  * in or out reloads the library so the screens switch between the server's and the local folders'.
  */

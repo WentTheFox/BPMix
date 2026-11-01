@@ -1,4 +1,4 @@
-import { continuePlayback, type LibraryStore, type RemotePlayback, type ServerMode } from '@bpmix/core';
+import { continuePlayback, type LibraryStore, type RemotePlayback, type ServerMode } from '@beatseam/core';
 import { useCallback, useEffect, useState } from 'react';
 import { useAppDispatch } from '../store/hooks';
 

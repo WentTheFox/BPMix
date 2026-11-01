@@ -1,4 +1,4 @@
-import type { AnalysisResult, LibraryStore } from '@bpmix/core';
+import type { AnalysisResult, LibraryStore } from '@beatseam/core';
 import { useEffect, useState } from 'react';
 
 const ANALYSIS_RETRY_MS = 500;

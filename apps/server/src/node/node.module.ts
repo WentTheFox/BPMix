@@ -14,14 +14,14 @@ export type { NodeFileAccess };
       inject: [ConfigService],
       useFactory: (config: ConfigService): NodeFileAccess => {
         // Comma-separated top-level subdirectory names (under the library root) that hold only
-        // .lrc files rather than playable tracks - see BPMIX_LYRICS_ROOTS in the README.
+        // .lrc files rather than playable tracks - see BEATSEAM_LYRICS_ROOTS in the README.
         const lyricsRoots = new Set(
-          (config.get<string>('BPMIX_LYRICS_ROOTS') ?? '')
+          (config.get<string>('BEATSEAM_LYRICS_ROOTS') ?? '')
             .split(',')
             .map((id) => id.trim())
             .filter((id) => id.length > 0),
         );
-        return createNodeFileAccess(config.get<string>('BPMIX_LIBRARY_ROOT') ?? '/music', lyricsRoots);
+        return createNodeFileAccess(config.get<string>('BEATSEAM_LIBRARY_ROOT') ?? '/music', lyricsRoots);
       },
     },
   ],

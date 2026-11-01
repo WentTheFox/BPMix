@@ -1,5 +1,5 @@
 {
-  "name": "@bpmix/server",
+  "name": "@beatseam/server",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -14,8 +14,8 @@
     "migrate": "prisma migrate deploy"
   },
   "dependencies": {
-    "@bpmix/api": "workspace:*",
-    "@bpmix/core": "workspace:*",
+    "@beatseam/api": "workspace:*",
+    "@beatseam/core": "workspace:*",
     "@nestjs/common": "^11.2.7",
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.2.7",

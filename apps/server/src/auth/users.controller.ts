@@ -5,7 +5,7 @@ import {
   type CreateUserResultDto,
   type InviteResultDto,
   type UserSummaryDto,
-} from '@bpmix/api';
+} from '@beatseam/api';
 import { parseInput } from '../common/zod.js';
 import { AuthService } from './auth.service.js';
 import { CurrentPrincipal, Roles, type Principal } from './principal.js';

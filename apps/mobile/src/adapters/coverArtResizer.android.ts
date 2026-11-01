@@ -1,4 +1,4 @@
-import { encodeBase64, type CoverArtResizer } from '@bpmix/core';
+import { encodeBase64, type CoverArtResizer } from '@beatseam/core';
 import ImageResizer from '@bam.tech/react-native-image-resizer';
 
 const OUTPUT_QUALITY = 85;

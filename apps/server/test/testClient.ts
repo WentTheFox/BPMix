@@ -1,5 +1,5 @@
-import type { MeDto } from '@bpmix/api';
-import { API_VERSION } from '@bpmix/api';
+import type { MeDto } from '@beatseam/api';
+import { API_VERSION } from '@beatseam/api';
 import { base32Decode, hotp, totpStep } from '../src/auth/crypto/totp.js';
 
 /** A controllable time source for TOTP (see CLOCK in auth.service.ts). Each advance() opens a fresh 30s window. */
@@ -36,14 +36,14 @@ export class TestClient {
       headers: {
         ...(this.cookie ? { cookie: this.cookie } : {}),
         ...(this.bearer ? { authorization: `Bearer ${this.bearer}` } : {}),
-        ...(csrf ? { 'x-bpmix-api': String(API_VERSION) } : {}),
+        ...(csrf ? { 'x-beatseam-api': String(API_VERSION) } : {}),
         ...(json !== undefined ? { 'content-type': 'application/json' } : {}),
         ...headers,
       },
       body: json !== undefined ? JSON.stringify(json) : rest.body,
     });
-    const setCookie = res.headers.getSetCookie().find((c) => c.startsWith('bpmix_session='));
-    if (setCookie) this.cookie = setCookie.startsWith('bpmix_session=;') ? undefined : setCookie.split(';')[0];
+    const setCookie = res.headers.getSetCookie().find((c) => c.startsWith('beatseam_session='));
+    if (setCookie) this.cookie = setCookie.startsWith('beatseam_session=;') ? undefined : setCookie.split(';')[0];
     return res;
   }
 

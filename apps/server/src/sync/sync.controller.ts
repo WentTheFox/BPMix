@@ -1,5 +1,5 @@
 import { Controller, Get, Query } from '@nestjs/common';
-import { syncChangesQuerySchema, syncSnapshotQuerySchema, type SyncChangesResponseDto, type SyncSnapshotResponseDto } from '@bpmix/api';
+import { syncChangesQuerySchema, syncSnapshotQuerySchema, type SyncChangesResponseDto, type SyncSnapshotResponseDto } from '@beatseam/api';
 import { CurrentPrincipal, DeviceAccessible, type Principal } from '../auth/principal.js';
 import { parseInput } from '../common/zod.js';
 import { SyncService } from './sync.service.js';

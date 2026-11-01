@@ -1,4 +1,4 @@
-import { isPlayingNow } from '@bpmix/core';
+import { isPlayingNow } from '@beatseam/core';
 import { mdiPlay } from '@mdi/js';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { formatAgo } from '../formatAgo';

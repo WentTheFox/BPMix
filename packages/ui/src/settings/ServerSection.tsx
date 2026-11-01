@@ -26,7 +26,7 @@ const STORAGE_LIMITS = [
 ];
 
 /**
- * Where the app's library comes from: this device's own folders, or a BPMix server. Signing in uses a
+ * Where the app's library comes from: this device's own folders, or a Beatseam server. Signing in uses a
  * code the person approves in a browser (where passkeys and two-factor sign-in live), so the app never
  * handles a password.
  */
@@ -39,7 +39,7 @@ export function ServerSection({ colors, server, offline }: ServerSectionProps) {
   if (status.active) {
     return (
       <View style={spaced}>
-        <Section title="BPMix server" colors={colors}>
+        <Section title="Beatseam server" colors={colors}>
           <View style={styles.row}>
             <Text style={[styles.rowLabel, { color: colors.text }]}>Signed in as</Text>
             <Text style={[styles.rowValue, { color: colors.subtleText }]}>{status.userName ?? 'unknown'}</Text>
@@ -119,7 +119,7 @@ export function ServerSection({ colors, server, offline }: ServerSectionProps) {
 
   return (
     <View style={spaced}>
-      <Section title="BPMix server" colors={colors}>
+      <Section title="Beatseam server" colors={colors}>
         <ServerSignInForm colors={colors} server={server} />
       </Section>
     </View>

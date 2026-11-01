@@ -1,5 +1,5 @@
-import type { DiscordNowPlayingInfo, DiscordPresenceBridge } from '@bpmix/core';
-import { buildSetActivityFrame } from '@bpmix/core';
+import type { DiscordNowPlayingInfo, DiscordPresenceBridge } from '@beatseam/core';
+import { buildSetActivityFrame } from '@beatseam/core';
 import { useEffect, useRef, useState } from 'react';
 
 export interface DiscordPresenceTrackInfo {

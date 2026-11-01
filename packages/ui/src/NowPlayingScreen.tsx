@@ -1,4 +1,4 @@
-import type { FileAccess, LibraryStore, LyricsScope, ServerLyricsEditing } from '@bpmix/core';
+import type { FileAccess, LibraryStore, LyricsScope, ServerLyricsEditing } from '@beatseam/core';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';

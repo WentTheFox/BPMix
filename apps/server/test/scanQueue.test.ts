@@ -19,7 +19,7 @@ async function stack(options: { analyze?: AnalyzeFn; env?: Record<string, string
 const jobFor = (name: string) => testPrisma.trackJob.findUniqueOrThrow({ where: { fileId: `Music:${name}` } });
 
 beforeAll(async () => {
-  base = await mkdtemp(path.join(tmpdir(), 'bpmix-queue-'));
+  base = await mkdtemp(path.join(tmpdir(), 'beatseam-queue-'));
   await mkdir(path.join(base, 'Music'));
   trackNames.forEach((name, i) => {
     execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `sine=frequency=${200 + i * 20}:duration=1`, '-metadata', `title=${name}`, path.join(base, 'Music', name)]);
@@ -47,8 +47,8 @@ describe('scan job queue', () => {
       return realAnalyze(absolutePath);
     };
     // Two independent pools (as two server processes would be), three workers each.
-    const a = await stack({ analyze, env: { BPMIX_SCAN_WORKERS: '3' } });
-    await stack({ analyze, env: { BPMIX_SCAN_WORKERS: '3' } });
+    const a = await stack({ analyze, env: { BEATSEAM_SCAN_WORKERS: '3' } });
+    await stack({ analyze, env: { BEATSEAM_SCAN_WORKERS: '3' } });
 
     const summary = await a.scanner.scanAll();
 
@@ -91,7 +91,7 @@ describe('scan job queue', () => {
 
     const first = await scanner.scanAll();
     expect(first.jobs).toMatchObject({ done: 11, skipped: 1 });
-    expect(badCalls).toBe(3); // BPMIX_SCAN_MAX_ATTEMPTS defaults to 3
+    expect(badCalls).toBe(3); // BEATSEAM_SCAN_MAX_ATTEMPTS defaults to 3
     expect(await jobFor('t05.mp3')).toMatchObject({ state: 'SKIPPED', attempts: 3, lastErrorStage: 'analysis' });
     expect((await jobFor('t05.mp3')).skippedAt).not.toBeNull();
     // Its metadata stage succeeded and is kept; only analysis was hopeless.
@@ -132,7 +132,7 @@ describe('scan job queue', () => {
   });
 
   it('lets another worker take over a job whose lease expired, and skips one that keeps killing workers', async () => {
-    const { scanner, workers } = await stack({ env: { BPMIX_SCAN_MAX_ATTEMPTS: '2' } });
+    const { scanner, workers } = await stack({ env: { BEATSEAM_SCAN_MAX_ATTEMPTS: '2' } });
     await scanner.scanAll();
     await testPrisma.trackJob.deleteMany();
     // t01's worker "died" mid-job: RUNNING with a lease in the past.

@@ -9,11 +9,11 @@
  * fact was the native crash log - no way to tell which sequence of track
  * loads/seeks led up to it.
  *
- * Tagged so it's easy to filter: `adb logcat | grep BPMix:playback` on
+ * Tagged so it's easy to filter: `adb logcat | grep Beatseam:playback` on
  * Android, or the same string in the Chrome/Hermes debugger console on any
  * platform.
  */
-const TAG = '[BPMix:playback]';
+const TAG = '[Beatseam:playback]';
 
 /**
  * Renders details as a single trailing JSON blob rather than passing the
@@ -60,7 +60,7 @@ function readHermesHeapStats(): Record<string, unknown> | undefined {
  * higher-volume playback log, since these are rarer, user-initiated actions
  * rather than continuous transport state.
  */
-const LIBRARY_TAG = '[BPMix:library]';
+const LIBRARY_TAG = '[Beatseam:library]';
 
 export function logLibraryAction(event: string, details?: Record<string, unknown>): void {
   console.log(`${LIBRARY_TAG} ${new Date().toISOString()} ${event}${formatDetails(details)}`);
@@ -84,7 +84,7 @@ export function logLibraryAction(event: string, details?: Record<string, unknown
  * packages/ui's useMemoryUsageLogging) would otherwise spam that on every
  * tick on an unsupported platform for the lifetime of the app.
  */
-const MEMORY_TAG = '[BPMix:memory]';
+const MEMORY_TAG = '[Beatseam:memory]';
 
 export function logMemorySnapshot(reason?: string): void {
   const heapStats = readHermesHeapStats();

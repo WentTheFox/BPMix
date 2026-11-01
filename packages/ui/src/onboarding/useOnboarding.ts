@@ -1,11 +1,11 @@
-import type { LibraryStore } from '@bpmix/core';
+import type { LibraryStore } from '@beatseam/core';
 import { useCallback, useEffect, useState } from 'react';
 
 const ONBOARDING_DONE_KEY = 'onboarding.done';
 
 export interface UseOnboardingOptions {
   store: LibraryStore;
-  /** Whether a BPMix server can be connected to on this platform: true, false, or null while that is still being found out (the web app asks the server hosting it). */
+  /** Whether a Beatseam server can be connected to on this platform: true, false, or null while that is still being found out (the web app asks the server hosting it). */
   serverAvailable: boolean | null;
   /** The library's folders have been read from storage, so "no folders" really means none. */
   rootsLoaded: boolean;

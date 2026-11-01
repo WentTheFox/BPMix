@@ -8,7 +8,7 @@ let base: string;
 const access = () => createNodeFileAccess(base, new Set(['Lyrics']));
 
 beforeAll(async () => {
-  base = await mkdtemp(path.join(tmpdir(), 'bpmix-fa-'));
+  base = await mkdtemp(path.join(tmpdir(), 'beatseam-fa-'));
   await mkdir(path.join(base, 'Music', 'Album'), { recursive: true });
   await mkdir(path.join(base, 'Lyrics'));
   await writeFile(path.join(base, 'Music', 'Album', 'a.txt'), 'héllo');

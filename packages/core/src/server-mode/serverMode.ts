@@ -11,7 +11,7 @@ import {
   type LyricsDto,
   type MeDto,
   type SyncChangeDto,
-} from '@bpmix/api';
+} from '@beatseam/api';
 import type { GrantedRoot } from '../file-access/types';
 import type { LibraryStore, PlaybackState } from '../library-store/types';
 import { errorMessage } from '../errorMessage';
@@ -136,7 +136,7 @@ export function isPrivateHost(hostname: string): boolean {
 }
 
 /**
- * Takes the app's library from a BPMix server instead of scanning folders: holds the sign-in, checks
+ * Takes the app's library from a Beatseam server instead of scanning folders: holds the sign-in, checks
  * in with the server (a snapshot the first time, then what changed) and writes what it learns into
  * the same LibraryStore the local scan fills, so everything that reads the library keeps working.
  * Offline is a normal state: the last synced library stays, and the next check-in catches up.
@@ -288,7 +288,7 @@ export class ServerMode {
   }
 
   /**
-   * Whether the page itself was served by a BPMix server (the web app on a self-hosted server, as opposed to a
+   * Whether the page itself was served by a Beatseam server (the web app on a self-hosted server, as opposed to a
    * static host): its public status answers. Says whether the first account still has to be created, too.
    */
   async probeSameOrigin(): Promise<{ setupRequired: boolean } | null> {

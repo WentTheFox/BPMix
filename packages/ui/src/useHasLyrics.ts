@@ -1,4 +1,4 @@
-import type { LibraryStore } from '@bpmix/core';
+import type { LibraryStore } from '@beatseam/core';
 import { useEffect, useState } from 'react';
 
 /** Per-session cache (fileId -> has an assignment) - same reasoning as useCoverArt's cache: a row re-mounted by fast scrolling shouldn't re-ask the store every time. */

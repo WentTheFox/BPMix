@@ -1,4 +1,4 @@
-// BPMix account pages: sign in, first-run setup, enrollment, approving a device, and account/admin
+// Beatseam account pages: sign in, first-run setup, enrollment, approving a device, and account/admin
 // management. Plain DOM (text is always set with textContent, never as HTML) so nothing the server
 // returns can inject markup; the page's CSP forbids inline scripts and any third-party origin.
 
@@ -71,7 +71,7 @@ class ApiFailure extends Error {
 async function api(method, path, body) {
   const response = await fetch(`/api/v1${path}`, {
     method,
-    headers: { 'X-BPMix-Api': '1', ...(body !== undefined ? { 'content-type': 'application/json' } : {}) },
+    headers: { 'X-Beatseam-Api': '1', ...(body !== undefined ? { 'content-type': 'application/json' } : {}) },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (response.status === 204) return null;
@@ -170,7 +170,7 @@ function loginPage(status) {
   passwordStep.append(passwordForm);
 
   mount(
-    h('h1', {}, 'Sign in to BPMix'),
+    h('h1', {}, 'Sign in to Beatseam'),
     panel(
       passkeysSupported()
         ? h('div', {}, h('button', { class: 'primary', type: 'button', onclick: (e) => run(e.currentTarget, signInWithPasskey) }, 'Sign in with a passkey'), h('div', { id: 'passkey-message' }))
@@ -202,7 +202,7 @@ function setupPage(status) {
     return;
   }
   mount(
-    h('h1', {}, 'Welcome to BPMix'),
+    h('h1', {}, 'Welcome to Beatseam'),
     panel(
       h('h2', {}, 'Create the first account'),
       h('p', { class: 'muted' }, 'It becomes the administrator. After this, only an admin can add people.'),
@@ -388,7 +388,7 @@ async function accountPage(me) {
   mount(
     h('h1', {}, me.displayName),
     h('p', { class: 'muted' }, `@${me.username} · ${me.role === 'ADMIN' ? 'administrator' : 'member'}`),
-    h('nav', {}, h('a', { href: '/' }, 'Open BPMix'), h('button', { type: 'button', onclick: signOut }, 'Sign out')),
+    h('nav', {}, h('a', { href: '/' }, 'Open Beatseam'), h('button', { type: 'button', onclick: signOut }, 'Sign out')),
     sections,
   );
   const reload = async () => {

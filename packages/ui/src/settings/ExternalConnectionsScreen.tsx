@@ -1,4 +1,4 @@
-import { DEFAULT_LASTFM_API_KEY, DEFAULT_LASTFM_API_SECRET } from '@bpmix/core';
+import { DEFAULT_LASTFM_API_KEY, DEFAULT_LASTFM_API_SECRET } from '@beatseam/core';
 import { useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { BackButton } from '../BackButton';
@@ -22,7 +22,7 @@ export interface ExternalConnectionsScreenProps {
 }
 
 /**
- * Third-party service connections (currently just Last.fm; the BPMix server has its own screen, see ServerScreen) - its own
+ * Third-party service connections (currently just Last.fm; the Beatseam server has its own screen, see ServerScreen) - its own
  * sub-screen off Settings rather than an inline section there, and its own
  * explicit Save button rather than writing to LibraryStore's settings
  * store on every keystroke (SettingsScreen's other fields - sliders,
@@ -33,7 +33,7 @@ export interface ExternalConnectionsScreenProps {
  * deliberately separate steps: Save just persists the credentials Connect
  * then reads from `settings` to start the auth flow.
  *
- * BPMix ships with its own Last.fm API app (DEFAULT_LASTFM_API_KEY/SECRET -
+ * Beatseam ships with its own Last.fm API app (DEFAULT_LASTFM_API_KEY/SECRET -
  * see that constant's doc for why sharing one across installs is the normal
  * approach, not a shortcut) - the common case needs no key entry at all,
  * just Connect. The key/secret fields only surface behind "Use your own
@@ -153,7 +153,7 @@ export function ExternalConnectionsScreen({ colors, settings, onUpdateSettings, 
                   }}
                   style={styles.actionButton}
                 >
-                  <Text style={[styles.hint, styles.advancedLink, { color: colors.subtleText }]}>Use BPMix&apos;s shared API app instead</Text>
+                  <Text style={[styles.hint, styles.advancedLink, { color: colors.subtleText }]}>Use Beatseam&apos;s shared API app instead</Text>
                 </Pressable>
               )}
             </>

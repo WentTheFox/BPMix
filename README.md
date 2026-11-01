@@ -1,4 +1,4 @@
-# BPMix
+# Beatseam
 
 A cross-platform DJ-style music player that crossfades between tracks
 instead of just switching to the next one. It runs on Android, web, and a
@@ -20,13 +20,13 @@ self-hostable server, all sharing one playback engine.
 - **Reads real ID3 metadata** (title, artist(s), album, cover art) from
   audio files, scanned asynchronously in the background so the library
   is usable immediately and fills in as tags are read.
-- **Playlist-first, not a folder browser.** BPMix is built around
+- **Playlist-first, not a folder browser.** Beatseam is built around
   `.m3u8`/`.m3u` playlists, not "browse and play any audio file in a
   folder" like a traditional music player. Scanning a folder only picks
   up files that some playlist in it actually references. A stray
   `.mp3` sitting in the folder with no playlist entry pointing at it
   won't show up in the library at all. This is deliberate: playlists are
-  what you curate, and BPMix has no view for "everything in this folder"
+  what you curate, and Beatseam has no view for "everything in this folder"
   outside of that.
 - **Shuffle, loop, and playlist persistence** via a shared
   `PlaylistPlayer`. Playback position, the current playlist/track, loop
@@ -89,7 +89,7 @@ Self-hosting via Docker is documented separately in
 
 ## Status
 
-BPMix is under active development. See `CLAUDE.md`'s TODOs section for
+Beatseam is under active development. See `CLAUDE.md`'s TODOs section for
 what's planned next (an LRC sync editor, automatic translated-lyrics
 generation, generating a playlist directly from a folder, Windows
 support, and more). Everything described above (crossfade, vinyl-art

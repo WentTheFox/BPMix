@@ -1,4 +1,4 @@
-import type { LoopMode } from '@bpmix/core';
+import type { LoopMode } from '@beatseam/core';
 import { mdiPause, mdiPlay, mdiSkipNext, mdiSkipPrevious } from '@mdi/js';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Icon } from './Icon';

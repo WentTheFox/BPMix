@@ -21,7 +21,7 @@ async function makeScanner(): Promise<ScannerService> {
 }
 
 beforeAll(async () => {
-  base = await mkdtemp(path.join(tmpdir(), 'bpmix-scan-'));
+  base = await mkdtemp(path.join(tmpdir(), 'beatseam-scan-'));
   await mkdir(path.join(base, 'Music', 'Album'), { recursive: true });
   await mkdir(path.join(base, 'Lyrics'));
 });

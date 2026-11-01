@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Installs (or updates) BPMix from the extracted Windows release zip.
+  Installs (or updates) Beatseam from the extracted Windows release zip.
 
 .DESCRIPTION
   Shipped next to the .msixbundle in the release's sideload zip (see
@@ -9,7 +9,7 @@
   Windows only accepts it once that certificate is in the machine's Trusted
   People store. This script:
 
-    1. trusts BPMix.cer if it isn't already - the only step that needs admin,
+    1. trusts Beatseam.cer if it isn't already - the only step that needs admin,
        so only that step is elevated (one UAC prompt, first install only);
     2. installs the .msixbundle for the current, non-elevated user, together
        with the framework dependencies (VCLibs, Windows App Runtime) shipped
@@ -26,7 +26,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
-$cerPath = Join-Path $here 'BPMix.cer'
+$cerPath = Join-Path $here 'Beatseam.cer'
 $storePath = 'Cert:\LocalMachine\TrustedPeople'
 
 function Test-CertificateTrusted {
@@ -40,18 +40,18 @@ if ($TrustCertificateOnly) {
 }
 
 try {
-  if (-not (Test-Path $cerPath)) { throw "BPMix.cer not found next to this script ($here)." }
+  if (-not (Test-Path $cerPath)) { throw "Beatseam.cer not found next to this script ($here)." }
   $bundle = Get-ChildItem $here -Filter '*.msixbundle' | Select-Object -First 1
   if (-not $bundle) { throw "No .msixbundle found next to this script ($here)." }
 
   if (-not (Test-CertificateTrusted)) {
-    Write-Host 'Trusting the BPMix signing certificate (Windows will ask for admin permission)...'
+    Write-Host 'Trusting the Beatseam signing certificate (Windows will ask for admin permission)...'
     $proc = Start-Process powershell.exe -Verb RunAs -Wait -PassThru -ArgumentList @(
       '-NoProfile', '-ExecutionPolicy', 'Bypass',
       '-File', "`"$PSCommandPath`"", '-TrustCertificateOnly'
     )
     if ($proc.ExitCode -ne 0 -or -not (Test-CertificateTrusted)) {
-      throw 'Could not add the BPMix certificate to Trusted People.'
+      throw 'Could not add the Beatseam certificate to Trusted People.'
     }
   }
 
@@ -63,7 +63,7 @@ try {
 
   Write-Host "Installing $($bundle.Name)..."
   Add-AppxPackage @addArgs
-  Write-Host 'BPMix is installed - find it in the Start menu.' -ForegroundColor Green
+  Write-Host 'Beatseam is installed - find it in the Start menu.' -ForegroundColor Green
 } catch {
   Write-Host "Installation failed: $_" -ForegroundColor Red
   exit 1

@@ -84,7 +84,7 @@ export function useMediaSessionNotification(info: MediaSessionNotificationInfo |
     // version, which only re-anchors on identity/state changes) - the
     // browser has no separate mechanism to interpolate a smoothly-advancing
     // position on its own, so setPositionState needs a fresh position each
-    // time to keep the OS/browser scrubber in sync with BPMix's own
+    // time to keep the OS/browser scrubber in sync with Beatseam's own
     // ~200ms poll.
     //
     // Deliberately depends on `info`'s individual fields, not `info`

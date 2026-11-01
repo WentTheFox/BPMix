@@ -1,4 +1,4 @@
-import type { MutationDto } from '@bpmix/api';
+import type { MutationDto } from '@beatseam/api';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GrantedRoot } from '../../file-access/types';
 import type { PlaylistRecord, TrackRecord } from '../../library-store/types';

@@ -8,11 +8,11 @@ import {
   type PlaylistRecord,
   type TrackMetadata,
   type TrackRecord,
-} from '@bpmix/core';
+} from '@beatseam/core';
 import { NativeModules } from 'react-native';
 
 /**
- * Backed by a real native module (windows/BPMix/LocalStorageModule.h) that
+ * Backed by a real native module (windows/Beatseam/LocalStorageModule.h) that
  * reads/writes a whole text file in the app's own sandboxed local-data
  * folder - see that module's header comment for why (every third-party
  * Windows persistence library found ships pre-NuGet-era project files that
@@ -25,7 +25,7 @@ interface NativeLocalStorage {
   writeText(fileName: string, content: string): Promise<void>;
 }
 
-const native = NativeModules.BPMixLocalStorage as NativeLocalStorage;
+const native = NativeModules.BeatseamLocalStorage as NativeLocalStorage;
 
 const STORAGE_FILE = 'library-store.json';
 

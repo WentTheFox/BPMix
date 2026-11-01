@@ -1,24 +1,24 @@
-import { buildAuthUrl, buildWebAuthUrl, deriveLastFmStatus, getAuthToken, getSession, LastFmError } from '@bpmix/core';
-import type { LastFmAttemptStatus, LastFmConnectionStatus, LastFmCredentials } from '@bpmix/core';
+import { buildAuthUrl, buildWebAuthUrl, deriveLastFmStatus, getAuthToken, getSession, LastFmError } from '@beatseam/core';
+import type { LastFmAttemptStatus, LastFmConnectionStatus, LastFmCredentials } from '@beatseam/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Linking, Platform } from 'react-native';
 import type { AppSettings } from '../settings/types';
 
-// Defined in @bpmix/core with deriveLastFmStatus; re-exported so existing imports keep working.
+// Defined in @beatseam/core with deriveLastFmStatus; re-exported so existing imports keep working.
 export type { LastFmConnectionStatus };
 
 /**
  * A verified Android App Link (AndroidManifest.xml's autoVerify intent-
  * filter + /.well-known/assetlinks.json served from this same domain) -
- * Last.fm's redirect after approval opens straight back into BPMix with no
- * "which app?" prompt, same as the bpmix:// scheme used to, but backed by a
+ * Last.fm's redirect after approval opens straight back into Beatseam with no
+ * "which app?" prompt, same as the beatseam:// scheme used to, but backed by a
  * real HTTPS URL that still resolves to a real page (apps/web/public/
  * lastfm-callback.html) if verification hasn't gone through on a given
  * device yet, rather than a dead link.
  */
-const ANDROID_CALLBACK_URL = 'https://bpmix.went.tf/lastfm-callback.html';
-/** The bpmix:// scheme's intent-filter (still there for the launcher shortcuts - see AndroidManifest.xml) also still matches this, kept only as a legacy fallback in case an in-flight auth attempt started before this switched to ANDROID_CALLBACK_URL above. */
-const ANDROID_LEGACY_CALLBACK_URL = 'bpmix://lastfm-callback';
+const ANDROID_CALLBACK_URL = 'https://beatseam.went.tf/lastfm-callback.html';
+/** The beatseam:// scheme's intent-filter (still there for the launcher shortcuts - see AndroidManifest.xml) also still matches this, kept only as a legacy fallback in case an in-flight auth attempt started before this switched to ANDROID_CALLBACK_URL above. */
+const ANDROID_LEGACY_CALLBACK_URL = 'beatseam://lastfm-callback';
 
 export interface UseLastFmConnectionResult {
   status: LastFmConnectionStatus;
@@ -37,7 +37,7 @@ export interface UseLastFmConnectionResult {
   needsManualConfirmation: boolean;
   /** Starts the connect flow: opens Last.fm's approval page in the system browser. Requires settings.lastFmApiKey/lastFmApiSecret to already be filled in. */
   connect: () => void;
-  /** Windows only - called once the user says they've approved BPMix in the browser, to exchange the pending token for a session. If Last.fm reports the token still isn't approved (error code 14), status drops back to 'awaitingAuthorization' so the user can try again after actually approving it. */
+  /** Windows only - called once the user says they've approved Beatseam in the browser, to exchange the pending token for a session. If Last.fm reports the token still isn't approved (error code 14), status drops back to 'awaitingAuthorization' so the user can try again after actually approving it. */
   confirmAuthorized: () => void;
   disconnect: () => void;
 }
@@ -52,7 +52,7 @@ export interface UseLastFmConnectionResult {
  *
  * - android: buildWebAuthUrl (no auth.getToken call - Last.fm mints the
  *   token itself) with ANDROID_CALLBACK_URL as the `cb` redirect - the OS
- *   hands that straight back to BPMix as a verified Android App Link (see
+ *   hands that straight back to Beatseam as a verified Android App Link (see
  *   ANDROID_CALLBACK_URL's doc), no manual step needed.
  * - windows (or anything else without a callback route registered): the
  *   original desktop-app flow - auth.getToken, open the approval page with
@@ -96,7 +96,7 @@ export function useLastFmConnection(settings: AppSettings, onUpdateSettings: (pa
     [onUpdateSettings, settings.lastFmApiKey, settings.lastFmApiSecret],
   );
 
-  // bpmix://lastfm-callback?token=... arriving as an ordinary deep link - a
+  // beatseam://lastfm-callback?token=... arriving as an ordinary deep link - a
   // second, independent 'url' listener alongside each app's own
   // applyDeepLink (RN's Linking event supports multiple subscribers),
   // filtered to just this one path so it never interferes with the
@@ -164,7 +164,7 @@ export function useLastFmConnection(settings: AppSettings, onUpdateSettings: (pa
         setAttempt('idle');
       } catch (err) {
         if (err instanceof LastFmError && err.code === 14) {
-          setErrorMessage('Not approved yet - approve BPMix in the browser tab, then try again.');
+          setErrorMessage('Not approved yet - approve Beatseam in the browser tab, then try again.');
         } else {
           setErrorMessage(err instanceof LastFmError ? err.message : 'Could not reach Last.fm.');
         }

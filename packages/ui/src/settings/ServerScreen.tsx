@@ -15,14 +15,14 @@ export interface ServerScreenProps {
 }
 
 /**
- * The BPMix server connection on its own screen off Settings: where the library, playlists and lyrics
+ * The Beatseam server connection on its own screen off Settings: where the library, playlists and lyrics
  * come from (and sync between devices), signing in and out, and what is kept for offline play. Separate
  * from External connections, which is only for third-party services like Last.fm.
  */
 export function ServerScreen({ colors, server, offline, onClose }: ServerScreenProps) {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <HeaderRow style={styles.header} left={<BackButton text="BPMix server" color={colors.text} onPress={onClose} />} />
+      <HeaderRow style={styles.header} left={<BackButton text="Beatseam server" color={colors.text} onPress={onClose} />} />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <ServerSection colors={colors} server={server} offline={offline} />
       </ScrollView>

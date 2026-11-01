@@ -1,9 +1,9 @@
-import { checkForUpdate, errorMessage, logLibraryAction, parseChecksumsFile, type AppUpdateNativeBridge, type AvailableUpdate } from '@bpmix/core';
+import { checkForUpdate, errorMessage, logLibraryAction, parseChecksumsFile, type AppUpdateNativeBridge, type AvailableUpdate } from '@beatseam/core';
 import { useCallback, useMemo, useState } from 'react';
 import type { AppUpdateState } from './settings/SettingsScreen';
 
 export interface UseAppUpdateCheckInput {
-  /** BUILD_VERSION (@bpmix/core's buildInfo.ts) - what the running build actually is. */
+  /** BUILD_VERSION (@beatseam/core's buildInfo.ts) - what the running build actually is. */
   currentVersion: string;
   /** Null on any platform with no install flow yet (web, Windows) - the returned status stays 'idle' forever and onCheck/onDownloadAndInstall are no-ops, rather than this hook being conditionally called at all (React's rules of hooks - see apps/mobile/App.tsx, the only caller, which is shared between Android and Windows). */
   bridge: AppUpdateNativeBridge | null;

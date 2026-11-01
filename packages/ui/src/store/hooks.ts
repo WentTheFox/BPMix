@@ -1,5 +1,5 @@
 import { useDispatch, useSelector } from 'react-redux';
-import type { AppDispatch, RootState } from '@bpmix/core';
+import type { AppDispatch, RootState } from '@beatseam/core';
 
 /** Typed `useDispatch` for the app store - prefer this over the bare react-redux hook. */
 export const useAppDispatch = useDispatch.withTypes<AppDispatch>();

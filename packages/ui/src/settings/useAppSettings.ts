@@ -1,5 +1,5 @@
-import { loadSettings, resetSettings as resetSettingsThunk, settingsUpdated } from '@bpmix/core';
-import type { AppSettings, ThemeMode } from '@bpmix/core';
+import { loadSettings, resetSettings as resetSettingsThunk, settingsUpdated } from '@beatseam/core';
+import type { AppSettings, ThemeMode } from '@beatseam/core';
 import { useCallback, useEffect, useMemo } from 'react';
 import { useColorScheme } from 'react-native';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
@@ -13,7 +13,7 @@ export interface UseAppSettingsResult {
 }
 
 /**
- * Thin view over the store's `settings` slice (see @bpmix/core's
+ * Thin view over the store's `settings` slice (see @beatseam/core's
  * store/settings): state, hydration, persistence and reset semantics all
  * live there. What stays here is the one thing only the UI knows - the
  * system color scheme, used as `themeMode`'s first-run default (nothing

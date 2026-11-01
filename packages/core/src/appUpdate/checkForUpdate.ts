@@ -33,7 +33,7 @@ function isNewer(candidate: string, current: string): boolean {
 
 /**
  * Checks GitHub's Releases API for a version newer than `currentVersion`
- * (see @bpmix/core's buildInfo.ts's BUILD_VERSION - a git-describe string,
+ * (see @beatseam/core's buildInfo.ts's BUILD_VERSION - a git-describe string,
  * "v1.2.3" exactly at a tagged release build, or "v1.2.3-N-gHASH" for a dev
  * build N commits past the last tag). A dev build's version string can't be
  * cleanly parsed as a plain semver, so it's treated as "nothing to compare

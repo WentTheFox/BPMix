@@ -1,8 +1,8 @@
-import type { AudioEngine, DecodedAudio, EngineTrackAnalysis, FileAccess, FileRef, RampSpec, SourceNode } from '@bpmix/core';
+import type { AudioEngine, DecodedAudio, EngineTrackAnalysis, FileAccess, FileRef, RampSpec, SourceNode } from '@beatseam/core';
 import { NativeEventEmitter, NativeModules } from 'react-native';
 
 /**
- * Backed by a real native module (windows/BPMix/AudioEngineModule.h) using
+ * Backed by a real native module (windows/Beatseam/AudioEngineModule.h) using
  * Media Foundation to decode and XAudio2 to play - there is no Web-Audio
  * style API on Windows, so gain/rate automation is an approximated linear
  * step-ramp on a background thread rather than true AudioParam automation,
@@ -41,12 +41,12 @@ interface NativeAudioEngine {
   stop(sourceId: string, whenSeconds: number): boolean;
 }
 
-const native = NativeModules.BPMixAudioEngine as NativeAudioEngine;
+const native = NativeModules.BeatseamAudioEngine as NativeAudioEngine;
 
 const nativeBufferIdByAudio = new WeakMap<DecodedAudio, string>();
 
 export function createAudioEngine(_fileAccess: FileAccess): AudioEngine {
-  const emitter = new NativeEventEmitter(NativeModules.BPMixAudioEngine);
+  const emitter = new NativeEventEmitter(NativeModules.BeatseamAudioEngine);
   const onEndedBySourceId = new Map<string, () => void>();
 
   emitter.addListener('playbackEnded', (sourceId: string) => {

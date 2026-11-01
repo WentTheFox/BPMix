@@ -8,16 +8,16 @@ import {
   type PlaylistRecord,
   type TrackMetadata,
   type TrackRecord,
-} from '@bpmix/core';
+} from '@beatseam/core';
 import { NativeModules } from 'react-native';
 import SQLite, { type SQLError, type SQLResultSet, type SQLTransaction, type WebsqlDatabase } from 'react-native-sqlite-2';
 
-/** Subset of BPMixFileAccessModule (see its .kt for the rest) used here to cache cover art as real files instead of base64 SQLite TEXT - see putCoverArt's doc. */
+/** Subset of BeatseamFileAccessModule (see its .kt for the rest) used here to cache cover art as real files instead of base64 SQLite TEXT - see putCoverArt's doc. */
 interface NativeLocalFiles {
   writeLocalBytesBase64(fileName: string, base64Data: string): Promise<string>;
   deleteLocalFile(fileName: string): Promise<void>;
 }
-const nativeFiles = NativeModules.BPMixFileAccess as NativeLocalFiles;
+const nativeFiles = NativeModules.BeatseamFileAccess as NativeLocalFiles;
 
 /**
  * FNV-1a hash of fileId, used only to build a safe cover-art cache filename -
@@ -37,7 +37,7 @@ function coverArtFileName(fileId: string): string {
   return `coverArt/cover-${(hash >>> 0).toString(16)}`;
 }
 
-const db: WebsqlDatabase = SQLite.openDatabase('bpmix.db', '1.0', '', 1);
+const db: WebsqlDatabase = SQLite.openDatabase('beatseam.db', '1.0', '', 1);
 
 // react-native-sqlite-2 (a WebSQL polyfill) serializes every transaction
 // onto this one connection regardless of call order stability - dozens of
@@ -443,7 +443,7 @@ export function createLibraryStore(): LibraryStore {
     // a data: URI or a file:// URI identically, so any pre-existing
     // base64-data-URI rows from before this change keep working as-is until
     // they're naturally rewritten by a future rescan). See
-    // BPMixFileAccessModule.kt's writeLocalBytesBase64 doc for why this
+    // BeatseamFileAccessModule.kt's writeLocalBytesBase64 doc for why this
     // beats storing base64 text directly (as Windows's libraryStore still
     // does, and as this used to).
     async putCoverArt(fileId: string, art: CoverArtBytes | null): Promise<void> {

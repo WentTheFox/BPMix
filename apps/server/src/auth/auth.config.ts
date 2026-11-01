@@ -10,12 +10,12 @@ export class AuthConfig {
   private readonly logger = new Logger(AuthConfig.name);
   private warnedAboutDerivedOrigin = false;
 
-  /** Origins the web app is served from (BPMIX_ORIGIN, comma-separated), e.g. https://music.example.com. */
+  /** Origins the web app is served from (BEATSEAM_ORIGIN, comma-separated), e.g. https://music.example.com. */
   readonly origins: string[];
-  readonly rpName = 'BPMix';
+  readonly rpName = 'Beatseam';
   /** If set, the very first sign-up must present it, so nobody can race the owner to a freshly deployed public server. */
   readonly setupToken: string | undefined;
-  /** BPMIX_SETUP_TOKEN=none: anyone may make the first account (no generated token either). For a server on a private network. */
+  /** BEATSEAM_SETUP_TOKEN=none: anyone may make the first account (no generated token either). For a server on a private network. */
   readonly openSetup: boolean;
   readonly sessionTtlMs = 30 * DAY_MS;
   readonly mfaTtlMs = 5 * 60_000;
@@ -39,14 +39,14 @@ export class AuthConfig {
   readonly deviceWaitMs: number;
 
   constructor(config: ConfigService) {
-    this.origins = (config.get<string>('BPMIX_ORIGIN') ?? '')
+    this.origins = (config.get<string>('BEATSEAM_ORIGIN') ?? '')
       .split(',')
       .map((o) => o.trim().replace(/\/+$/, ''))
       .filter((o) => o.length > 0);
-    const setup = config.get<string>('BPMIX_SETUP_TOKEN') || undefined;
+    const setup = config.get<string>('BEATSEAM_SETUP_TOKEN') || undefined;
     this.openSetup = setup?.toLowerCase() === 'none';
     this.setupToken = this.openSetup ? undefined : setup;
-    this.deviceWaitMs = Number(config.get('BPMIX_DEVICE_WAIT_MS') ?? 25_000);
+    this.deviceWaitMs = Number(config.get('BEATSEAM_DEVICE_WAIT_MS') ?? 25_000);
   }
 
   /** The origins a request may legitimately come from: the configured ones, else the one it was addressed to. */
@@ -54,7 +54,7 @@ export class AuthConfig {
     if (this.origins.length > 0) return this.origins;
     if (!this.warnedAboutDerivedOrigin) {
       this.warnedAboutDerivedOrigin = true;
-      this.logger.warn('BPMIX_ORIGIN is not set; trusting the request\'s own host. Set it (e.g. https://music.example.com) for passkeys and CSRF checks to be reliable.');
+      this.logger.warn('BEATSEAM_ORIGIN is not set; trusting the request\'s own host. Set it (e.g. https://music.example.com) for passkeys and CSRF checks to be reliable.');
     }
     return [`${req.protocol}://${req.get('host') ?? 'localhost'}`];
   }

@@ -1,4 +1,4 @@
-import { errorMessage, type ServerMode } from '@bpmix/core';
+import { errorMessage, type ServerMode } from '@beatseam/core';
 import { useCallback, useMemo } from 'react';
 import type { LyricsMenu } from './HeaderActions';
 import type { NotificationCenter } from './notifications/useNotificationCenter';

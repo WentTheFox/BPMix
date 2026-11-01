@@ -1,4 +1,4 @@
-import type { PlaylistRecord } from '@bpmix/core';
+import type { PlaylistRecord } from '@beatseam/core';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { Colors } from './theme';

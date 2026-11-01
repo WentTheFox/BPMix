@@ -1,4 +1,4 @@
-import type { LyricLine } from '@bpmix/core';
+import type { LyricLine } from '@beatseam/core';
 import {
   mdiArrowDownBold,
   mdiArrowUpBold,

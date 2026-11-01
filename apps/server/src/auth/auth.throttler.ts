@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
 
-/** Sign-in attempts per minute per address and username (BPMIX_AUTH_RATE_LIMIT, default 10). Read per request so tests can lower it. */
-export const authRateLimit = () => Number(process.env.BPMIX_AUTH_RATE_LIMIT ?? 10);
+/** Sign-in attempts per minute per address and username (BEATSEAM_AUTH_RATE_LIMIT, default 10). Read per request so tests can lower it. */
+export const authRateLimit = () => Number(process.env.BEATSEAM_AUTH_RATE_LIMIT ?? 10);
 
 /** Counts by address *and* the username in the body, so one account can't be hammered from many places unnoticed, nor one address lock out everyone. */
 @Injectable()

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import type { AuthStatusDto, CreateUserResultDto, LoginResultDto, MeDto, SessionSummaryDto, UserSummaryDto } from '@bpmix/api';
+import type { AuthStatusDto, CreateUserResultDto, LoginResultDto, MeDto, SessionSummaryDto, UserSummaryDto } from '@beatseam/api';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { AppModule } from '../src/app.module.js';
@@ -23,9 +23,9 @@ let base: string;
 let prisma: DatabaseService['prisma'];
 
 async function startApp(env: Record<string, string> = {}, options: { legacy?: boolean } = {}): Promise<INestApplication> {
-  delete process.env.BPMIX_ORIGIN;
-  process.env.BPMIX_SETUP_TOKEN = 'none'; // open first sign-up, as most tests set up an admin directly
-  Object.assign(process.env, { DATABASE_URL: TEST_DATABASE_URL, BPMIX_LIBRARY_ROOT: base, BPMIX_SCAN_ON_START: 'false', BPMIX_DATA_DIR: path.join(base, 'data'), BPMIX_AUTH_RATE_LIMIT: '1000', ...env });
+  delete process.env.BEATSEAM_ORIGIN;
+  process.env.BEATSEAM_SETUP_TOKEN = 'none'; // open first sign-up, as most tests set up an admin directly
+  Object.assign(process.env, { DATABASE_URL: TEST_DATABASE_URL, BEATSEAM_LIBRARY_ROOT: base, BEATSEAM_SCAN_ON_START: 'false', BEATSEAM_DATA_DIR: path.join(base, 'data'), BEATSEAM_AUTH_RATE_LIMIT: '1000', ...env });
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).overrideProvider(CLOCK).useValue(clock.now).compile();
   const nest = moduleRef.createNestApplication();
   if (options.legacy) mountLegacyRoutes(nest, { libraryRoot: base, lyricsRootIds: new Set() });
@@ -37,7 +37,7 @@ async function startApp(env: Record<string, string> = {}, options: { legacy?: bo
 const urlOf = async (nest: INestApplication) => (await nest.getUrl()).replace('[::1]', 'localhost');
 
 beforeAll(async () => {
-  base = await mkdtemp(path.join(tmpdir(), 'bpmix-auth-'));
+  base = await mkdtemp(path.join(tmpdir(), 'beatseam-auth-'));
   app = await startApp();
   url = await urlOf(app);
   prisma = app.get(DatabaseService).prisma;
@@ -100,7 +100,7 @@ describe('first sign-up and the closed door', () => {
   });
 
   it('makes its own setup token when none is configured, and shows it only in the server log', async () => {
-    const generated = await startApp({ BPMIX_SETUP_TOKEN: '' });
+    const generated = await startApp({ BEATSEAM_SETUP_TOKEN: '' });
     try {
       const token = generated.get(AuthService).generatedSetupToken!;
       expect(token).toBeTruthy();
@@ -117,8 +117,8 @@ describe('first sign-up and the closed door', () => {
     }
   });
 
-  it('skips the setup token entirely with BPMIX_SETUP_TOKEN=none', async () => {
-    const open = await startApp({ BPMIX_SETUP_TOKEN: 'none' });
+  it('skips the setup token entirely with BEATSEAM_SETUP_TOKEN=none', async () => {
+    const open = await startApp({ BEATSEAM_SETUP_TOKEN: 'none' });
     try {
       expect(open.get(AuthService).generatedSetupToken).toBeUndefined();
       expect(await new TestClient(await urlOf(open)).json<AuthStatusDto>('/api/v1/auth/status')).toEqual({ setupRequired: true, setupTokenRequired: false });
@@ -134,8 +134,8 @@ describe('first sign-up and the closed door', () => {
     expect(await prisma.session.count()).toBe(1);
   });
 
-  it('requires BPMIX_SETUP_TOKEN for the first sign-up when one is configured', async () => {
-    const guarded = await startApp({ BPMIX_SETUP_TOKEN: 'let-me-in' });
+  it('requires BEATSEAM_SETUP_TOKEN for the first sign-up when one is configured', async () => {
+    const guarded = await startApp({ BEATSEAM_SETUP_TOKEN: 'let-me-in' });
     try {
       const guardedUrl = await urlOf(guarded);
       const client = new TestClient(guardedUrl);
@@ -238,7 +238,7 @@ describe('sessions and request safety', () => {
 
   it('sets a hardened cookie', async () => {
     const res = await fetch(`${url}/api/v1/auth/setup`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'cookie', displayName: 'C' }) });
-    const cookie = res.headers.getSetCookie().find((c) => c.startsWith('bpmix_session='))!;
+    const cookie = res.headers.getSetCookie().find((c) => c.startsWith('beatseam_session='))!;
     expect(cookie).toMatch(/HttpOnly/i);
     expect(cookie).toMatch(/SameSite=Lax/i);
     expect(cookie).toMatch(/Path=\//i);
@@ -348,7 +348,7 @@ describe('admin-created users', () => {
 
 describe('rate limiting', () => {
   it('throttles repeated sign-in attempts per address and username', async () => {
-    const limited = await startApp({ BPMIX_AUTH_RATE_LIMIT: '3' });
+    const limited = await startApp({ BEATSEAM_AUTH_RATE_LIMIT: '3' });
     try {
       const client = new TestClient(await urlOf(limited));
       const statuses: number[] = [];
@@ -459,12 +459,12 @@ describe('web app hosting', () => {
   it('serves the app and falls back to index.html for page routes, without shadowing the API', async () => {
     const dist = path.join(base, 'web');
     await mkdir(dist, { recursive: true });
-    await writeFile(path.join(dist, 'index.html'), '<!doctype html><title>BPMix</title>');
+    await writeFile(path.join(dist, 'index.html'), '<!doctype html><title>Beatseam</title>');
     await writeFile(path.join(dist, 'app.js'), 'console.log(1)');
     // Mounted the way main.ts does: before init, so it can't sit behind Nest's 404 handler.
-    delete process.env.BPMIX_ORIGIN;
-  process.env.BPMIX_SETUP_TOKEN = 'none'; // open first sign-up, as most tests set up an admin directly
-    Object.assign(process.env, { DATABASE_URL: TEST_DATABASE_URL, BPMIX_LIBRARY_ROOT: base, BPMIX_SCAN_ON_START: 'false', BPMIX_DATA_DIR: path.join(base, 'data') });
+    delete process.env.BEATSEAM_ORIGIN;
+  process.env.BEATSEAM_SETUP_TOKEN = 'none'; // open first sign-up, as most tests set up an admin directly
+    Object.assign(process.env, { DATABASE_URL: TEST_DATABASE_URL, BEATSEAM_LIBRARY_ROOT: base, BEATSEAM_SCAN_ON_START: 'false', BEATSEAM_DATA_DIR: path.join(base, 'data') });
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).overrideProvider(CLOCK).useValue(clock.now).compile();
     const nest = moduleRef.createNestApplication();
     mountWebApp(nest, dist);
@@ -475,9 +475,9 @@ describe('web app hosting', () => {
       const guest = new TestClient(site);
       const home = await guest.fetch('/');
       expect(home.status).toBe(200);
-      expect(await home.text()).toContain('<title>BPMix</title>');
+      expect(await home.text()).toContain('<title>Beatseam</title>');
       expect(await (await guest.fetch('/app.js')).text()).toBe('console.log(1)');
-      expect(await (await guest.fetch('/playlists/some-id')).text()).toContain('<title>BPMix</title>');
+      expect(await (await guest.fetch('/playlists/some-id')).text()).toContain('<title>Beatseam</title>');
       // API paths are not swallowed by the fallback.
       expect(await (await guest.fetch('/api/v1/health')).json()).toMatchObject({ status: 'ok' });
       expect((await guest.fetch('/api/v1/auth/status')).status).toBe(200);

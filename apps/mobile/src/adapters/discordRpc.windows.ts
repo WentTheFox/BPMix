@@ -1,4 +1,4 @@
-import type { DiscordPresenceBridge } from '@bpmix/core';
+import type { DiscordPresenceBridge } from '@beatseam/core';
 
 /**
  * No native module yet - Windows Discord Rich Presence needs a C++/WinRT

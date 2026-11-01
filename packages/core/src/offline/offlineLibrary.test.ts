@@ -1,4 +1,4 @@
-import { ApiClient, ApiError, NetworkError } from '@bpmix/api';
+import { ApiClient, ApiError, NetworkError } from '@beatseam/api';
 import { describe, expect, it, vi } from 'vitest';
 import type { AnalysisResult, LibraryStore, PlaybackState, PlaylistRecord, TrackRecord } from '../library-store/types';
 import type { CoverArtBytes, TrackMetadata } from '../metadata/types';

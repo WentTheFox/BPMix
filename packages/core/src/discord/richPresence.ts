@@ -9,12 +9,12 @@
  *
  * No client secret or per-user auth involved - unlike Last.fm's api_key,
  * a Discord application id is not confidential (it's the same id already
- * public in that app's invite links/OAuth redirects), so BPMix bakes in
+ * public in that app's invite links/OAuth redirects), so Beatseam bakes in
  * its own by default the same way it does for Last.fm - see
  * DEFAULT_DISCORD_APPLICATION_ID.
  */
 
-/** BPMix's own registered Discord application - see this file's own doc for why sharing one publicly-known id across installs is fine (unlike Last.fm's secret, nothing here is confidential). */
+/** Beatseam's own registered Discord application - see this file's own doc for why sharing one publicly-known id across installs is fine (unlike Last.fm's secret, nothing here is confidential). */
 export const DEFAULT_DISCORD_APPLICATION_ID = '1551930093159587941';
 
 export interface DiscordPresenceBridge {
@@ -38,7 +38,7 @@ export interface DiscordNowPlayingInfo {
    * rejected by Discord (renders as a blank circle, not the image, not
    * even the "unknown asset key" placeholder - it's a different failure
    * mode than an unrecognized asset key string). Real per-track art here
-   * needs a publicly-reachable self-hosted BPMix server URL, which isn't
+   * needs a publicly-reachable self-hosted Beatseam server URL, which isn't
    * wired up yet - always null until that exists.
    */
   albumArtUrl: string | null;
@@ -51,7 +51,7 @@ let nonceCounter = 0;
  * nothing in the user's Discord status) rather than leaving a stale "still
  * playing" status up after playback stops.
  *
- * type: 2 ("Listening to BPMix, details/state below") - RPC clients are
+ * type: 2 ("Listening to Beatseam, details/state below") - RPC clients are
  * restricted to Playing(0)/Listening(2)/Watching(3)/Competing(5) per
  * Discord's own RPC docs, and Listening is the only one of those that
  * actually fits a music player.
@@ -66,16 +66,16 @@ export function buildSetActivityFrame(info: DiscordNowPlayingInfo | null): strin
   const usableAlbumArtUrl = info?.albumArtUrl?.startsWith('http') ? info.albumArtUrl : null;
   return JSON.stringify({
     cmd: 'SET_ACTIVITY',
-    nonce: `bpmix-${Date.now()}-${nonceCounter}`,
+    nonce: `beatseam-${Date.now()}-${nonceCounter}`,
     args: {
       pid: 0,
       activity: info
         ? {
             type: 2,
             // Without this, Discord shows the generic "Listening to Game"
-            // instead of "Listening to BPMix" - confirmed live (it silently
+            // instead of "Listening to Beatseam" - confirmed live (it silently
             // falls back to that placeholder rather than erroring).
-            name: 'BPMix',
+            name: 'Beatseam',
             details: info.title,
             state: info.artist,
             timestamps: { start: info.startedAtUnixMs },

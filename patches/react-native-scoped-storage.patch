@@ -38,10 +38,10 @@ index 94712877627ad675488fc98902c6ffae463ce680..631897b5801ffe7634d642a93a883875
 -                                final int takeFlags = data.getFlags()
 -                                        & (Intent.FLAG_GRANT_READ_URI_PERMISSION
 -                                        | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-+                                // BPMix only ever reads - masked to read-only rather than
++                                // Beatseam only ever reads - masked to read-only rather than
 +                                // the read+write ACTION_OPEN_DOCUMENT_TREE grants by
 +                                // default, so a persisted grant can't outlive the app's
-+                                // actual need for it. See BPMix's FileAccess interface
++                                // actual need for it. See Beatseam's FileAccess interface
 +                                // (packages/core/src/file-access/types.ts), which exposes
 +                                // no write operation at all.
 +                                final int takeFlags = data.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION;
