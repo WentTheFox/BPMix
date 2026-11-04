@@ -89,10 +89,14 @@ async function api(method, path, body) {
 }
 
 /** Sensitive changes need a recent sign-in: send the person to do that and come back here. */
+function goToFreshSignIn() {
+  // reauth=1: show the sign-in form even though a (stale) session exists, instead of bouncing straight back here.
+  location.assign(`/login?reauth=1&next=${encodeURIComponent(location.pathname + location.search)}`);
+}
+
 function needsFreshSignIn(err) {
   if (err instanceof ApiFailure && err.code === 'reauth_required') {
-    // reauth=1: show the sign-in form even though a (stale) session exists, instead of bouncing straight back here.
-    location.assign(`/login?reauth=1&next=${encodeURIComponent(location.pathname + location.search)}`);
+    goToFreshSignIn();
     return true;
   }
   return false;
@@ -442,11 +446,16 @@ function methodsSection(me, reload) {
     passkeysSupported() ? addPasskey : h('p', { class: 'muted' }, 'This browser cannot add passkeys here.'),
     h('h3', {}, 'Password and authenticator app'),
     h('p', { class: 'muted' }, me.hasPassword && me.totpEnabled ? `On. ${me.recoveryCodesRemaining} recovery code(s) left.` : 'Off.'),
-    me.hasPassword && me.totpEnabled ? recoveryCodesAction(reload) : h('button', { type: 'button', onclick: () => passwordSetupInPlace() }, 'Set up a password and authenticator app'),
+    me.hasPassword && me.totpEnabled ? recoveryCodesAction(reload) : h('button', { type: 'button', onclick: () => passwordSetupInPlace(me) }, 'Set up a password and authenticator app'),
   );
 }
 
-function passwordSetupInPlace() {
+function passwordSetupInPlace(me) {
+  // Ask for the fresh sign-in up front, rather than after the person has typed a password and scanned a QR code.
+  if (!me.recentSignIn) {
+    goToFreshSignIn();
+    return;
+  }
   const body = h('div');
   mount(h('h1', {}, 'Password and authenticator app'), panel(body));
   passwordSetup(body, () => location.assign('/account'), () => location.assign('/account'));

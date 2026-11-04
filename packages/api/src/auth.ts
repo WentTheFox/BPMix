@@ -56,6 +56,8 @@ export const meSchema = z.object({
   recoveryCodesRemaining: z.number(),
   /** When this session last proved who it is; sensitive changes need this to be recent. */
   authenticatedAtMs: z.number().nullable(),
+  /** Whether that sign-in is recent enough right now for credential changes (the server owns the window). */
+  recentSignIn: z.boolean(),
   /** 'device' for a native app's bearer token. */
   via: z.enum(['session', 'device']),
 });
