@@ -50,7 +50,7 @@ export class DeviceService implements OnModuleDestroy {
       const userCode = generateUserCode();
       try {
         await this.prisma.deviceGrant.create({ data: { deviceCodeHash: hashToken(deviceCode), userCode, deviceName, expiresAt } });
-        const origin = this.config.allowedOrigins(req)[0]!;
+        const origin = this.config.requestOrigin(req);
         return { deviceCode, userCode, verificationUri: `${origin}/device?code=${userCode}`, expiresInSeconds: Math.round(this.config.deviceCodeTtlMs / 1000) };
       } catch (err) {
         if ((err as { code?: string }).code !== 'P2002') throw err; // only a user-code collision is worth retrying

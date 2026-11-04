@@ -59,12 +59,30 @@ export class AuthConfig {
     return [`${req.protocol}://${req.get('host') ?? 'localhost'}`];
   }
 
+  /**
+   * Which of the allowed origins this request was made from: its Origin header, else the one whose host
+   * matches the Host (or X-Forwarded-Host) header, else the first. With several public domains this is what
+   * keeps passkeys and Secure cookies working on each, since both are tied to the domain the page is on.
+   */
+  requestOrigin(req: Request): string {
+    const allowed = this.allowedOrigins(req);
+    const origin = req.headers.origin;
+    if (origin && allowed.includes(origin)) return origin;
+    const forwarded = req.get('x-forwarded-host')?.split(',')[0]?.trim();
+    const host = (forwarded || req.get('host') || '').toLowerCase();
+    return allowed.find((o) => new URL(o).host.toLowerCase() === host) ?? allowed[0]!;
+  }
+
+  /**
+   * The passkey relying-party ID: the hostname of the origin in use. Passkeys belong to one such domain, so
+   * a passkey registered on one public domain is only offered on that domain.
+   */
   rpId(req: Request): string {
-    return new URL(this.allowedOrigins(req)[0]!).hostname;
+    return new URL(this.requestOrigin(req)).hostname;
   }
 
   /** Cookies are Secure whenever the site is served over https. */
   secureCookies(req: Request): boolean {
-    return this.allowedOrigins(req)[0]!.startsWith('https://');
+    return this.requestOrigin(req).startsWith('https://');
   }
 }
