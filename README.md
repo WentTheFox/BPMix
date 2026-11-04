@@ -87,6 +87,12 @@ pnpm test
 Self-hosting via Docker is documented separately in
 [`apps/server/README.md`](apps/server/README.md).
 
+## API compatibility
+
+The apps and the server are updated independently, so an app only talks to a server that speaks its API version and says
+"update the app" (or "update the server") otherwise. The rules for changing the API without breaking people are in
+[docs/api-compatibility.md](docs/api-compatibility.md).
+
 ## Status
 
 Beatseam is under active development. See `CLAUDE.md`'s TODOs section for

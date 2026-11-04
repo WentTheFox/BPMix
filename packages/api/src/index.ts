@@ -6,3 +6,4 @@ export * from './mutations';
 export * from './sync';
 export * from './trackKey';
 export { utf8Decode } from './encoding';
+export * from './compatibility';
