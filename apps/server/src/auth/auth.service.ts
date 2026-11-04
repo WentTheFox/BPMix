@@ -367,7 +367,8 @@ export class AuthService implements OnApplicationBootstrap {
       })),
       recoveryCodesRemaining,
       authenticatedAtMs: principal.authenticatedAt?.getTime() ?? null,
-      recentSignIn: this.hasFreshAuth(principal),
+      freshUntilMs: principal.kind === 'session' && principal.authenticatedAt ? principal.authenticatedAt.getTime() + this.config.freshAuthMs : null,
+      serverTimeMs: Date.now(),
       via: principal.kind,
     };
   }

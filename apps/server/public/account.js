@@ -111,9 +111,23 @@ async function guarded(action) {
   }
 }
 
+/** /auth/me, plus how far this browser's clock is from the server's, so expiry times can be compared on the server's clock. */
+async function fetchMe() {
+  const sent = Date.now();
+  const me = await api('GET', '/auth/me');
+  // Take the midpoint of the round trip as the moment the server stamped its time.
+  me.clockSkewMs = me.serverTimeMs - (sent + Date.now()) / 2;
+  return me;
+}
+
+/** Whether the sign-in is still recent enough, judged now rather than when the page loaded. */
+function hasRecentSignIn(me) {
+  return me.freshUntilMs !== null && Date.now() + me.clockSkewMs < me.freshUntilMs;
+}
+
 async function currentUser() {
   try {
-    return await api('GET', '/auth/me');
+    return await fetchMe();
   } catch (err) {
     if (err instanceof ApiFailure && err.status === 401) return null;
     throw err;
@@ -401,7 +415,7 @@ async function accountPage(me) {
     sections,
   );
   const reload = async () => {
-    const fresh = await api('GET', '/auth/me');
+    const fresh = await fetchMe();
     const parts = [methodsSection(fresh, reload), await devicesSection(reload), await sessionsSection(reload)];
     if (fresh.role === 'ADMIN') parts.push(await usersSection(reload), await scanSection(reload));
     sections.replaceChildren(...parts);
@@ -452,7 +466,7 @@ function methodsSection(me, reload) {
 
 function passwordSetupInPlace(me) {
   // Ask for the fresh sign-in up front, rather than after the person has typed a password and scanned a QR code.
-  if (!me.recentSignIn) {
+  if (!hasRecentSignIn(me)) {
     goToFreshSignIn();
     return;
   }

@@ -36,7 +36,7 @@ function track(name: string, over: Partial<TrackDto> = {}): TrackDto {
 }
 const trackChange = (t: TrackDto | null, name?: string): SyncChangeDto => ({ entity: 'track', id: t?.id ?? encodeTrackKey(`Music:${name}.mp3`), track: t });
 
-const me = { id: 'u', username: 'sam', displayName: 'Sam', role: 'USER', enrolled: true, hasPassword: true, totpEnabled: true, passkeys: [], recoveryCodesRemaining: 3, authenticatedAtMs: null, recentSignIn: false, via: 'device' };
+const me = { id: 'u', username: 'sam', displayName: 'Sam', role: 'USER', enrolled: true, hasPassword: true, totpEnabled: true, passkeys: [], recoveryCodesRemaining: 3, authenticatedAtMs: null, freshUntilMs: null, serverTimeMs: 0, via: 'device' };
 
 async function signedIn(store = new MemoryStore(), server = fakeServer()) {
   store.settings.set('serverMode.config', JSON.stringify({ url: 'https://music.example.com', token: 'bpd_token', userName: 'Sam', role: 'USER' }));
