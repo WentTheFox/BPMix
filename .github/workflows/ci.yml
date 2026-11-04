@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A newer push to the same PR/branch makes the older run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      # apps/server's tests run against a real Postgres. Their defaults
+      # (test/testDatabase.ts) are exactly this user/password/port; the user
+      # is a superuser, which globalSetup needs to create the test database.
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: beatseam
+          POSTGRES_PASSWORD: beatseam
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U beatseam"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 11.22.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+
+      # `tsc --noEmit` in apps/web checks the non-.web fallback files, not the
+      # .web.ts ones Vite bundles (see CLAUDE.md), so only a real build
+      # catches a type error in those.
+      - run: pnpm --filter @beatseam/web build

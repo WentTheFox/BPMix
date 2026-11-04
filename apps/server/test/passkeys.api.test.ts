@@ -28,7 +28,8 @@ beforeAll(async () => {
   app = moduleRef.createNestApplication();
   await app.init();
   await app.listen(0);
-  url = (await app.getUrl()).replace('[::1]', 'localhost');
+  // The soft authenticator's relying party is 'localhost', so reach the server by that name whether Nest bound IPv6 or IPv4.
+  url = (await app.getUrl()).replace(/\/\/(\[::1\]|127\.0\.0\.1)/, '//localhost');
   prisma = app.get(DatabaseService).prisma;
 }, 60_000);
 
