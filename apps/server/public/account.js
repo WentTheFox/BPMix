@@ -89,10 +89,14 @@ async function api(method, path, body) {
 }
 
 /** Sensitive changes need a recent sign-in: send the person to do that and come back here. */
+function goToFreshSignIn() {
+  // reauth=1: show the sign-in form even though a (stale) session exists, instead of bouncing straight back here.
+  location.assign(`/login?reauth=1&next=${encodeURIComponent(location.pathname + location.search)}`);
+}
+
 function needsFreshSignIn(err) {
   if (err instanceof ApiFailure && err.code === 'reauth_required') {
-    // reauth=1: show the sign-in form even though a (stale) session exists, instead of bouncing straight back here.
-    location.assign(`/login?reauth=1&next=${encodeURIComponent(location.pathname + location.search)}`);
+    goToFreshSignIn();
     return true;
   }
   return false;
@@ -107,9 +111,23 @@ async function guarded(action) {
   }
 }
 
+/** /auth/me, plus how far this browser's clock is from the server's, so expiry times can be compared on the server's clock. */
+async function fetchMe() {
+  const sent = Date.now();
+  const me = await api('GET', '/auth/me');
+  // Take the midpoint of the round trip as the moment the server stamped its time.
+  me.clockSkewMs = me.serverTimeMs - (sent + Date.now()) / 2;
+  return me;
+}
+
+/** Whether the sign-in is still recent enough, judged now rather than when the page loaded. */
+function hasRecentSignIn(me) {
+  return me.freshUntilMs !== null && Date.now() + me.clockSkewMs < me.freshUntilMs;
+}
+
 async function currentUser() {
   try {
-    return await api('GET', '/auth/me');
+    return await fetchMe();
   } catch (err) {
     if (err instanceof ApiFailure && err.status === 401) return null;
     throw err;
@@ -169,8 +187,13 @@ function loginPage(status) {
   );
   passwordStep.append(passwordForm);
 
+  // Sent here by a sensitive action (e.g. setting a password): say so, or this looks like being logged out by mistake.
+  const reauth = here.searchParams.has('reauth');
   mount(
-    h('h1', {}, 'Sign in to Beatseam'),
+    h('h1', {}, reauth ? 'Confirm it\u2019s you' : 'Sign in to Beatseam'),
+    reauth
+      ? panel(h('p', {}, 'You\u2019re still signed in, but this change needs a recent sign-in. Sign in again below and you\u2019ll be taken straight back to continue.'))
+      : null,
     panel(
       passkeysSupported()
         ? h('div', {}, h('button', { class: 'primary', type: 'button', onclick: (e) => run(e.currentTarget, signInWithPasskey) }, 'Sign in with a passkey'), h('div', { id: 'passkey-message' }))
@@ -392,7 +415,7 @@ async function accountPage(me) {
     sections,
   );
   const reload = async () => {
-    const fresh = await api('GET', '/auth/me');
+    const fresh = await fetchMe();
     const parts = [methodsSection(fresh, reload), await devicesSection(reload), await sessionsSection(reload)];
     if (fresh.role === 'ADMIN') parts.push(await usersSection(reload), await scanSection(reload));
     sections.replaceChildren(...parts);
@@ -437,11 +460,16 @@ function methodsSection(me, reload) {
     passkeysSupported() ? addPasskey : h('p', { class: 'muted' }, 'This browser cannot add passkeys here.'),
     h('h3', {}, 'Password and authenticator app'),
     h('p', { class: 'muted' }, me.hasPassword && me.totpEnabled ? `On. ${me.recoveryCodesRemaining} recovery code(s) left.` : 'Off.'),
-    me.hasPassword && me.totpEnabled ? recoveryCodesAction(reload) : h('button', { type: 'button', onclick: () => passwordSetupInPlace() }, 'Set up a password and authenticator app'),
+    me.hasPassword && me.totpEnabled ? recoveryCodesAction(reload) : h('button', { type: 'button', onclick: () => passwordSetupInPlace(me) }, 'Set up a password and authenticator app'),
   );
 }
 
-function passwordSetupInPlace() {
+function passwordSetupInPlace(me) {
+  // Ask for the fresh sign-in up front, rather than after the person has typed a password and scanned a QR code.
+  if (!hasRecentSignIn(me)) {
+    goToFreshSignIn();
+    return;
+  }
   const body = h('div');
   mount(h('h1', {}, 'Password and authenticator app'), panel(body));
   passwordSetup(body, () => location.assign('/account'), () => location.assign('/account'));

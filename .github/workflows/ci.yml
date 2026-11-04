@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A newer push to the same PR/branch makes the older run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 11.22.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The runner image ships PostgreSQL but leaves it stopped. apps/server's
+      # tests expect the user/password/port from test/testDatabase.ts, and the
+      # user must be a superuser because globalSetup creates the test database.
+      - name: Start PostgreSQL
+        run: |
+          sudo systemctl start postgresql.service
+          until pg_isready -h localhost -p 5432; do sleep 1; done
+          sudo -u postgres psql -c "CREATE ROLE beatseam SUPERUSER LOGIN PASSWORD 'beatseam'"
+
+      # apps/server's tests synthesise their audio fixtures with ffmpeg, and the
+      # scanner itself uses it, but the runner image doesn't include it.
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+
+      # `tsc --noEmit` in apps/web checks the non-.web fallback files, not the
+      # .web.ts ones Vite bundles (see CLAUDE.md), so only a real build
+      # catches a type error in those.
+      - run: pnpm --filter @beatseam/web build

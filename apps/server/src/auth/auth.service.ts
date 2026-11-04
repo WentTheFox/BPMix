@@ -238,9 +238,13 @@ export class AuthService implements OnApplicationBootstrap {
   }
 
   /** Sensitive changes (credentials, user management) need a recent sign-in, not just a live cookie. */
-  requireFreshAuth(principal: Principal): void {
+  private hasFreshAuth(principal: Principal): boolean {
     const at = principal.authenticatedAt;
-    if (principal.kind !== 'session' || !at || Date.now() - at.getTime() > this.config.freshAuthMs) {
+    return principal.kind === 'session' && !!at && Date.now() - at.getTime() <= this.config.freshAuthMs;
+  }
+
+  requireFreshAuth(principal: Principal): void {
+    if (!this.hasFreshAuth(principal)) {
       throw new ForbiddenException({ code: 'reauth_required', message: 'Please sign in again to do this' });
     }
   }
@@ -363,6 +367,8 @@ export class AuthService implements OnApplicationBootstrap {
       })),
       recoveryCodesRemaining,
       authenticatedAtMs: principal.authenticatedAt?.getTime() ?? null,
+      freshUntilMs: principal.kind === 'session' && principal.authenticatedAt ? principal.authenticatedAt.getTime() + this.config.freshAuthMs : null,
+      serverTimeMs: Date.now(),
       via: principal.kind,
     };
   }
