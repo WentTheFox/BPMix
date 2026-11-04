@@ -10,6 +10,8 @@ Before considering a code change done, run from the repo root:
 
 # Conventions
 
+  * Server and apps are released separately, so the API between them must stay compatible in both directions. Read `docs/api-compatibility.md` before changing anything in `packages/api`, a route under `/api/v1`, the sync/mutation formats or the sign-in flow: additive changes only (new response fields the app needs are `.optional()` with a fallback), expand-then-contract instead of renaming or removing, and a breaking change needs an `API_VERSION` bump plus a deprecation window. The apps refuse a server that doesn't speak their version (`ApiVersionError`).
+
   * React Native exists here mainly to avoid duplicating code between mobile and web, so implement shared components/logic in `packages/ui`/`packages/core` rather than duplicating them per-app. `apps/mobile/App.tsx` and `apps/web/src/App.tsx` are still large inline-JSX files, so a per-app change is easy to make without noticing the other file has the same shape. **When editing UI logic in one of those two files, check the same area of the other before considering the change done.** If a second copy of the same JSX/logic would now exist, extract it into `packages/ui` instead of letting both drift.
   * Aim for a single component per `.tsx` file.
   * On-device Android debug screenshots go in `/sdcard/Pictures/Screenshots/Beatseam/` (create if missing), not the storage root or bare `Pictures/Screenshots/`. This keeps debug PNGs out of the user's own camera/screenshot gallery.

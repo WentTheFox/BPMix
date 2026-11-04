@@ -1,4 +1,4 @@
-import { encodeTrackKey, type SyncChangeDto, type TrackDto } from '@beatseam/api';
+import { API_VERSION, API_VERSIONS_HEADER, ApiVersionError, encodeTrackKey, type SyncChangeDto, type TrackDto } from '@beatseam/api';
 import { describe, expect, it, vi } from 'vitest';
 import { ANALYSIS_ALGORITHM_VERSION } from '../analysis/analyzeTrack';
 import { METADATA_PARSER_VERSION } from '../metadata/ensureMetadata';
@@ -453,6 +453,26 @@ describe('ServerMode sign-in', () => {
     await restarted.ready;
     expect(restarted.isActive()).toBe(true);
     expect(restarted.getStatus().userName).toBe('Sam');
+  });
+
+  it('refuses to sign in to a server that has moved to an API version this app does not speak, saying to update the app', async () => {
+    const server = fakeServer();
+    const mode = new ServerMode({ store: new MemoryStore(), deviceName: () => 'x', fetch: server.fetch });
+    server.handler = () => new Response(JSON.stringify({ message: 'whatever' }), { status: 426, headers: { [API_VERSIONS_HEADER]: String(API_VERSION + 1) } });
+    const err = await mode.signInWithDeviceCode('https://x.example', () => undefined).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiVersionError);
+    expect((err as Error).message).toMatch(/newer version of the app/);
+    expect(mode.isActive()).toBe(false);
+  });
+
+  it('keeps the library and reports the mismatch when a signed-in server is upgraded past the app', async () => {
+    const { store, server, mode } = await signedIn();
+    store.tracks.set('Music:a.mp3', { fileId: 'Music:a.mp3', rootId: 'Music', relativePath: 'a.mp3', sizeBytes: 1, lastModifiedMs: 1 } as never);
+    server.handler = () => new Response('{}', { status: 426, headers: { [API_VERSIONS_HEADER]: String(API_VERSION + 1) } });
+    expect(await mode.sync()).toMatchObject({ kind: 'failed' });
+    expect(mode.getStatus().error).toMatch(/newer version of the app/);
+    expect(mode.isActive()).toBe(true);
+    expect(store.tracks.size).toBe(1);
   });
 
   it('reports a denied or expired request without signing in', async () => {

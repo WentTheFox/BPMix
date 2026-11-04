@@ -1,9 +1,21 @@
 import { z } from 'zod';
 
-/** Bumped only for breaking changes; additive changes stay within the same version. */
+/**
+ * The API version this build speaks, and the one a client sends. Bumped only for a breaking change - see
+ * docs/api-compatibility.md before touching it (or anything else on the wire).
+ */
 export const API_VERSION = 1;
-/** Request header clients send; the server answers 426 when it can't serve that version. */
+/**
+ * The versions a server built from this code answers. Normally just [API_VERSION]; while a deprecation window is
+ * open it also lists the previous version, so apps that haven't updated yet keep working.
+ */
+export const SUPPORTED_API_VERSIONS: readonly number[] = [1];
+/** Request header clients send with the version they speak. The server answers 426 when it can't serve that version. */
 export const API_VERSION_HEADER = 'X-Beatseam-Api';
+/** Response header on every /api/v1 answer: the versions the server speaks, comma-separated. Servers from before it existed omit it, and speak only version 1. */
+export const API_VERSIONS_HEADER = 'X-Beatseam-Api-Versions';
+/** The `code` of the 426 a server answers with when it doesn't speak the client's version. */
+export const API_VERSION_UNSUPPORTED_CODE = 'api_version_unsupported';
 
 export const rootSchema = z.object({
   id: z.string(),

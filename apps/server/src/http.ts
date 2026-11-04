@@ -1,3 +1,4 @@
+import { API_VERSION_HEADER, API_VERSION_UNSUPPORTED_CODE, API_VERSIONS_HEADER, SUPPORTED_API_VERSIONS } from '@beatseam/api';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 
 /**
@@ -20,6 +21,27 @@ export function configureHttp(app: NestExpressApplication): void {
     // Sign-in responses carry who someone is and tokens; no cache or proxy should keep them.
     if (req.path.startsWith('/api/v1/auth')) res.setHeader('Cache-Control', 'no-store');
     next();
+  });
+  // Tell every client which API versions this server speaks, and turn away one that speaks a version it doesn't, so a
+  // breaking change reaches an out-of-date app as a clear "update the app" instead of a confusing parse failure.
+  // A request with no version header (a browser opening a page, an <audio> element) is let through: only apps that
+  // name a version can be told to update.
+  app.use((req: { path: string; headers: Record<string, string | string[] | undefined> }, res: { setHeader(name: string, value: string): void; status(code: number): { json(body: unknown): void } }, next: () => void) => {
+    if (!req.path.startsWith('/api/v1')) return next();
+    res.setHeader(API_VERSIONS_HEADER, SUPPORTED_API_VERSIONS.join(','));
+    const sent = req.headers[API_VERSION_HEADER.toLowerCase()];
+    const raw = Array.isArray(sent) ? sent[0] : sent;
+    if (raw === undefined || SUPPORTED_API_VERSIONS.includes(Number(raw))) return next();
+    const newest = Math.max(...SUPPORTED_API_VERSIONS);
+    const appIsOlder = Number(raw) < newest;
+    res.status(426).json({
+      statusCode: 426,
+      code: API_VERSION_UNSUPPORTED_CODE,
+      message: appIsOlder
+        ? `This server needs a newer version of the app (the app speaks API version ${raw}; the server speaks ${SUPPORTED_API_VERSIONS.join(', ')}). Update the app to keep using it.`
+        : `This server is older than the app (the app speaks API version ${raw}; the server speaks ${SUPPORTED_API_VERSIONS.join(', ')}). Update the server, or use an older version of the app.`,
+      supportedVersions: SUPPORTED_API_VERSIONS,
+    });
   });
   // Postgres cannot store or compare a NUL character in text, so one anywhere in a request would
   // surface as a 500 from deep inside a query. Refuse it up front, everywhere, instead.

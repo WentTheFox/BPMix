@@ -18,7 +18,8 @@ import {
   type LastFmStatusDto,
 } from './lastfm';
 import { mutationsResponseSchema, type MutationDto, type MutationsResponseDto } from './mutations';
-import { API_VERSION, API_VERSION_HEADER, lyricsReportListSchema, lyricsSchema, type LyricsReportDto, lyricsSourceSchema, type LyricsDto, type LyricsSaveRequestDto, type LyricsSourceDto, type Page, type TrackDto, pageSchema, trackSchema } from './schemas';
+import { checkResponseCompatibility } from './compatibility';
+import { API_VERSION, API_VERSION_HEADER, API_VERSION_UNSUPPORTED_CODE, lyricsReportListSchema, lyricsSchema, type LyricsReportDto, lyricsSourceSchema, type LyricsDto, type LyricsSaveRequestDto, type LyricsSourceDto, type Page, type TrackDto, pageSchema, trackSchema } from './schemas';
 import { syncChangesResponseSchema, syncSnapshotResponseSchema, type SyncChangesResponseDto, type SyncSnapshotResponseDto } from './sync';
 import { utf8Decode } from './encoding';
 import { encodeTrackKey } from './trackKey';
@@ -43,6 +44,20 @@ export class ResyncRequiredError extends ApiError {
   constructor(message: string) {
     super(410, message, 'resync_required');
     this.name = 'ResyncRequiredError';
+  }
+}
+
+/**
+ * The server and this app don't speak the same API version. Never retried or worked around: the person has to update
+ * the app or the server (`problem` says which), and `message` already tells them so.
+ */
+export class ApiVersionError extends ApiError {
+  constructor(
+    message: string,
+    readonly problem: 'app_too_old' | 'server_too_old',
+  ) {
+    super(426, message, API_VERSION_UNSUPPORTED_CODE);
+    this.name = 'ApiVersionError';
   }
 }
 
@@ -92,6 +107,12 @@ export class ApiClient {
     return { [API_VERSION_HEADER]: String(API_VERSION), ...(token ? { authorization: `Bearer ${token}` } : {}), ...extra };
   }
 
+  /** Every /api/v1 answer says which versions the server speaks, so a mismatch is caught on the first request of any kind. */
+  private assertCompatible(response: Response): void {
+    const compatibility = checkResponseCompatibility(response);
+    if (!compatibility.compatible) throw new ApiVersionError(compatibility.message, compatibility.problem);
+  }
+
   /** Performs a request, turning "couldn't connect" and "server said no" into distinct errors. */
   private async send(method: string, path: string, init: { body?: unknown; signal?: AbortSignal; timeoutMs?: number } = {}): Promise<Response> {
     // A request that never answers (a connection the OS silently stalls, e.g. while the app is in the
@@ -115,6 +136,7 @@ export class ApiClient {
       clearTimeout(timer);
       init.signal?.removeEventListener('abort', forward);
     }
+    this.assertCompatible(response);
     if (response.ok) return response;
     let body: { code?: string; message?: string | string[] } = {};
     try {
@@ -305,6 +327,7 @@ export class ApiClient {
       if (init.signal?.aborted) throw err;
       throw new NetworkError(err);
     });
+    this.assertCompatible(response);
     if (!response.ok) throw new ApiError(response.status, response.statusText || `HTTP ${response.status}`);
     return response.arrayBuffer();
   }
@@ -315,6 +338,7 @@ export class ApiClient {
       if (signal?.aborted) throw err;
       throw new NetworkError(err);
     });
+    this.assertCompatible(response);
     if (!response.ok) throw new ApiError(response.status, response.statusText || `HTTP ${response.status}`);
     return { bytes: await response.arrayBuffer(), contentType: response.headers.get('content-type') ?? 'application/octet-stream' };
   }

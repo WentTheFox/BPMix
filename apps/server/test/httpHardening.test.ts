@@ -5,6 +5,7 @@ import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { API_VERSION, SUPPORTED_API_VERSIONS } from '@beatseam/api';
 import { AppModule } from '../src/app.module.js';
 import { CLOCK } from '../src/auth/auth.service.js';
 import { DatabaseService } from '../src/db/database.module.js';
@@ -73,5 +74,38 @@ describe('NUL characters, which Postgres cannot store', () => {
     expect((await admin.fetch('/api/v1/auth/setup', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"username":"a\\u0000b","displayName":"x"}' })).status).toBe(400);
     // Ordinary traffic is unaffected.
     expect((await json(op('"name":"fine"'))).status).toBe(201);
+  });
+});
+
+describe('API version negotiation', () => {
+  it('advertises the versions it speaks on every API response, errors included', async () => {
+    expect((await admin.fetch('/api/v1/auth/me')).headers.get('x-beatseam-api-versions')).toBe(SUPPORTED_API_VERSIONS.join(','));
+    expect((await fetch(`${url}/api/v1/health`)).headers.get('x-beatseam-api-versions')).toBe(SUPPORTED_API_VERSIONS.join(','));
+    expect((await fetch(`${url}/api/v1/tracks`)).headers.get('x-beatseam-api-versions')).toBe(SUPPORTED_API_VERSIONS.join(',')); // 401, still advertised
+  });
+
+  it('serves a client that speaks a supported version, and one that names none', async () => {
+    expect((await fetch(`${url}/api/v1/health`, { headers: { 'x-beatseam-api': String(API_VERSION) } })).status).toBe(200);
+    expect((await fetch(`${url}/api/v1/health`)).status).toBe(200);
+  });
+
+  it('answers 426 to a client on an unsupported version, public routes included, saying who has to update', async () => {
+    const newer = await fetch(`${url}/api/v1/health`, { headers: { 'x-beatseam-api': String(Math.max(...SUPPORTED_API_VERSIONS) + 1) } });
+    expect(newer.status).toBe(426);
+    const body = (await newer.json()) as { code: string; message: string; supportedVersions: number[] };
+    expect(body.code).toBe('api_version_unsupported');
+    expect(body.message).toMatch(/Update the server/);
+    expect(body.supportedVersions).toEqual([...SUPPORTED_API_VERSIONS]);
+
+    const older = await fetch(`${url}/api/v1/auth/status`, { headers: { 'x-beatseam-api': '0' } });
+    expect(older.status).toBe(426);
+    expect(((await older.json()) as { message: string }).message).toMatch(/newer version of the app/);
+    expect((await fetch(`${url}/api/v1/health`, { headers: { 'x-beatseam-api': 'banana' } })).status).toBe(426);
+  });
+
+  it('leaves non-API routes alone', async () => {
+    const page = await fetch(`${url}/login`, { headers: { 'x-beatseam-api': '99' } });
+    expect(page.status).not.toBe(426);
+    expect(page.headers.get('x-beatseam-api-versions')).toBeNull();
   });
 });
