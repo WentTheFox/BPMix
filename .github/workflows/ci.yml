@@ -16,22 +16,6 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
-    services:
-      # apps/server's tests run against a real Postgres. Their defaults
-      # (test/testDatabase.ts) are exactly this user/password/port; the user
-      # is a superuser, which globalSetup needs to create the test database.
-      postgres:
-        image: postgres:18
-        env:
-          POSTGRES_USER: beatseam
-          POSTGRES_PASSWORD: beatseam
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U beatseam"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -45,6 +29,15 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+
+      # The runner image ships PostgreSQL but leaves it stopped. apps/server's
+      # tests expect the user/password/port from test/testDatabase.ts, and the
+      # user must be a superuser because globalSetup creates the test database.
+      - name: Start PostgreSQL
+        run: |
+          sudo systemctl start postgresql.service
+          until pg_isready -h localhost -p 5432; do sleep 1; done
+          sudo -u postgres psql -c "CREATE ROLE beatseam SUPERUSER LOGIN PASSWORD 'beatseam'"
 
       - run: pnpm lint
       - run: pnpm typecheck
