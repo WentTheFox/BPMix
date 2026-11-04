@@ -48,6 +48,7 @@ export * from './metadata/formatDuration';
 export * from './metadata/parseDuration';
 export * from './metadata/scanLibraryMetadata';
 export * from './metadata/formatTrackTitle';
+export * from './metadata/nowPlayingInfo';
 export * from './crossfade/computeTransitionPlan';
 export * from './crossfade/computeCrossfadeVisualization';
 export * from './crossfade/equalPowerGain';

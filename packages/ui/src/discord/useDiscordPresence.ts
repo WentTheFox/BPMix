@@ -1,12 +1,12 @@
-import type { DiscordNowPlayingInfo, DiscordPresenceBridge } from '@beatseam/core';
+import type { DiscordNowPlayingInfo, DiscordPresenceBridge, NowPlayingInfo } from '@beatseam/core';
 import { buildSetActivityFrame } from '@beatseam/core';
 import { useEffect, useRef, useState } from 'react';
 
 export interface DiscordPresenceTrackInfo {
   /** Identity, not display text - used only to detect a genuinely new play instance (see trackStartRef below), the same loop-replay problem ScrobbleTracker (packages/core) solves the same way. */
   fileId: string;
-  title: string;
-  artist: string;
+  /** The same resolved info the UI shows (see resolveNowPlayingInfo); nothing is sent until its tags are read, so a filename or "Loading…" never reaches Discord. */
+  nowPlaying: NowPlayingInfo | null;
   /** Same resized data: URI useCoverArt/MediaSessionNotificationInfo.artworkUri already use - see DiscordNowPlayingInfo.albumArtUrl's doc for why this (not a real HTTP URL) is what actually gets sent. */
   albumArtUrl: string | null;
 }
@@ -55,6 +55,7 @@ export function useDiscordPresence(
 
   useEffect(() => {
     if (!bridge || !connected) return;
+    if (info && !info.nowPlaying?.metadataReady) return;
     if (!info) {
       trackStartRef.current = null;
       void bridge.sendFrame(buildSetActivityFrame(null));
@@ -64,8 +65,8 @@ export function useDiscordPresence(
       trackStartRef.current = { fileId: info.fileId, startedAtUnixMs: Date.now() };
     }
     const nowPlaying: DiscordNowPlayingInfo = {
-      title: info.title,
-      artist: info.artist,
+      title: info.nowPlaying!.title,
+      artist: info.nowPlaying!.artist ?? 'Unknown artist',
       startedAtUnixMs: trackStartRef.current.startedAtUnixMs,
       albumArtUrl: info.albumArtUrl,
     };
@@ -74,5 +75,5 @@ export function useDiscordPresence(
     // the caller (App.tsx) passes a fresh object literal every render, same
     // situation as MediaSessionNotificationInfo's identical note.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bridge, connected, info?.fileId, info?.title, info?.artist, info?.albumArtUrl]);
+  }, [bridge, connected, info?.fileId, info?.nowPlaying?.metadataReady, info?.nowPlaying?.title, info?.nowPlaying?.artist, info?.albumArtUrl]);
 }

@@ -614,6 +614,7 @@ function AppContent() {
     currentTitle,
     currentName,
     currentArtist,
+    nowPlayingInfo,
   } = useCrossfadePlaybackDisplay({
     playlistPlayer,
     playback,
@@ -682,16 +683,8 @@ function AppContent() {
         queueKeyWhenDisconnected={fromServer ? undefined : LOCAL_SCROBBLE_QUEUE_KEY}
         crossfadeSeconds={settings.crossfadeSeconds}
         isPlaying={playback.status === 'playing'}
-        info={
-          playback.currentFileId && hasStartedPlayback
-            ? {
-                fileId: playback.currentFileId,
-                title: currentName,
-                artist: currentArtist ?? 'Unknown artist',
-                album: settledCurrentMetadata?.album ?? null,
-              }
-            : null
-        }
+        fileId={playback.currentFileId && hasStartedPlayback ? playback.currentFileId : null}
+        nowPlaying={nowPlayingInfo}
       />
     </>
   );

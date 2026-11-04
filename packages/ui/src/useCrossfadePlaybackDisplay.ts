@@ -1,9 +1,11 @@
 import {
   formatTrackTitle,
   isMetadataCurrent,
+  resolveNowPlayingInfo,
   trackDisplayName,
   type CoarsePlayback,
   type LibraryStore,
+  type NowPlayingInfo,
   type PlaylistPlayer,
   type TrackMetadata,
   type TrackRecord,
@@ -40,6 +42,8 @@ export interface CrossfadePlaybackDisplay {
   currentTitle: string | null;
   currentName: string;
   currentArtist: string | null;
+  /** The same resolved title/artist/album the UI shows (see resolveNowPlayingInfo); what Last.fm, Discord and the media session should send. Null when no track is loaded. */
+  nowPlayingInfo: NowPlayingInfo | null;
 }
 
 /**
@@ -184,6 +188,7 @@ export function useCrossfadePlaybackDisplay(input: CrossfadePlaybackDisplayInput
         ? 'Loading…'
         : '';
   const currentArtist = settledCurrentMetadata?.artists.join(', ') || null;
+  const nowPlayingInfo = resolveNowPlayingInfo(settledCurrentTrack, settledCurrentMetadata);
 
   return {
     nowPlayingTrack,
@@ -202,5 +207,6 @@ export function useCrossfadePlaybackDisplay(input: CrossfadePlaybackDisplayInput
     currentTitle,
     currentName,
     currentArtist,
+    nowPlayingInfo,
   };
 }
