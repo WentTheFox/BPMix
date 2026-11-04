@@ -169,8 +169,13 @@ function loginPage(status) {
   );
   passwordStep.append(passwordForm);
 
+  // Sent here by a sensitive action (e.g. setting a password): say so, or this looks like being logged out by mistake.
+  const reauth = here.searchParams.has('reauth');
   mount(
-    h('h1', {}, 'Sign in to Beatseam'),
+    h('h1', {}, reauth ? 'Confirm it\u2019s you' : 'Sign in to Beatseam'),
+    reauth
+      ? panel(h('p', {}, 'You\u2019re still signed in, but this change needs a recent sign-in. Sign in again below and you\u2019ll be taken straight back to continue.'))
+      : null,
     panel(
       passkeysSupported()
         ? h('div', {}, h('button', { class: 'primary', type: 'button', onclick: (e) => run(e.currentTarget, signInWithPasskey) }, 'Sign in with a passkey'), h('div', { id: 'passkey-message' }))
